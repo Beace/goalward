@@ -160,6 +160,7 @@ jobs:
           notes = '\n'.join(lines[start:end]).strip() + '\n'
           Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(notes)
           PY
+          cp "releases/$VERSION/安装说明.txt" "releases/$VERSION/INSTALL.zh-CN.txt"
           (cd "releases/$VERSION" && sha256sum --check SHA256SUMS.txt)
 
       - name: Create draft prerelease
@@ -185,5 +186,5 @@ jobs:
             "$output/Goalward_${VERSION}_macos-universal.zip" \
             "$output/SHA256SUMS.txt" \
             "$output/BUILD-INFO.json" \
-            "$output/安装说明.txt" \
+            "$output/INSTALL.zh-CN.txt" \
             "${options[@]}"
