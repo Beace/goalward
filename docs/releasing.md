@@ -8,6 +8,8 @@ The 0.1.1 workflow builds a universal macOS app for Apple Silicon and Intel. It 
 2. Add one nonempty section to `CHANGELOG.md` headed `## [X.Y.Z] - YYYY-MM-DD`. The release workflow uses that section as its GitHub Release notes.
 3. Commit and push the version changes to `main`. Wait for **macOS universal CI** on `main` to pass. The CI artifact is a build preview, not a GitHub Release.
 
+Keep the four `@tauri-apps/*` npm packages pinned to exact versions aligned with the Rust crates in `Cargo.lock`: the core API and CLI need the same major/minor as `tauri`, and each plugin needs the same full version on both sides. CI checks these before the costly Rust build.
+
 The repository intentionally has no `package-lock.json`. CI uses `npm install --no-package-lock`; dependency resolution is therefore not fully reproducible. Do not describe this build as reproducible or switch to `npm ci` without adopting a reviewed lockfile strategy.
 
 The Actions build pins Rust 1.99.0. Change that toolchain version deliberately when validating a later release; a newer Clippy can introduce new warnings that fail the release gate.

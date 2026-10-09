@@ -66,6 +66,16 @@ jobs:
           expected = os.environ['EXPECTED_VERSION']
           if expected and version != expected:
               raise SystemExit(f'Expected {expected}, found {version}')
+          locked = {item['name']: item['version'] for item in lock['package']}
+          api = package['dependencies']['@tauri-apps/api']
+          cli = package['devDependencies']['@tauri-apps/cli']
+          for name, npm_version in (('api', api), ('cli', cli)):
+              if not re.fullmatch(r'\d+\.\d+\.\d+', npm_version) or npm_version.split('.')[:2] != locked['tauri'].split('.')[:2]:
+                  raise SystemExit(f'Pin @tauri-apps/{name} to the Cargo.lock tauri major/minor version')
+          for name in ('dialog', 'notification'):
+              npm_version = package['dependencies'][f'@tauri-apps/plugin-{name}']
+              if npm_version != locked[f'tauri-plugin-{name}']:
+                  raise SystemExit(f'Pin @tauri-apps/plugin-{name} to the Cargo.lock plugin version')
           print(f'Building Goalward {version}')
           PY
 
@@ -73,6 +83,9 @@ jobs:
       # until a reviewed lockfile strategy is adopted.
       - name: Install JavaScript dependencies
         run: npm install --no-package-lock --no-save --no-audit --no-fund
+
+      - name: Check installed Tauri packages
+        run: npm ls @tauri-apps/api @tauri-apps/cli @tauri-apps/plugin-dialog @tauri-apps/plugin-notification --depth=0
 
       - name: Build and verify universal DMG and ZIP
         run: npm run mac:dist
