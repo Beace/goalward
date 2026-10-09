@@ -212,9 +212,21 @@ async fn open_external_url(window: tauri::WebviewWindow, url: String) -> Result<
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_notification::init());
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_window_event(|window, event| {
+        if window.label() == "main" {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                if let Err(error) = window.hide() {
+                    eprintln!("无法隐藏 Goalward 窗口：{error}");
+                }
+            }
+        }
+    });
+    let app = builder
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             storage::migrate_legacy_data(&data_dir).map_err(std::io::Error::other)?;
@@ -275,13 +287,22 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("Cannot initialize Goalward");
-    app.run(|app, event| {
-        if matches!(
-            event,
-            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
-        ) {
+    app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } => {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.show().and_then(|_| window.set_focus()) {
+                    eprintln!("无法重新显示 Goalward 窗口：{error}");
+                }
+            }
+        }
+        tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. } => {
             app.state::<AppServices>().runtimes.shutdown();
         }
+        _ => {}
     });
 }
 
