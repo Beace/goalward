@@ -33,6 +33,10 @@ releaseEnv.APPLE_SIGNING_IDENTITY = '-'
 const run = (command, args, options = {}) => execFileSync(command, args, { cwd: root, env: releaseEnv, stdio: 'inherit', ...options })
 const read = (command, args) => run(command, args, { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' }).trim()
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
+let sourceCommit = process.env.GOALWARD_SOURCE_SHA?.trim()
+if (sourceCommit && (!/^[a-f0-9]{40}$/.test(sourceCommit) || read('git', ['rev-parse', 'HEAD']) !== sourceCommit)) {
+  throw new Error('GOALWARD_SOURCE_SHA must match the checked-out Git commit.')
+}
 
 async function files(directory) {
   const result = []
@@ -125,6 +129,8 @@ try {
     minimumMacOS = previous.minimumMacOS
     builtAt = previous.builtAt
     before = previous.sourceDigest
+    if (sourceCommit && previous.sourceCommit && sourceCommit !== previous.sourceCommit) throw new Error('Source commit differs from the verified release.')
+    sourceCommit = previous.sourceCommit ?? sourceCommit
     expectedReleaseDigest = previous.appBundleDigest
     repackagedFromZipSha256 = archive.sha256
     console.log('Reusing the verified published ZIP app; current workspace application changes are excluded.')
@@ -134,6 +140,8 @@ try {
       throw new Error('App or source differs from the verified release. Run npm run mac:dist to rebuild.')
     }
     builtAt = previous.builtAt
+    if (sourceCommit && previous.sourceCommit && sourceCommit !== previous.sourceCommit) throw new Error('Source commit differs from the verified app.')
+    sourceCommit = previous.sourceCommit ?? sourceCommit
     console.log('Reusing the unchanged, verified app; rebuilding installation media only.')
   } else {
     run('npm', ['test'])
@@ -205,7 +213,7 @@ try {
   }
   await writeFile(join(output, 'SHA256SUMS.txt'), artifacts.map(item => `${item.sha256}  ${item.file}\n`).join(''))
   await writeFile(join(output, '安装说明.txt'), releaseGuide)
-  await writeFile(join(output, 'BUILD-INFO.json'), JSON.stringify({ product, version, builtAt, packagedAt: new Date().toISOString(), architecture, architectures: expectedArchitectures, minimumMacOS, signing: 'ad-hoc', notarized: false, sourceDigest: before, appBundleDigest: verifiedAppDigest, installerDigest: installerBefore, binarySha256: sha256(await readFile(binary)), ...(repackagedFromZipSha256 ? { repackagedFromZipSha256 } : {}), artifacts }, null, 2) + '\n')
+  await writeFile(join(output, 'BUILD-INFO.json'), JSON.stringify({ product, version, builtAt, packagedAt: new Date().toISOString(), architecture, architectures: expectedArchitectures, minimumMacOS, signing: 'ad-hoc', notarized: false, ...(sourceCommit ? { sourceCommit } : {}), sourceDigest: before, appBundleDigest: verifiedAppDigest, installerDigest: installerBefore, binarySha256: sha256(await readFile(binary)), ...(repackagedFromZipSha256 ? { repackagedFromZipSha256 } : {}), artifacts }, null, 2) + '\n')
   console.log(`\nDistribution files: ${resolve(output)}`)
 } finally {
   await rm(workspace, { recursive: true, force: true })

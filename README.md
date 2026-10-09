@@ -12,11 +12,11 @@ Goalward is also a desktop proxy for coding agents: run them individually or tog
 
 ## Download
 
-Goalward 0.1.1 is built for Apple Silicon and Intel Macs running macOS 13.3 or later. The macOS download is a universal app that includes both architectures.
+Goalward runs on Apple Silicon and Intel Macs with macOS 13.3 or later. Each macOS download is a universal app that includes both architectures.
 
-[View macOS downloads (DMG or ZIP)](https://github.com/Beace/goalward/releases) · [Read the changelog](CHANGELOG.md)
+[Download the DMG or ZIP and read release notes](https://github.com/Beace/goalward/releases)
 
-Downloads appear on the Releases page after a release is published. Check the SHA-256 checksums listed with its downloads.
+Each published prerelease includes commit-based changes and SHA-256 checksums. Check the notes and checksums before installing.
 
 The app does not include agent CLIs, model weights, subscriptions, or API credentials. Install and sign in to at least one supported agent before using it.
 
@@ -47,6 +47,8 @@ npm run mac:dev
 ```
 
 Build a local app with `npm run mac:build`. Run checks with `npm run build`, `npm test`, and `cargo test --manifest-path src-tauri/Cargo.toml`. On an Apple Silicon Mac, create the universal DMG, ZIP, checksums, and build metadata with `npm run mac:dist` (Python 3.10 or later required).
+
+For contributions, create a new branch and Pull Request rather than pushing to `main`; see the [development and release process](docs/releasing.md).
 
 ## License
 

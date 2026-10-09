@@ -1,5 +1,7 @@
 # Changelog
 
+For versions after 0.1.1, the [GitHub Releases page](https://github.com/Beace/goalward/releases) is the versioned changelog. Each release records the merged commit, author, pull request, and full comparison with the preceding version. The 0.1.1 entry below predates that automated process.
+
 ## [0.1.1] - 2026-10-09
 
 This is the first GitHub release recorded in this repository. There is no earlier version tag here, so these notes describe the 0.1.1 release rather than a measured change from 0.1.0.

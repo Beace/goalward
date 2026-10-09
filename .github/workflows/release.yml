@@ -1,21 +1,17 @@
-name: Draft macOS universal release
+name: Publish macOS universal prerelease
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Release version without the v prefix (for example, 0.1.1)
-        required: true
-        type: string
+    branches: [main]
 
 permissions:
   contents: read
 
+# Keep retries of one merged commit apart without dropping later merged events.
+# release.py derives each version from the main first-parent history, not from
+# the order in which these long-running builds finish.
 concurrency:
-  group: mac-release-${{ github.repository }}
+  group: mac-release-sha-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -23,87 +19,96 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      pull-requests: read
     outputs:
-      version: ${{ steps.release.outputs.version }}
-      target_sha: ${{ steps.release.outputs.target_sha }}
+      version: ${{ steps.plan.outputs.version }}
+      previous_version: ${{ steps.plan.outputs.previous_version }}
+      previous_sha: ${{ steps.plan.outputs.previous_sha }}
+      target_sha: ${{ steps.plan.outputs.target_sha }}
+      pr_number: ${{ steps.plan.outputs.pr_number }}
+      pr_author: ${{ steps.plan.outputs.pr_author }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate ref, version, and changelog
-        id: release
+      - name: Resolve the merged PR and plan its release
+        id: plan
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_REF: ${{ github.ref }}
-          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          MERGE_SHA: ${{ github.sha }}
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "$MERGE_SHA"
+          git merge-base --is-ancestor "$MERGE_SHA" origin/main
+          python3 scripts/release.py plan --sha "$MERGE_SHA" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/release-plan.json"
           python3 - <<'PY'
           import json
           import os
           import re
           import subprocess
-          import tomllib
+          import time
           from pathlib import Path
 
-          def git(*args):
-              return subprocess.check_output(['git', *args], text=True).strip()
-
-          event = os.environ['EVENT_NAME']
-          ref = os.environ['EVENT_REF']
-          if event == 'workflow_dispatch':
-              if ref != 'refs/heads/main':
-                  raise SystemExit('Run the release workflow from main')
-              version = os.environ['INPUT_VERSION']
-          elif event == 'push' and ref.startswith('refs/tags/v'):
-              version = ref.removeprefix('refs/tags/v')
+          plan = json.loads(Path(os.environ['RUNNER_TEMP'], 'release-plan.json').read_text())
+          required = ('version', 'previous_version', 'previous_sha', 'target_sha', 'bump', 'subject')
+          if any(key not in plan for key in required):
+              raise SystemExit('Release plan is missing required fields')
+          if plan['target_sha'] != os.environ['MERGE_SHA'] or not re.fullmatch(r'[0-9a-f]{40}', plan['target_sha']):
+              raise SystemExit('Release plan does not target this merged PR')
+          if not re.fullmatch(r'\d+\.\d+\.\d+', plan['version']):
+              raise SystemExit('Release plan has an invalid version')
+          if not re.fullmatch(r'\d+\.\d+\.\d+', plan['previous_version']):
+              raise SystemExit('Release plan has an invalid previous version')
+          if not re.fullmatch(r'[0-9a-f]{40}', plan['previous_sha']):
+              raise SystemExit('Release plan has an invalid previous commit')
+          if plan['bump'] not in ('major', 'minor', 'patch'):
+              raise SystemExit('Release plan has an invalid version bump')
+          sha = os.environ['MERGE_SHA']
+          repo = os.environ['GITHUB_REPOSITORY']
+          for attempt in range(6):
+              result = subprocess.run(
+                  ['gh', 'api', f'repos/{repo}/commits/{sha}/pulls?per_page=100'],
+                  capture_output=True, text=True)
+              if result.returncode:
+                  raise SystemExit(f'Could not resolve merged PR: {result.stderr.strip()}')
+              pulls = json.loads(result.stdout)
+              matches = [pr for pr in pulls if pr.get('merged_at')
+                         and pr.get('merge_commit_sha') == sha
+                         and pr.get('base', {}).get('ref') == 'main'
+                         and pr.get('base', {}).get('repo', {}).get('full_name') == repo]
+              if len(matches) > 1:
+                  raise SystemExit('More than one merged PR claims this main commit')
+              if matches:
+                  break
+              time.sleep(3)
           else:
-              raise SystemExit(f'Unexpected release event/ref: {event} {ref}')
-          if not re.fullmatch(r'\d+\.\d+\.\d+', version):
-              raise SystemExit(f'Invalid release version: {version}')
-
-          package = json.loads(Path('package.json').read_text())
-          tauri = json.loads(Path('src-tauri/tauri.conf.json').read_text())
-          cargo = tomllib.loads(Path('src-tauri/Cargo.toml').read_text())
-          lock = tomllib.loads(Path('src-tauri/Cargo.lock').read_text())
-          packages = [item for item in lock['package'] if item['name'] == 'goalward']
-          if len(packages) != 1 or any(value != version for value in (
-              package['version'], tauri['version'], cargo['package']['version'], packages[0]['version'])):
-              raise SystemExit('Version differs across package.json, Tauri, Cargo.toml, or Cargo.lock')
-
-          subprocess.run(['git', 'merge-base', '--is-ancestor', 'HEAD', 'origin/main'], check=True)
-          if event == 'workflow_dispatch' and subprocess.run(
-              ['git', 'show-ref', '--verify', '--quiet', f'refs/tags/v{version}']).returncode == 0:
-              raise SystemExit(f'v{version} already exists; use the tag workflow or choose another version')
-
-          changelog = Path('CHANGELOG.md').read_text().splitlines()
-          headings = [index for index, line in enumerate(changelog)
-                      if re.fullmatch(rf'## \[{re.escape(version)}\](?:\s+-\s+\d{{4}}-\d{{2}}-\d{{2}})?', line)]
-          if len(headings) != 1:
-              raise SystemExit(f'Expected exactly one CHANGELOG.md section for {version}')
-          end = next((index for index in range(headings[0] + 1, len(changelog))
-                      if changelog[index].startswith('## ')), len(changelog))
-          if not any(line.strip() for line in changelog[headings[0] + 1:end]):
-              raise SystemExit(f'CHANGELOG.md section for {version} is empty')
-
-          target = git('rev-parse', 'HEAD')
+              raise SystemExit('The main commit is not associated with a merged PR')
+          pr = matches[0]
+          author = pr.get('user', {}).get('login')
+          number = pr.get('number')
+          if not isinstance(number, int) or number < 1 or not isinstance(author, str):
+              raise SystemExit('Merged PR is missing its number or author')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'version={version}\n')
-              output.write(f'target_sha={target}\n')
-          print(f'Validated Goalward {version} at {target}')
+              for key in ('version', 'previous_version', 'previous_sha', 'target_sha'):
+                  output.write(f'{key}={plan[key]}\n')
+              output.write(f'pr_number={number}\n')
+              output.write(f'pr_author={author}\n')
+          print(f"Goalward {plan['version']} ({plan['bump']}) from {plan['target_sha']}")
           PY
 
   build:
     needs: prepare
     uses: ./.github/workflows/macos-universal-build.yml
     with:
-      expected_version: ${{ needs.prepare.outputs.version }}
+      source_sha: ${{ needs.prepare.outputs.target_sha }}
+      release_version: ${{ needs.prepare.outputs.version }}
     permissions:
       contents: read
 
-  draft-release:
+  publish:
     needs: [prepare, build]
     runs-on: ubuntu-24.04
     permissions:
@@ -112,6 +117,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.target_sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/download-artifact@v8
@@ -119,9 +125,10 @@ jobs:
           name: goalward-macos-universal
           path: releases/
 
-      - name: Verify downloaded assets and prepare notes
+      - name: Verify downloaded distribution
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
         run: |
           python3 - <<'PY'
           import hashlib
@@ -132,59 +139,184 @@ jobs:
           version = os.environ['VERSION']
           output = Path('releases') / version
           prefix = f'Goalward_{version}_macos-universal'
-          expected = {f'{prefix}.dmg', f'{prefix}.zip'}
+          archives = {f'{prefix}.dmg', f'{prefix}.zip'}
+          expected = archives | {'BUILD-INFO.json', 'SHA256SUMS.txt', '安装说明.txt'}
+          if not output.is_dir() or {item.name for item in output.iterdir()} != expected:
+              raise SystemExit('Downloaded distribution contains missing or unexpected files')
           info = json.loads((output / 'BUILD-INFO.json').read_text())
-          if info['version'] != version or info['architecture'] != 'universal':
-              raise SystemExit('Downloaded metadata has the wrong version or architecture')
-          if sorted(info['architectures']) != ['arm64', 'x86_64']:
-              raise SystemExit('Downloaded metadata does not list both macOS architectures')
+          if info['version'] != version or info['sourceCommit'] != os.environ['TARGET_SHA']:
+              raise SystemExit('Build metadata version or source commit differs from the merged PR')
+          if info['architecture'] != 'universal' or sorted(info['architectures']) != ['arm64', 'x86_64']:
+              raise SystemExit('Build metadata does not identify both Mac architectures')
           if info['signing'] != 'ad-hoc' or info['notarized'] is not False:
-              raise SystemExit('Signing status differs from this trial release workflow')
-          if {item['file'] for item in info['artifacts']} != expected:
-              raise SystemExit('Downloaded DMG/ZIP set is incomplete')
-          for item in info['artifacts']:
+              raise SystemExit('Unexpected signing or notarization status')
+          artifacts = info['artifacts']
+          if {item['file'] for item in artifacts} != archives or len(artifacts) != 2:
+              raise SystemExit('Build metadata does not identify exactly the expected DMG and ZIP')
+          checksum_lines = []
+          for item in artifacts:
               path = output / item['file']
               with path.open('rb') as stream:
                   digest = hashlib.file_digest(stream, 'sha256').hexdigest()
               if digest != item['sha256'] or path.stat().st_size != item['bytes']:
-                  raise SystemExit(f'Asset failed verification: {path}')
-          for filename in ('SHA256SUMS.txt', '安装说明.txt'):
-              if not (output / filename).is_file():
-                  raise SystemExit(f'Missing release asset: {filename}')
-
-          lines = Path('CHANGELOG.md').read_text().splitlines()
-          start = next(index for index, line in enumerate(lines)
-                       if line == f'## [{version}]' or line.startswith(f'## [{version}] - '))
-          end = next((index for index in range(start + 1, len(lines))
-                      if lines[index].startswith('## ')), len(lines))
-          notes = '\n'.join(lines[start:end]).strip() + '\n'
-          Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(notes)
+                  raise SystemExit(f'Build asset failed verification: {path}')
+              checksum_lines.append(f"{item['sha256']}  {item['file']}")
+          if set((output / 'SHA256SUMS.txt').read_text().splitlines()) != set(checksum_lines):
+              raise SystemExit('SHA256SUMS.txt does not match the verified DMG and ZIP')
+          (output / 'INSTALL.zh-CN.txt').write_bytes((output / '安装说明.txt').read_bytes())
           PY
-          cp "releases/$VERSION/安装说明.txt" "releases/$VERSION/INSTALL.zh-CN.txt"
           (cd "releases/$VERSION" && sha256sum --check SHA256SUMS.txt)
 
-      - name: Create draft prerelease
+      - name: Generate commit-based release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
+          PREVIOUS_SHA: ${{ needs.prepare.outputs.previous_sha }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          PR_AUTHOR: ${{ needs.prepare.outputs.pr_author }}
+        run: |
+          python3 scripts/release.py notes \
+            --sha "$TARGET_SHA" \
+            --repo "$GITHUB_REPOSITORY" \
+            --version "$VERSION" \
+            --previous-version "$PREVIOUS_VERSION" \
+            --previous-sha "$PREVIOUS_SHA" \
+            --pr-number "$PR_NUMBER" \
+            --pr-author "$PR_AUTHOR" \
+            --output "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create, verify, and publish the prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
           TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
         run: |
-          tag="v$VERSION"
-          output="releases/$VERSION"
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "A release for $tag already exists; inspect the existing draft before rerunning." >&2
-            exit 1
-          fi
-          options=(--repo "$GITHUB_REPOSITORY" --draft --prerelease --latest=false --title "Goalward $VERSION macOS universal trial" --notes-file "$RUNNER_TEMP/release-notes.md")
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            options+=(--verify-tag)
-          else
-            options+=(--target "$TARGET_SHA")
-          fi
-          gh release create "$tag" \
-            "$output/Goalward_${VERSION}_macos-universal.dmg" \
-            "$output/Goalward_${VERSION}_macos-universal.zip" \
-            "$output/SHA256SUMS.txt" \
-            "$output/BUILD-INFO.json" \
-            "$output/INSTALL.zh-CN.txt" \
-            "${options[@]}"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import time
+          from pathlib import Path
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          version = os.environ['VERSION']
+          target = os.environ['TARGET_SHA']
+          tag = f'v{version}'
+          output = Path('releases') / version
+          notes = Path(os.environ['RUNNER_TEMP'], 'release-notes.md')
+          body = notes.read_text().strip()
+          title = f'v{version}'
+          names = [f'Goalward_{version}_macos-universal.dmg',
+                   f'Goalward_{version}_macos-universal.zip',
+                   'SHA256SUMS.txt', 'BUILD-INFO.json', 'INSTALL.zh-CN.txt']
+          expected = {}
+          for name in names:
+              path = output / name
+              with path.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              expected[name] = {'size': path.stat().st_size, 'digest': f'sha256:{digest}'}
+
+          def command(*args):
+              subprocess.run(args, check=True)
+
+          def release():
+              # GitHub's by-tag endpoint can return 404 for an unpublished
+              # draft. The list endpoint includes drafts for this write token.
+              for page in range(1, 101):
+                  result = subprocess.run(
+                      ['gh', 'api', f'repos/{repo}/releases?per_page=100&page={page}'],
+                      capture_output=True, text=True)
+                  if result.returncode:
+                      raise SystemExit(f'Could not list Releases: {result.stderr.strip()}')
+                  entries = json.loads(result.stdout)
+                  matches = [item for item in entries if item['tag_name'] == tag]
+                  if len(matches) > 1:
+                      raise SystemExit(f'Multiple Releases use {tag}')
+                  if matches:
+                      return matches[0]
+                  if len(entries) < 100:
+                      return None
+              raise SystemExit('Release listing exceeded the supported pagination limit')
+
+          def remote_tag():
+              result = subprocess.run(
+                  ['git', 'ls-remote', '--tags', 'origin',
+                   f'refs/tags/{tag}', f'refs/tags/{tag}^{{}}'],
+                  capture_output=True, text=True, check=True)
+              refs = dict(line.split('\t', 1)[::-1] for line in result.stdout.splitlines())
+              return refs.get(f'refs/tags/{tag}^{{}}') or refs.get(f'refs/tags/{tag}')
+
+          def verify_assets(data, *, complete):
+              assets = {item['name']: item for item in data['assets']}
+              if len(assets) != len(data['assets']) or set(assets) - set(expected):
+                  raise SystemExit(f'{tag} has duplicate or unexpected assets')
+              if complete and set(assets) != set(expected):
+                  raise SystemExit(f'{tag} is missing release assets')
+              for name, item in assets.items():
+                  if item['size'] != expected[name]['size'] or item.get('digest') != expected[name]['digest']:
+                      raise SystemExit(f'{tag} asset differs from the verified build: {name}')
+              return assets
+
+          current = release()
+          tag_sha = remote_tag()
+          if current is None:
+              if tag_sha is not None:
+                  raise SystemExit(f'{tag} exists without a Release; refusing to attach assets to it')
+              command('gh', 'release', 'create', tag, '-R', repo,
+                      '--target', target, '--draft', '--prerelease', '--latest=false',
+                      '--title', title, '--notes-file', str(notes))
+              for attempt in range(8):
+                  current = release()
+                  if current is not None:
+                      break
+                  time.sleep(2)
+              else:
+                  raise SystemExit('Draft Release was not readable after creation')
+          if current['tag_name'] != tag or current['target_commitish'] != target:
+              raise SystemExit(f'{tag} does not target the merged commit')
+          if tag_sha is not None and tag_sha != target:
+              raise SystemExit(f'{tag} Git tag targets a different commit')
+          if not current['draft']:
+              if not current['prerelease'] or current['name'] != title or current['body'].strip() != body:
+                  raise SystemExit(f'{tag} is already published with different metadata')
+              verify_assets(current, complete=True)
+              if tag_sha != target:
+                  raise SystemExit(f'{tag} is published without the expected Git tag')
+              print(f'{tag} is already published with the verified assets; no changes made')
+              raise SystemExit(0)
+
+          uploaded = verify_assets(current, complete=False)
+          for name in names:
+              if name not in uploaded:
+                  command('gh', 'release', 'upload', tag, str(output / name), '-R', repo)
+          for attempt in range(8):
+              current = release()
+              if current is None or not current['draft'] or current['target_commitish'] != target:
+                  raise SystemExit('Draft Release changed while assets were uploaded')
+              try:
+                  verify_assets(current, complete=True)
+                  break
+              except SystemExit:
+                  if attempt == 7:
+                      raise
+                  time.sleep(2)
+          command('gh', 'release', 'edit', tag, '-R', repo, '--draft=false',
+                  '--prerelease', '--latest=false', '--target', target,
+                  '--title', title, '--notes-file', str(notes))
+          for attempt in range(5):
+              published = release()
+              tag_sha = remote_tag()
+              if published is not None and not published['draft'] and published['prerelease'] and tag_sha == target:
+                  break
+              time.sleep(2)
+          else:
+              raise SystemExit('Release publish did not verify; inspect the remote Release')
+          if published['target_commitish'] != target or published['name'] != title or published['body'].strip() != body:
+              raise SystemExit('Published Release metadata differs from the verified source')
+          verify_assets(published, complete=True)
+          print(f'Published verified prerelease {tag} at {target}')
+          PY

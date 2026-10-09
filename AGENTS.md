@@ -108,6 +108,14 @@
 - 动效检查覆盖正常 / 减少动态效果、动画中途反向、快速连续切换、拖动取消、键盘 / 焦点恢复及流式内容更新。交付时提供可交互验证，必要时慢放检查跳变，报告使用的 `apple-design` 来源和实际检查结果。
 - 纯文档约束更新不等同于安装依赖、初始化前端工程、修改远端画布或迁移现有原型。
 
+## 6. Git 开发与发版流程（强制）
+
+- 每个任务从最新 `origin/main` 新建独立分支；Codex 分支使用 `codex/<任务名>`。变更只推到该任务分支，并发起 Pull Request。不得直接提交或推送到 `main`，也不得让自动化绕过 PR 修改 `main`。GitHub 对 `main` 强制经过 PR，并只允许 squash merge。
+- PR 标题就是合入 `main` 后的 squash commit 标题，应使用 Conventional Commit 形式，例如 `feat: ...`、`fix: ...`、`docs: ...`。不兼容改动用 `feat!: ...` 或在提交正文写 `BREAKING CHANGE:`。保持标题能独立说明用户可见的变更；合并前检查 CI。
+- 每个任务 PR 合入 `main` 后自动生成一个新的公开 GitHub prerelease。版本从既有 0.1.1 基线开始，按 `main` 上每个 squash commit 顺序计算：breaking change 升 major，`feat` 升 minor，其他变更升 patch。没有规范前缀也会升 patch；版本计算和变更记录只读取实际合入的 Git commit，不以 PR 草稿或本机文件为准。
+- GitHub Release notes 是后续版本的 changelog：采用 “What's Changed” 列表，列出 commit 标题、作者、PR，并附 Full Changelog 对比链接。发布工作流在隔离的构建工作区将计算出的版本同步到 npm、Tauri 和 Cargo 版本文件，成功构建并复验 universal 安装包后才公开 prerelease；不会把版本回写到 `main`。源码中的版本字段只是开发构建基线，正式下载以 Release 版本号及包内版本为准。
+- 当前 macOS 发布包仅临时签名、未经 Apple 公证。自动预发布必须如实标注这一点；在完成 Developer ID 签名、公证和安装验证前，不得称为已公证正式版。发布流程与故障恢复见 [docs/releasing.md](docs/releasing.md)。
+
 ## 官方参考
 
 - [shadcn/ui 介绍](https://ui.shadcn.com/docs)

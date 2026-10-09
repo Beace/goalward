@@ -1,23 +1,27 @@
 # Releasing Goalward for macOS
 
-The 0.1.1 workflow builds a universal macOS app for Apple Silicon and Intel. It creates a draft prerelease for review; it does not publish a public download.
+Goalward publishes one macOS universal prerelease for each task Pull Request merged into `main`. The GitHub Release version and its Git commit are the release source of truth. No person or workflow pushes changes directly to `main`.
 
-## Prepare a version
+## Develop through a Pull Request
 
-1. Use the same `X.Y.Z` version in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `goalward` package entry in `src-tauri/Cargo.lock`. Regenerate the lockfile with Cargo after editing the manifest, then check the resulting diff.
-2. Add one nonempty section to `CHANGELOG.md` headed `## [X.Y.Z] - YYYY-MM-DD`. The release workflow uses that section as its GitHub Release notes.
-3. Commit and push the version changes to `main`. Wait for **macOS universal CI** on `main` to pass. The CI artifact is a build preview, not a GitHub Release.
+1. Fetch the latest `main`, create a fresh task branch (Codex uses `codex/<task-name>`), and make the change there.
+2. Give the PR a Conventional Commit title that accurately describes its effect: `feat:` for a feature, `fix:` for a fix, or another readable type such as `docs:`, `ci:`, or `chore:`. Mark incompatible changes with `!` (for example, `feat!:`) or `BREAKING CHANGE:` in the squash commit body.
+3. Push only the task branch, open a PR, check its CI, and squash-merge it. GitHub's `main` ruleset requires a PR, and the repository only allows squash merges. The squash commit on `main` is the input to versioning and release notes.
 
-Keep the four `@tauri-apps/*` npm packages pinned to exact versions aligned with the Rust crates in `Cargo.lock`: the core API and CLI need the same major/minor as `tauri`, and each plugin needs the same full version on both sides. CI checks these before the costly Rust build.
+## Automatic version and changelog
 
-Commit `package-lock.json` with each dependency change. Generate it from the public `https://registry.npmjs.org` registry in a clean dependency tree, and check that every `resolved` URL uses that host. CI uses `npm ci` with this lockfile and caches npm downloads and Rust dependency builds; a changed lockfile or Rust toolchain can make the next build cold again.
+The version calculation starts from the recorded 0.1.1 baseline commit in `.github/release-baseline.json`. For every subsequent squash commit on `main`, a breaking change increments the major version, `feat:` increments the minor version, and any other commit increments the patch version. Each merged PR therefore receives a deterministic version, even if another release run is still building. An unrecognized commit title is treated as a patch rather than silently skipped.
 
-The Actions build pins Rust 1.99.0. Change that toolchain version deliberately when validating a later release; a newer Clippy can introduce new warnings that fail the release gate.
+The release workflow runs after a task PR is merged, checks out that exact commit, computes its version, builds a universal app for Apple Silicon and Intel, verifies the DMG, ZIP, metadata, and SHA-256 checksums, and only then publishes a GitHub prerelease. Its “What's Changed” list comes from the merged Git commit title and includes the PR author and number. “Full Changelog” links the previous version's tag (or commit, if its release did not complete) to the new tag. [GitHub Releases](https://github.com/Beace/goalward/releases) is the changelog for versions after 0.1.1; the repository's `CHANGELOG.md` retains the pre-automation 0.1.1 entry.
 
-## Create and review the draft
+The version fields in `package.json`, `package-lock.json`, Tauri configuration, `Cargo.toml`, and `Cargo.lock` are a development-build baseline on `main`. The release job deterministically stamps its calculated version into those files **only in the checked-out build workspace**, checks they agree, and records the original Git SHA in `BUILD-INFO.json`. A release tag points to the merged source commit, not to a version-bump commit. To reproduce its app version from a tag, check out the tag, use Python 3.11 or later to run `python3 scripts/release.py stamp X.Y.Z` with the tag's version, install from the public npm registry with `npm ci --registry=https://registry.npmjs.org`, then build on an Apple Silicon Mac with `npm run mac:dist`. Do not claim that an unstamped checkout of the tag already contains its release version.
 
-In GitHub Actions, run **Draft macOS universal release** from `main` and enter the version without `v` (for example, `0.1.1`). The workflow checks all four version locations and the changelog, rebuilds and verifies the universal app, then creates a draft prerelease tagged `vX.Y.Z`.
+The existing `v0.1.1` draft prerelease has no Git tag and is kept as the baseline; the new workflow does not overwrite or publish it. For the first automatic release, the Full Changelog comparison starts at that recorded baseline commit.
 
-Review the draft's DMG, ZIP, `SHA256SUMS.txt`, `BUILD-INFO.json`, and `INSTALL.zh-CN.txt` guide. Download the assets together and run `shasum -a 256 -c SHA256SUMS.txt`; inspect the build metadata for the expected version, `arm64` and `x86_64` architectures, and signing/notarization status. Test installation and launch on both Mac architectures before approving distribution.
+## Publish and recover
 
-The current workflow produces an ad-hoc signed, unnotarized trial build. Keep it as a draft prerelease until Apple Developer ID signing, notarization, and stapling are implemented and verified. Publish only after an explicit release decision. The README links to the Releases page, which lists download assets once a release is published.
+The workflow first creates a draft, uploads the five distribution assets without overwriting existing files, and reads their digests and sizes back from GitHub. It publishes the prerelease only when the complete set matches the verified build. A rerun can safely continue a matching draft; an existing release with a different source commit or asset content stops for inspection. No DMG, ZIP, or other release binary is committed to Git.
+
+Each public prerelease is currently ad-hoc signed and **not Apple-notarized**. The README and installation guide disclose this limitation. Developer ID signing, notarization, and stapling remain separate work; do not describe these trial builds as notarized or as a final macOS distribution.
+
+If a release fails, inspect its Actions run and draft before rerunning the same workflow. Do not create a competing tag, delete a draft, or overwrite assets to hide a mismatch. The successful CI build is an Actions artifact for diagnosis; the verified GitHub Release assets are the user downloads.
