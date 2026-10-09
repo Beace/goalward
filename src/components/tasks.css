@@ -1,0 +1,20 @@
+.tasks-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.task-picker { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; background: var(--color-sidebar); }
+.task-picker-heading { display: flex; align-items: center; justify-content: space-between; height: 48px; flex-shrink: 0; padding: 0 8px 0 12px; }
+.task-picker-heading h1 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; }
+.task-picker-tools { display: flex; align-items: center; gap: 4px; padding: 0 8px 8px; }
+.task-picker-search { position: relative; flex: 1; min-width: 0; }
+.task-picker-search > svg { position: absolute; top: 9px; left: 8px; color: var(--color-muted-foreground); pointer-events: none; }
+.task-picker-search input { padding-left: 28px; }
+.task-picker-list { flex: 1; min-height: 0; overflow: auto; padding: 0 6px; }
+.task-picker-item { display: flex; justify-content: flex-start; width: 100%; min-width: 0; height: 40px; padding: 0 8px; gap: 8px; font-weight: 400; }
+.task-picker-item[aria-pressed=true] { background: var(--color-sidebar-accent); color: var(--color-sidebar-accent-foreground); }
+.task-picker-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; white-space: nowrap; }
+.task-picker-item small { flex-shrink: 0; font-size: 11px; color: var(--color-muted-foreground); }
+.task-picker-dot { width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: var(--color-muted-foreground); }
+.task-picker-dot-running, .task-picker-dot-completed { background: var(--color-status-success); }
+.task-picker-dot-failed { background: var(--color-destructive); }
+.task-picker-dot-stopped, .task-picker-dot-interrupted { background: var(--status-warning); }
+.task-picker-empty { padding: 16px 6px; color: var(--color-muted-foreground); font-size: 12px; }
+.task-picker-empty h2 { font-size: 12px; font-weight: 500; margin-bottom: 8px; }
+.task-picker-footer { min-height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 4px 12px; border-top: 1px solid var(--color-border); color: var(--color-muted-foreground); font-size: 11px; flex-shrink: 0; }

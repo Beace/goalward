@@ -1,0 +1,73 @@
+import { chromium, expect } from '@playwright/test'
+import { mkdir, writeFile } from 'node:fs/promises'
+
+await mkdir('test-results/pi-runtime', { recursive: true })
+const browser = await chromium.launch({ channel: 'chrome', headless: true })
+const results = []
+try {
+  for (const [width, height] of [[1536, 960], [1280, 720]]) {
+    for (const reducedMotion of ['no-preference', 'reduce']) {
+      const context = await browser.newContext({ viewport: { width, height }, reducedMotion })
+      const page = await context.newPage()
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      await page.goto('http://127.0.0.1:1420')
+      await page.evaluate(async () => {
+        const { createInitialState } = await import('/src/lib/domain.ts')
+        const state = createInitialState()
+        state.settings.models.push({ id: 'pi-model', name: 'Pi 本地模型', modelId: 'deepseek/deepseek-v4-pro', providerId: '', runtimeIds: ['pi'], enabled: true })
+        state.onboarding = { version: 1, completedAt: new Date().toISOString(), outcome: 'configured' }
+        localStorage.setItem('goalward.preview.v1', JSON.stringify(state))
+      })
+      await page.reload()
+      await page.getByRole('button', { name: '设置', exact: true }).click()
+      await page.getByRole('button', { name: /^Pi 已停用/ }).click()
+      await expect(page.getByRole('heading', { name: 'Pi', exact: true })).toBeVisible()
+      await expect(page.getByRole('combobox', { name: '运行时适配器' })).toContainText('Pi · JSON')
+      const adapter = page.getByRole('combobox', { name: '运行时适配器' })
+      await adapter.click()
+      await expect(page.getByRole('option', { name: 'Pi · JSON', exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(adapter).toBeFocused()
+      await adapter.press('Space')
+      await page.keyboard.press('Escape')
+      await expect(adapter).toBeFocused()
+      await page.locator('#runtime-enabled').click()
+      const model = page.getByRole('combobox', { name: '新成员默认模型' })
+      await model.click()
+      await page.getByRole('option', { name: 'Pi 本地模型 · deepseek/deepseek-v4-pro', exact: true }).click()
+      await expect(model).toBeFocused()
+      const advanced = page.getByRole('button', { name: '高级启动配置', exact: true })
+      await advanced.click()
+      await expect(page.locator('#runtime-args')).toBeVisible()
+      await page.locator('#runtime-args').fill('["--mode", "rpc"]')
+      await page.getByRole('button', { name: '保存更改', exact: true }).click()
+      await expect(page.getByText(/Pi 适配器不支持额外参数 --mode/).first()).toBeVisible()
+      await page.locator('#runtime-args').fill('["--no-tools"]')
+      await advanced.click()
+      await advanced.click()
+      await expect(page.locator('#runtime-args')).toBeVisible()
+      await page.getByRole('button', { name: '保存更改', exact: true }).click()
+      await expect(page.getByText('所有更改已保存', { exact: true })).toBeVisible()
+      await page.reload()
+      await page.getByRole('button', { name: '设置', exact: true }).click()
+      await page.getByRole('button', { name: /^Pi 已启用/ }).click()
+      await expect(page.locator('#runtime-enabled')).toHaveAttribute('aria-checked', 'true')
+      await expect(page.getByRole('combobox', { name: '新成员默认模型' })).toContainText('deepseek/deepseek-v4-pro')
+      await expect(page.getByRole('button', { name: '保存更改', exact: true })).toBeInViewport()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+      await page.screenshot({ path: `test-results/pi-runtime/settings-${width}-${reducedMotion}.png` })
+      await page.getByRole('button', { name: '返回工作台', exact: true }).click()
+      await page.getByRole('button', { name: '新建任务', exact: true }).click()
+      await page.locator('#task-title').fill('Pi 接入验证')
+      await page.locator('#task-directory').fill('/tmp/pi-test')
+      await page.getByRole('button', { name: '创建任务', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Pi 接入验证' })).toBeVisible()
+      expect(errors).toEqual([])
+      results.push({ width, height, reducedMotion, adapter: true, model: true, persisted: true, conflictsRejected: true, keyboardFocus: true, rapidToggle: true, pageErrors: errors })
+      await context.close()
+    }
+  }
+  await writeFile('test-results/pi-runtime/ui.json', JSON.stringify({ nativeRuntime: false, results }, null, 2))
+  console.log(JSON.stringify(results, null, 2))
+} finally { await browser.close() }

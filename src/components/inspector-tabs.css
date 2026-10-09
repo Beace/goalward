@@ -1,0 +1,16 @@
+.inspector-tabs { height: 100%; min-height: 0; min-width: 0; gap: 0; background: var(--background); }
+.inspector-tabs-heading { display: flex; align-items: center; min-height: 40px; flex-shrink: 0; border-bottom: 1px solid var(--border); padding: 0 6px; gap: 6px; }
+.inspector-tabs-heading > [data-slot=tabs-list] { min-width: 0; max-width: 100%; height: 36px; justify-content: flex-start; overflow-x: auto; padding: 2px; border-radius: 6px; gap: 2px; background: var(--muted); }
+.inspector-tab-label { position: relative; flex: 0 0 auto; height: 32px; }
+.inspector-tab-label [data-slot=tabs-trigger] { height: 100%; padding: 0 10px; border: 1px solid transparent; border-radius: 4px; font-size: 12px; box-shadow: none; color: var(--muted-foreground); }
+.inspector-tab-label[data-closable=true] [data-slot=tabs-trigger] { padding-right: 32px; }
+.inspector-tab-label [data-slot=tabs-trigger][data-state=active] { border-color: var(--border); background: var(--background); color: var(--foreground); }
+.inspector-tab-label [data-slot=tabs-trigger]::after { display: none; }
+.inspector-tab-label [data-slot=tabs-trigger]:focus-visible { outline: 1px solid var(--ring); outline-offset: -2px; box-shadow: none; }
+.inspector-tab-close[data-slot=button] { position: absolute; right: 2px; top: 2px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 3px; color: var(--muted-foreground); }
+.inspector-tab-close[data-slot=button]:hover, .inspector-tab-close[data-slot=button]:focus-visible { color: var(--foreground); background: var(--accent); }
+.inspector-tab-close[data-slot=button] svg { width: 12px; height: 12px; }
+.inspector-tabs-actions { display: flex; flex-shrink: 0; gap: 2px; margin-left: auto; }
+.inspector-tab-content { min-height: 0; overflow: hidden; margin: 0; }
+.inspector-tab-content[hidden] { display: none; }
+.inspector-tab-empty { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; padding: 24px; text-align: center; color: var(--muted-foreground); font-size: 12px; }

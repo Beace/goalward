@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Goalward",
+  "version": "0.1.0",
+  "identifier": "dev.goalward.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "Goalward",
+      "width": 1536,
+      "height": 960,
+      "minWidth": 1100,
+      "minHeight": 700,
+      "titleBarStyle": "Overlay",
+      "hiddenTitle": true,
+      "backgroundColor": "#191A1A",
+      "theme": "Dark"
+    }],
+    "security": {
+      "csp": "default-src 'self'; frame-src 'self' about: https: http:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; frame-src 'self' about: https: http:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "resources": {
+      "../assets/branding/runtime-source-*.md": "runtime-branding/",
+      "../docs/install-macos-trial.txt": "installation/安装说明.txt"
+    },
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "category": "DeveloperTool",
+    "shortDescription": "Turn goals into tasks, outcomes, and evidence-backed reviews with coding agents",
+    "macOS": { "minimumSystemVersion": "13.3", "signingIdentity": "-" }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Main workbench: events, native window drag and directory picker",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-toggle-maximize", "dialog:allow-open", "dialog:allow-save", "notification:allow-is-permission-granted", "notification:allow-request-permission", "notification:allow-notify"]
+}

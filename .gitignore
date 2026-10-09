@@ -1,0 +1,66 @@
+# Dependencies and build artifacts
+node_modules/
+dist/
+releases/
+src-tauri/target/
+*.tsbuildinfo
+
+# Test and coverage output
+test-results/
+coverage/
+playwright-report/
+blob-report/
+
+# Local tool state and generated design data
+.codegraph/
+.superdesign/tmp/
+.cache/
+*.local
+*.pid
+
+# Historical pre-Goalward design and verification snapshots remain local.
+.superdesign/init/
+.superdesign/prototypes/
+.superdesign/components/
+.superdesign/*.html
+.superdesign/resume.json
+.superdesign/code-interaction-audit-2026-09-17.md
+.superdesign/goal-agent-prototype.md
+.superdesign/task-actions-design.md
+.superdesign/toast-design.md
+docs/verification.md
+docs/goal-agent-prototype-review.md
+docs/goal-agent-implementation.md
+docs/artifacts-implementation.md
+docs/clipboard-attachments.md
+docs/composer-v13.md
+docs/kimi-runtime-prototype.md
+docs/task-actions-implementation.md
+screenshots/*
+!screenshots/goalward-workbench-en.png
+assets/branding/super-agents-icon.png
+assets/branding/legacy-terminal/
+src-tauri/icons/app.svg
+
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors and operating systems
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*~

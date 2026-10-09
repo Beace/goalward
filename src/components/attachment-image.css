@@ -1,0 +1,21 @@
+.attachment-image { position: relative; width: 100px; height: 100px; max-width: 100%; min-width: 0; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; background: var(--color-surface-inset); white-space: normal; }
+.attachment-image .attachment-image-view { display: flex; position: relative; width: 100%; height: 100%; padding: 0; border-radius: 0; overflow: hidden; cursor: zoom-in; }
+.attachment-image .attachment-image-view:disabled { opacity: 1; }
+.attachment-image-view img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.attachment-image-view:focus-visible { outline: 2px solid var(--color-ring); outline-offset: -2px; box-shadow: none; }
+.attachment-image-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--color-muted-foreground); }
+.attachment-image-failure { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--color-muted-foreground); font-size: 12px; }
+.attachment-image .attachment-image-remove { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border: 1px solid var(--color-border-strong); }
+.attachment-image-compact { width: 144px; height: 96px; flex-shrink: 0; }
+.composer-images { display: flex; gap: 8px; padding: 4px 8px; margin: 0; list-style: none; overflow-x: auto; }
+.composer-images > li { flex-shrink: 0; }
+.user-message-attachments { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 8px; white-space: normal; }
+.user-message-attachments:first-child { margin-top: 0; }
+.user-message-file { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 8px; height: 40px; border: 1px solid var(--color-border); border-radius: 4px; }
+.user-message-file span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-message-file:focus-visible { outline: 1px solid var(--color-ring); }
+.attachment-image-dialog[data-slot=dialog-content] { display: flex; flex-direction: column; gap: 8px; padding: 12px; width: min(1000px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); }
+.attachment-image-heading { display: flex; align-items: center; gap: 12px; min-width: 0; flex-shrink: 0; }
+.attachment-image-heading [data-slot=dialog-title] { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; }
+.attachment-image-full { display: block; width: 100%; min-height: 0; max-height: calc(100dvh - 112px); object-fit: contain; }
+@media (prefers-contrast: more) { .attachment-image, .user-message-file { border-color: var(--color-muted-foreground); } }

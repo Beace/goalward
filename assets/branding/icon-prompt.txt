@@ -1,0 +1,5 @@
+Use case: logo-brand.
+Asset type: production macOS desktop application icon for Goalward, a goal-driven workbench that connects goals, tasks, execution, artifacts, and review while supporting coding agents.
+Edit the previous app icon as a visual-family reference: keep the nearly black rounded-square tile, warm sand and ivory palette, clean geometric surfaces, and restrained depth.
+Replace the old S monogram with a distinct G-shaped route or waypoint mark. It should suggest movement from a vague direction toward a concrete destination and a continuing feedback loop, while remaining legible at 16 px and 32 px.
+Center the symbol with generous breathing room. Make the outside of the rounded-square tile genuinely transparent; keep the tile opaque. No text, secondary badge, robot face, generic AI sparkle, glossy gradient, photographic texture, perspective, or mockup.
