@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { createInitialState } from './lib/domain'
@@ -23,7 +23,12 @@ beforeEach(()=>{
  bridge.loadState.mockImplementation(async()=>structuredClone(stored));bridge.saveState.mockImplementation(async(value:AppState)=>{stored=structuredClone(value)});bridge.loadTraceEvents.mockResolvedValue([]);bridge.onRuntimeEvent.mockImplementation(async(callback:typeof emit)=>{emit=callback;return()=>{}});bridge.startRun.mockResolvedValue(undefined);bridge.stopRun.mockResolvedValue(undefined)
 })
 afterEach(cleanup)
-async function mount(){render(<App/>);fireEvent.click((await screen.findByRole('navigation',{name:'工作空间导航'})).querySelector('button.task-nav-item')!);fireEvent.click(await screen.findByRole('button',{name:'执行编排'}))}
+async function mount(){
+ render(<App/>)
+ const navigation=await screen.findByRole('navigation',{name:'工作空间导航'})
+ fireEvent.click(await within(navigation).findByRole('button',{name:/编排测试任务/}))
+ fireEvent.click(await screen.findByRole('button',{name:'执行编排'}))
+}
 async function terminal(index:number,kind:'completed'|'failed'|'stopped'='completed') {const request:StartRequest=bridge.startRun.mock.calls[index][0];await act(async()=>emit({id:crypto.randomUUID(),taskId:request.taskId,runId:request.runId,memberId:request.memberId,timestamp:new Date().toISOString(),kind,text:'terminal',exitCode:kind==='completed'?0:1}))}
 describe('explicit orchestration and immutable execution context',()=>{
  it('enforces dependency confirmation, capacity and context snapshots before dispatch',async()=>{
