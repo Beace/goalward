@@ -400,13 +400,25 @@ jobs:
                   '--repo', repo,
                   '--anchor-version', os.environ['PREVIOUS_VERSION'],
                   '--tag', tag, '--target', target)
-          current = release()
+          # Create a lightweight version tag explicitly from the verified
+          # mainline source commit. Never let gh release create choose a tag
+          # target implicitly from the branch head.
+          command('git', 'fetch', '--no-tags', 'origin',
+                  'main:refs/remotes/origin/main')
+          command('python3', 'scripts/release_remote.py', 'create-tag',
+                  '--repo', repo,
+                  '--anchor-version', os.environ['PREVIOUS_VERSION'],
+                  '--tag', tag, '--target', target)
           tag_sha = remote_tag()
+          if tag_sha != target:
+              raise SystemExit(f'{tag} Git tag does not target the planned main commit')
+          current = release()
           if current is None:
-              if tag_sha is not None:
-                  raise SystemExit(f'{tag} exists without a Release; refusing to attach assets to it')
+              # The tag already exists and is verified above. GitHub ignores
+              # target_commitish for tag placement; use main as Release
+              # metadata so GITHUB_TOKEN need not modify historical workflows.
               command('gh', 'release', 'create', tag, '-R', repo,
-                      '--target', target, '--draft', '--prerelease', '--latest=false',
+                      '--target', 'main', '--verify-tag', '--draft', '--prerelease', '--latest=false',
                       '--title', title, '--notes-file', str(notes))
               for attempt in range(8):
                   current = release()
@@ -415,10 +427,8 @@ jobs:
                   time.sleep(2)
               else:
                   raise SystemExit('Draft Release was not readable after creation')
-          if current['tag_name'] != tag or current['target_commitish'] != target:
-              raise SystemExit(f'{tag} does not target the merged commit')
-          if tag_sha is not None and tag_sha != target:
-              raise SystemExit(f'{tag} Git tag targets a different commit')
+          if current['tag_name'] != tag or remote_tag() != target:
+              raise SystemExit(f'{tag} does not target the selected main commit')
           if not current['draft']:
               if not current['prerelease'] or current['name'] != title or current['body'].strip() != body:
                   raise SystemExit(f'{tag} is already published with different metadata')
@@ -434,7 +444,7 @@ jobs:
                   command('gh', 'release', 'upload', tag, str(output / name), '-R', repo)
           for attempt in range(8):
               current = release()
-              if current is None or not current['draft'] or current['target_commitish'] != target:
+              if current is None or not current['draft'] or remote_tag() != target:
                   raise SystemExit('Draft Release changed while assets were uploaded')
               try:
                   verify_assets(current, complete=True)
@@ -444,7 +454,7 @@ jobs:
                       raise
                   time.sleep(2)
           command('gh', 'release', 'edit', tag, '-R', repo, '--draft=false',
-                  '--prerelease', '--latest=false', '--target', target,
+                  '--prerelease', '--latest=false', '--target', 'main', '--verify-tag',
                   '--title', title, '--notes-file', str(notes))
           for attempt in range(5):
               published = release()
@@ -454,7 +464,7 @@ jobs:
               time.sleep(2)
           else:
               raise SystemExit('Release publish did not verify; inspect the remote Release')
-          if published['target_commitish'] != target or published['name'] != title or published['body'].strip() != body:
+          if published['tag_name'] != tag or published['name'] != title or published['body'].strip() != body:
               raise SystemExit('Published Release metadata differs from the verified source')
           verify_assets(published, complete=True)
           print(f'Published verified prerelease {tag} at {target}')

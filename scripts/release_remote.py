@@ -133,9 +133,8 @@ def release_anchor(repo: str, baseline_path: Path) -> dict[str, str | None]:
         raise RemoteReleaseError(f"Published Release {tag} has no remote Git tag")
     if newest == baseline_version and sha != baseline["sha"]:
         raise RemoteReleaseError(f"Published baseline Release {tag} tag differs from its baseline SHA")
-    target = release.get("target_commitish")
-    if isinstance(target, str) and SHA_RE.fullmatch(target) and target != sha:
-        raise RemoteReleaseError(f"Published Release {tag} target differs from its Git tag")
+    # GitHub does not use target_commitish to place a tag that already exists.
+    # The verified tag, not Release metadata, identifies the published commit.
     return {"version": tag[1:], "sha": sha, "tag": tag}
 
 
@@ -177,14 +176,17 @@ def check_candidate(repo: str, tag: str, target: str, anchor_version: str,
     remote_sha = remote_tag_commit(tag)
     if not matches:
         if remote_sha is not None:
-            raise RemoteReleaseError(f"{tag} exists as a Git tag without a Release")
+            if remote_sha != target:
+                raise RemoteReleaseError(f"{tag} exists without a Release and targets a different commit")
+            return {"tag": tag, "status": "matching-orphan-tag"}
         return {"tag": tag, "status": "available"}
     release = matches[0]
     if release.get("draft") is not True:
         raise RemoteReleaseError(f"{tag} has already been published or has an invalid draft flag")
-    if release.get("target_commitish") != target:
-        raise RemoteReleaseError(f"Draft Release {tag} targets a different commit")
-    if remote_sha is not None and remote_sha != target:
+    if remote_sha is None:
+        if release.get("target_commitish") != target:
+            raise RemoteReleaseError(f"Draft Release {tag} targets a different commit")
+    elif remote_sha != target:
         raise RemoteReleaseError(f"Draft Release {tag} Git tag targets a different commit")
     if fail_on_assets:
         assets = release.get("assets")
@@ -196,6 +198,40 @@ def check_candidate(repo: str, tag: str, target: str, anchor_version: str,
                 "build artifacts manually before rebuilding"
             )
     return {"tag": tag, "status": "matching-draft"}
+
+
+def create_tag(repo: str, anchor_version: str, tag: str, target: str) -> dict[str, str]:
+    """Create a lightweight release tag only for a verified mainline commit."""
+    candidate = check_candidate(repo, tag, target, anchor_version)
+    mainline = command("git", "rev-list", "--first-parent", "refs/remotes/origin/main")
+    if target not in mainline.splitlines():
+        raise RemoteReleaseError(
+            f"Release target {target} is not on the fetched origin/main first-parent history"
+        )
+
+    existing_sha = remote_tag_commit(tag)
+    if existing_sha is not None:
+        if existing_sha != target:
+            raise RemoteReleaseError(f"Existing tag {tag} does not match the release target")
+        status = ("matching-draft-tag" if candidate["status"] == "matching-draft"
+                  else "matching-orphan-tag")
+        return {"tag": tag, "sha": target, "status": status}
+
+    ref = f"refs/tags/{tag}"
+    raw = command("gh", "api", "-X", "POST", f"repos/{repo}/git/refs",
+                  "-f", f"ref={ref}", "-f", f"sha={target}")
+    try:
+        created = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise RemoteReleaseError(f"Invalid tag creation response for {tag}") from error
+    if (not isinstance(created, dict) or created.get("ref") != ref
+            or not isinstance(created.get("object"), dict)
+            or created["object"].get("type") != "commit"
+            or created["object"].get("sha") != target):
+        raise RemoteReleaseError(f"Tag creation response for {tag} differs from the planned commit")
+    if remote_tag_commit(tag) != target:
+        raise RemoteReleaseError(f"Remote tag {tag} did not resolve to the planned commit")
+    return {"tag": tag, "sha": target, "status": "created"}
 
 
 def main() -> int:
@@ -215,15 +251,22 @@ def main() -> int:
     candidate.add_argument("--target", required=True)
     candidate.add_argument("--anchor-version", required=True)
     candidate.add_argument("--fail-on-assets", action="store_true")
+    create = subcommands.add_parser("create-tag", help="Create a version tag on fetched main history")
+    create.add_argument("--repo", required=True)
+    create.add_argument("--anchor-version", required=True)
+    create.add_argument("--tag", required=True)
+    create.add_argument("--target", required=True)
     args = parser.parse_args()
     try:
         if args.command == "anchor":
             result = release_anchor(args.repo, args.baseline)
         elif args.command == "verify-anchor":
             result = verify_anchor(args.repo, args.baseline, args.version, args.sha)
-        else:
+        elif args.command == "check-candidate":
             result = check_candidate(args.repo, args.tag, args.target, args.anchor_version,
                                      fail_on_assets=args.fail_on_assets)
+        else:
+            result = create_tag(args.repo, args.anchor_version, args.tag, args.target)
         print(json.dumps(result, sort_keys=True))
     except (RemoteReleaseError, OSError) as error:
         print(f"release_remote.py: {error}", file=sys.stderr)
