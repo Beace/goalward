@@ -6,7 +6,7 @@ Goalward publishes macOS universal prereleases in batches, not on every Pull Req
 
 1. Fetch the latest `main`, create a fresh task branch (Codex uses `codex/<task-name>`), and make the change there.
 2. Give the PR a Conventional Commit title that accurately describes its effect: `feat:` for a feature, `fix:` for a fix, or another readable type such as `docs:`, `ci:`, or `chore:`. Mark incompatible changes with `!` (for example, `feat!:`) or `BREAKING CHANGE:` in the squash commit body.
-3. Push only the task branch, open a PR, check its CI, and squash-merge it. PR CI runs the frontend, Rust, and release-tooling unit tests; it does **not** build the App, DMG, or ZIP. GitHub's `main` ruleset requires a PR, and the repository only allows squash merges. The squash commits on `main` become inputs to the next release; merging a PR does **not** publish one immediately.
+3. Push only the task branch, open a PR, check its CI, and squash-merge it. PR CI runs the frontend, Rust, and release-tooling unit tests; it does **not** build the App, DMG, or ZIP. GitHub's `main` ruleset requires the `frontend-tests`, `rust-tests`, and `release-tooling` checks, plus a PR; the repository only allows squash merges. If those job names change, update the ruleset too. The squash commits on `main` become inputs to the next release; merging a PR does **not** publish one immediately.
 
 ## Automatic version and changelog
 
