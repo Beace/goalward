@@ -8,7 +8,7 @@ This is the first GitHub release recorded in this repository. There is no earlie
 
 - Added a GitHub Actions workflow for a universal macOS build that includes Apple Silicon and Intel.
 - Added DMG and ZIP packaging with SHA-256 checksums for the release downloads.
-- Updated the README to link to the latest published GitHub release so downloads do not depend on a versioned filename.
+- Updated the README to link to GitHub Releases so downloads do not depend on a versioned filename.
 
 ### Application included
 

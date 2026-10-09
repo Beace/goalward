@@ -14,9 +14,9 @@ Goalward is also a desktop proxy for coding agents: run them individually or tog
 
 Goalward 0.1.1 is built for Apple Silicon and Intel Macs running macOS 13.3 or later. The macOS download is a universal app that includes both architectures.
 
-[Download the latest release (DMG or ZIP)](https://github.com/Beace/goalward/releases/latest) · [View all releases](https://github.com/Beace/goalward/releases) · [Read the changelog](CHANGELOG.md)
+[View macOS downloads (DMG or ZIP)](https://github.com/Beace/goalward/releases) · [Read the changelog](CHANGELOG.md)
 
-The latest-release link becomes available after a release is published. Check the SHA-256 checksums listed with its downloads.
+Downloads appear on the Releases page after a release is published. Check the SHA-256 checksums listed with its downloads.
 
 The app does not include agent CLIs, model weights, subscriptions, or API credentials. Install and sign in to at least one supported agent before using it.
 
