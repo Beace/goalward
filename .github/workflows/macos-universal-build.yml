@@ -28,7 +28,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          package-manager-cache: false
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - uses: actions/setup-python@v6
         with:
@@ -40,6 +41,13 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal --component clippy
           rustup default 1.99.0
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: goalward-universal-rust
+          cache-bin: 'false'
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Check release versions
         env:
@@ -53,6 +61,7 @@ jobs:
           from pathlib import Path
 
           package = json.loads(Path('package.json').read_text())
+          npm_lock = json.loads(Path('package-lock.json').read_text())
           tauri = json.loads(Path('src-tauri/tauri.conf.json').read_text())
           cargo = tomllib.loads(Path('src-tauri/Cargo.toml').read_text())
           lock = tomllib.loads(Path('src-tauri/Cargo.lock').read_text())
@@ -63,6 +72,13 @@ jobs:
           if len(packages) != 1 or any(value != version for value in (
               tauri['version'], cargo['package']['version'], packages[0]['version'])):
               raise SystemExit('package.json, Tauri, Cargo.toml and Cargo.lock versions differ')
+          if any(value != version for value in (
+              npm_lock['version'], npm_lock['packages']['']['version'])) or npm_lock['name'] != package['name']:
+              raise SystemExit('package.json and package-lock.json differ')
+          nonpublic = [item['resolved'] for item in npm_lock['packages'].values()
+                       if 'resolved' in item and not item['resolved'].startswith('https://registry.npmjs.org/')]
+          if nonpublic:
+              raise SystemExit('package-lock.json contains a non-public registry URL')
           expected = os.environ['EXPECTED_VERSION']
           if expected and version != expected:
               raise SystemExit(f'Expected {expected}, found {version}')
@@ -79,10 +95,8 @@ jobs:
           print(f'Building Goalward {version}')
           PY
 
-      # The repository currently has no package-lock.json. Keep this explicit
-      # until a reviewed lockfile strategy is adopted.
       - name: Install JavaScript dependencies
-        run: npm install --no-package-lock --no-save --no-audit --no-fund
+        run: npm ci --registry=https://registry.npmjs.org --no-audit --no-fund
 
       - name: Check installed Tauri packages
         run: npm ls @tauri-apps/api @tauri-apps/cli @tauri-apps/plugin-dialog @tauri-apps/plugin-notification --depth=0

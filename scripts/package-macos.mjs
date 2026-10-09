@@ -44,7 +44,7 @@ async function files(directory) {
   return result
 }
 async function sourceDigest() {
-  const paths = ['package.json', 'index.html', 'vite.config.ts', 'tsconfig.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/build.rs', 'src-tauri/tauri.conf.json', 'docs/install-macos-trial.txt']
+  const paths = ['package.json', 'package-lock.json', 'index.html', 'vite.config.ts', 'tsconfig.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/build.rs', 'src-tauri/tauri.conf.json', 'docs/install-macos-trial.txt']
   for (const dir of ['src', 'src-tauri/src', 'src-tauri/icons', 'src-tauri/capabilities', 'assets/branding']) {
     const sourceFiles = await files(join(root, dir))
     paths.push(...sourceFiles

@@ -10,7 +10,7 @@ The 0.1.1 workflow builds a universal macOS app for Apple Silicon and Intel. It 
 
 Keep the four `@tauri-apps/*` npm packages pinned to exact versions aligned with the Rust crates in `Cargo.lock`: the core API and CLI need the same major/minor as `tauri`, and each plugin needs the same full version on both sides. CI checks these before the costly Rust build.
 
-The repository intentionally has no `package-lock.json`. CI uses `npm install --no-package-lock`; dependency resolution is therefore not fully reproducible. Do not describe this build as reproducible or switch to `npm ci` without adopting a reviewed lockfile strategy.
+Commit `package-lock.json` with each dependency change. Generate it from the public `https://registry.npmjs.org` registry in a clean dependency tree, and check that every `resolved` URL uses that host. CI uses `npm ci` with this lockfile and caches npm downloads and Rust dependency builds; a changed lockfile or Rust toolchain can make the next build cold again.
 
 The Actions build pins Rust 1.99.0. Change that toolchain version deliberately when validating a later release; a newer Clippy can introduce new warnings that fail the release gate.
 

@@ -42,7 +42,7 @@ Goalward stores workspace data locally in `~/Library/Application Support/dev.goa
 On a Mac with macOS 13.3 or later, install Node.js `^20.19.0`, `^22.12.0`, or `>=24.0.0`, npm, Rust stable, Cargo, and Xcode Command Line Tools. Then run:
 
 ```bash
-npm install
+npm ci --registry=https://registry.npmjs.org
 npm run mac:dev
 ```
 
