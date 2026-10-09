@@ -37,8 +37,8 @@ jobs:
 
       - name: Install Rust targets and Clippy
         run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
+          rustup toolchain install 1.99.0 --profile minimal --component clippy
+          rustup default 1.99.0
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Check release versions

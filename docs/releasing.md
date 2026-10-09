@@ -10,6 +10,8 @@ The 0.1.1 workflow builds a universal macOS app for Apple Silicon and Intel. It 
 
 The repository intentionally has no `package-lock.json`. CI uses `npm install --no-package-lock`; dependency resolution is therefore not fully reproducible. Do not describe this build as reproducible or switch to `npm ci` without adopting a reviewed lockfile strategy.
 
+The Actions build pins Rust 1.99.0. Change that toolchain version deliberately when validating a later release; a newer Clippy can introduce new warnings that fail the release gate.
+
 ## Create and review the draft
 
 In GitHub Actions, run **Draft macOS universal release** from `main` and enter the version without `v` (for example, `0.1.1`). The workflow checks all four version locations and the changelog, rebuilds and verifies the universal app, then creates a draft prerelease tagged `vX.Y.Z`.
