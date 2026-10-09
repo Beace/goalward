@@ -1,7 +1,7 @@
 {
   "name": "goalward",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -10,7 +10,7 @@
     "tauri": "tauri",
     "mac:dev": "tauri dev",
     "mac:build": "tauri build --bundles app",
-    "mac:dist": "node scripts/package-macos.mjs",
+    "mac:dist": "node scripts/package-macos.mjs --universal",
     "test": "vitest run"
   },
   "dependencies": {

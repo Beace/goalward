@@ -1380,6 +1380,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "goalward"
+version = "0.1.1"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+ "uuid",
+]
+
+[[package]]
 name = "gobject-sys"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3413,29 +3436,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "goalward"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "libc",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tempfile",
- "toml 0.9.12+spec-1.1.0",
- "uuid",
-]
 
 [[package]]
 name = "swift-rs"

@@ -1,8 +1,8 @@
 Goalward — macOS 试用版安装说明
 
 适用设备
-  Apple Silicon（M 系列芯片）Mac，macOS 13.3 或更新版本。
-  本包仅包含 arm64，不支持 Intel Mac。
+  Apple Silicon（M 系列芯片）或 Intel Mac，macOS 13.3 或更新版本。
+  本包同时包含 arm64 和 x86_64。
   应用本身无需 Node.js、Rust、Xcode 或开发服务器。
 
 安装

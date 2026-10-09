@@ -1,6 +1,6 @@
 [package]
 name = "goalward"
-version = "0.1.0"
+version = "0.1.1"
 description = "A goal-driven desktop workbench for people and coding agents"
 authors = ["Goalward"]
 edition = "2021"

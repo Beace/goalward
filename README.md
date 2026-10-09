@@ -12,15 +12,17 @@ Goalward is also a desktop proxy for coding agents: run them individually or tog
 
 ## Download
 
-Goalward 0.1.0 is being prepared for Apple Silicon Macs running macOS 13.3 or later. **The release assets are not published yet**; the links below will work after the GitHub release is available.
+Goalward 0.1.1 is built for Apple Silicon and Intel Macs running macOS 13.3 or later. The macOS download is a universal app that includes both architectures.
 
-[Download the macOS DMG](https://github.com/Beace/goalward/releases/latest/download/Goalward_0.1.0_macos-arm64.dmg) · [Download the ZIP](https://github.com/Beace/goalward/releases/latest/download/Goalward_0.1.0_macos-arm64.zip) · [View releases](https://github.com/Beace/goalward/releases)
+[Download the latest release (DMG or ZIP)](https://github.com/Beace/goalward/releases/latest) · [View all releases](https://github.com/Beace/goalward/releases) · [Read the changelog](CHANGELOG.md)
+
+The latest-release link becomes available after a release is published. Check the SHA-256 checksums listed with its downloads.
 
 The app does not include agent CLIs, model weights, subscriptions, or API credentials. Install and sign in to at least one supported agent before using it.
 
 ## Install on macOS
 
-Open the DMG, drag **Goalward.app** into **Applications**, and launch it. If you use the ZIP, extract it and move the app into **Applications**. The planned build is not notarized; if macOS blocks the first launch, review the warning in **System Settings → Privacy & Security**.
+Open the DMG, drag **Goalward.app** into **Applications**, and launch it. If you use the ZIP, extract it and move the app into **Applications**. The release is not notarized; if macOS blocks the first launch, review the warning in **System Settings → Privacy & Security**.
 
 ## Get started
 
@@ -37,14 +39,14 @@ Goalward stores workspace data locally in `~/Library/Application Support/dev.goa
 
 ## Build from source
 
-On an Apple Silicon Mac with macOS 13.3 or later, install Node.js `^20.19.0`, `^22.12.0`, or `>=24.0.0`, npm, Rust stable, Cargo, and Xcode Command Line Tools. Then run:
+On a Mac with macOS 13.3 or later, install Node.js `^20.19.0`, `^22.12.0`, or `>=24.0.0`, npm, Rust stable, Cargo, and Xcode Command Line Tools. Then run:
 
 ```bash
 npm install
 npm run mac:dev
 ```
 
-Build a local app with `npm run mac:build`. Run checks with `npm run build`, `npm test`, and `cargo test --manifest-path src-tauri/Cargo.toml`. Create the DMG, ZIP, checksums, and build metadata with `npm run mac:dist` (Python 3.10 or later required).
+Build a local app with `npm run mac:build`. Run checks with `npm run build`, `npm test`, and `cargo test --manifest-path src-tauri/Cargo.toml`. On an Apple Silicon Mac, create the universal DMG, ZIP, checksums, and build metadata with `npm run mac:dist` (Python 3.10 or later required).
 
 ## License
 

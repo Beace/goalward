@@ -1,0 +1,118 @@
+name: Build macOS universal (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      expected_version:
+        description: Version to build, without the v prefix. Empty for CI.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      DMG_PYTHON: python3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: arm64
+
+      - name: Install Rust targets and Clippy
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Check release versions
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          package = json.loads(Path('package.json').read_text())
+          tauri = json.loads(Path('src-tauri/tauri.conf.json').read_text())
+          cargo = tomllib.loads(Path('src-tauri/Cargo.toml').read_text())
+          lock = tomllib.loads(Path('src-tauri/Cargo.lock').read_text())
+          packages = [item for item in lock['package'] if item['name'] == 'goalward']
+          version = package['version']
+          if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+              raise SystemExit(f'Invalid release version: {version}')
+          if len(packages) != 1 or any(value != version for value in (
+              tauri['version'], cargo['package']['version'], packages[0]['version'])):
+              raise SystemExit('package.json, Tauri, Cargo.toml and Cargo.lock versions differ')
+          expected = os.environ['EXPECTED_VERSION']
+          if expected and version != expected:
+              raise SystemExit(f'Expected {expected}, found {version}')
+          print(f'Building Goalward {version}')
+          PY
+
+      # The repository currently has no package-lock.json. Keep this explicit
+      # until a reviewed lockfile strategy is adopted.
+      - name: Install JavaScript dependencies
+        run: npm install --no-package-lock --no-save --no-audit --no-fund
+
+      - name: Build and verify universal DMG and ZIP
+        run: npm run mac:dist
+
+      - name: Verify distribution files
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          version = json.loads(Path('package.json').read_text())['version']
+          output = Path('releases') / version
+          prefix = f'Goalward_{version}_macos-universal'
+          expected = {f'{prefix}.dmg', f'{prefix}.zip'}
+          info = json.loads((output / 'BUILD-INFO.json').read_text())
+          if info['version'] != version or info['architecture'] != 'universal':
+              raise SystemExit('Build metadata does not match the requested universal version')
+          if sorted(info['architectures']) != ['arm64', 'x86_64']:
+              raise SystemExit('Build metadata does not list both macOS architectures')
+          if info['signing'] != 'ad-hoc' or info['notarized'] is not False:
+              raise SystemExit('Unexpected signature or notarization status')
+          if {item['file'] for item in info['artifacts']} != expected:
+              raise SystemExit('Missing or unexpected DMG/ZIP in build metadata')
+          for item in info['artifacts']:
+              path = output / item['file']
+              with path.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              if digest != item['sha256'] or path.stat().st_size != item['bytes']:
+                  raise SystemExit(f'Artifact failed verification: {path}')
+          if not (output / '安装说明.txt').is_file():
+              raise SystemExit('Installation guide is missing')
+          PY
+          version="$(node -p "require('./package.json').version")"
+          (cd "releases/$version" && shasum -a 256 -c SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goalward-macos-universal
+          path: releases/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

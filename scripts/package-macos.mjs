@@ -5,17 +5,21 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Build a self-contained, ad-hoc-signed Apple Silicon trial release. No UI
-// scripting or Gatekeeper changes are needed to create these containers.
+// Build a self-contained, ad-hoc-signed macOS trial release. No UI scripting or
+// Gatekeeper changes are needed to create these containers.
 const root = fileURLToPath(new URL('../', import.meta.url))
 const repackage = process.argv.includes('--repackage')
 const repackageRelease = process.argv.includes('--repackage-release')
-if (process.argv.slice(2).some(argument => !['--repackage', '--repackage-release'].includes(argument)) || (repackage && repackageRelease)) {
-  throw new Error('Usage: npm run mac:dist [-- --repackage | -- --repackage-release]')
+const universal = process.argv.includes('--universal')
+if (process.argv.slice(2).some(argument => !['--repackage', '--repackage-release', '--universal'].includes(argument)) || (repackage && repackageRelease)) {
+  throw new Error('Usage: npm run mac:dist [-- --universal] [-- --repackage | -- --repackage-release]')
 }
 if (process.platform !== 'darwin' || process.arch !== 'arm64') {
   throw new Error('Run mac:dist on an Apple Silicon Mac using native arm64 Node.js.')
 }
+const architecture = universal ? 'universal' : 'arm64'
+const expectedArchitectures = universal ? ['arm64', 'x86_64'] : ['arm64']
+const target = universal ? 'universal-apple-darwin' : undefined
 const config = JSON.parse(await readFile(join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
 const version = config.version
 if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)) throw new Error('Invalid release version')
@@ -83,7 +87,7 @@ async function dmgPython() {
 const python = await dmgPython()
 let before = repackageRelease ? undefined : await sourceDigest()
 const installerBefore = await installerDigest()
-let sourceApp = join(root, 'src-tauri/target/release/bundle/macos', `${config.productName}.app`)
+let sourceApp = join(root, 'src-tauri/target', ...(target ? [target] : []), 'release/bundle/macos', `${config.productName}.app`)
 let product = config.productName
 let minimumMacOS = config.bundle.macOS.minimumSystemVersion
 let builtAt
@@ -96,7 +100,7 @@ try {
   if (repackageRelease) {
     const previous = JSON.parse(await readFile(join(output, 'BUILD-INFO.json'), 'utf8'))
     const validHash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
-    if (previous.version !== version || previous.product !== config.productName || previous.architecture !== 'arm64' || previous.signing !== 'ad-hoc' || previous.notarized !== false
+    if (previous.version !== version || previous.product !== config.productName || previous.architecture !== architecture || previous.signing !== 'ad-hoc' || previous.notarized !== false
       || typeof previous.product !== 'string' || !previous.product || basename(previous.product) !== previous.product
       || typeof previous.minimumMacOS !== 'string' || typeof previous.builtAt !== 'string'
       || !validHash(previous.sourceDigest) || !validHash(previous.binarySha256) || !validHash(previous.appBundleDigest)) {
@@ -135,7 +139,7 @@ try {
     run('npm', ['test'])
     run('cargo', ['test', '--locked', '--manifest-path', 'src-tauri/Cargo.toml'])
     run('cargo', ['clippy', '--locked', '--manifest-path', 'src-tauri/Cargo.toml', '--all-targets', '--', '-D', 'warnings'])
-    run('npm', ['run', 'mac:build', '--', '--', '--locked'])
+    run('npm', ['run', 'mac:build', '--', ...(target ? ['--target', target] : []), '--', '--locked'])
     builtAt = new Date().toISOString()
   }
   if (!repackageRelease && await sourceDigest() !== before) throw new Error('Source changed during the build; rerun to produce a consistent release.')
@@ -143,23 +147,27 @@ try {
   const app = join(stage, basename(sourceApp))
   run('/usr/bin/ditto', [sourceApp, app])
   const binary = join(app, 'Contents/MacOS', executableName)
-  const architecture = read('/usr/bin/lipo', ['-archs', binary])
-  if (architecture !== 'arm64') throw new Error(`Unexpected executable architecture: ${architecture}`)
+  const actualArchitectures = read('/usr/bin/lipo', ['-archs', binary]).split(/\s+/).sort()
+  if (JSON.stringify(actualArchitectures) !== JSON.stringify([...expectedArchitectures].sort())) {
+    throw new Error(`Unexpected executable architectures: ${actualArchitectures.join(', ')}`)
+  }
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
   const verifiedAppDigest = await appDigest(app)
   if (repackageRelease && verifiedAppDigest !== expectedReleaseDigest) throw new Error('Staged app differs from the verified published ZIP app.')
-  const linked = read('/usr/bin/otool', ['-L', binary]).split('\n').slice(1).map(line => line.trim().split(' (')[0])
-  if (linked.some(path => !path.startsWith('/System/Library/') && !path.startsWith('/usr/lib/'))) {
-    throw new Error('App links to a non-system library; bundle it before distributing.')
+  for (const arch of expectedArchitectures) {
+    const linked = read('/usr/bin/otool', ['-arch', arch, '-L', binary]).split('\n').slice(1).map(line => line.trim().split(' (')[0])
+    if (linked.some(path => !path.startsWith('/System/Library/') && !path.startsWith('/usr/lib/'))) {
+      throw new Error(`The ${arch} app links to a non-system library; bundle it before distributing.`)
+    }
   }
   const packaged = (await files(app)).map(path => path.slice(app.length + 1))
   if (packaged.some(path => /(?:^|\/)(?:state\.json|auth\.json|\.env|node_modules|traces|fixtures|test-results)(?:\/|$)/.test(path))) {
     throw new Error('Unexpected development or user-data file in app bundle')
   }
   const guide = await readFile(join(root, 'docs/install-macos-trial.txt'), 'utf8')
-  const releaseGuide = `版本：${version}\n架构：Apple Silicon / arm64\n\n${guide}`
+  const releaseGuide = `版本：${version}\n架构：${universal ? 'Apple Silicon + Intel / universal' : 'Apple Silicon / arm64'}\n\n${guide}`
   if (await readFile(join(app, 'Contents/Resources/installation/安装说明.txt'), 'utf8') !== guide) throw new Error('App is missing the current installation guide')
-  const prefix = `${config.productName.replace(/\s+/g, '-')}_${version}_macos-arm64`
+  const prefix = `${config.productName.replace(/\s+/g, '-')}_${version}_macos-${architecture}`
   const dmg = join(workspace, `${prefix}.dmg`)
   const zip = join(workspace, `${prefix}.zip`)
   run(python, ['-m', 'dmgbuild', '-s', join(root, 'scripts/dmg-settings.py'), '-D', `app=${app}`, '-D', `background=${join(root, 'assets/installer/background.png')}`, `${config.productName} ${version}`, dmg])
@@ -170,6 +178,8 @@ try {
   try {
     const mountedApp = join(mounted, basename(app))
     run('/usr/bin/codesign', ['--verify', '--deep', '--strict', mountedApp])
+    const mountedArchitectures = read('/usr/bin/lipo', ['-archs', join(mountedApp, 'Contents/MacOS', executableName)]).split(/\s+/).sort()
+    if (JSON.stringify(mountedArchitectures) !== JSON.stringify([...expectedArchitectures].sort())) throw new Error('DMG app has unexpected architectures')
     if (await appDigest(mountedApp) !== verifiedAppDigest) throw new Error('The app inside the DMG differs from the verified app')
     if (await readlink(join(mounted, 'Applications')) !== '/Applications') throw new Error('Invalid Applications shortcut')
     await readFile(join(mounted, '.DS_Store'))
@@ -182,6 +192,8 @@ try {
   run('/usr/bin/ditto', ['-x', '-k', zip, unpacked])
   const unpackedApp = join(unpacked, basename(app))
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', unpackedApp])
+  const unpackedArchitectures = read('/usr/bin/lipo', ['-archs', join(unpackedApp, 'Contents/MacOS', executableName)]).split(/\s+/).sort()
+  if (JSON.stringify(unpackedArchitectures) !== JSON.stringify([...expectedArchitectures].sort())) throw new Error('ZIP app has unexpected architectures')
   if (await appDigest(unpackedApp) !== verifiedAppDigest || await appDigest(app) !== verifiedAppDigest) throw new Error('Packaged app differs from the verified app.')
   if ((!repackageRelease && await sourceDigest() !== before) || await installerDigest() !== installerBefore) throw new Error('Source or installer changed while packaging; rerun.')
   const artifacts = []
@@ -193,7 +205,7 @@ try {
   }
   await writeFile(join(output, 'SHA256SUMS.txt'), artifacts.map(item => `${item.sha256}  ${item.file}\n`).join(''))
   await writeFile(join(output, '安装说明.txt'), releaseGuide)
-  await writeFile(join(output, 'BUILD-INFO.json'), JSON.stringify({ product, version, builtAt, packagedAt: new Date().toISOString(), architecture, minimumMacOS, signing: 'ad-hoc', notarized: false, sourceDigest: before, appBundleDigest: verifiedAppDigest, installerDigest: installerBefore, binarySha256: sha256(await readFile(binary)), ...(repackagedFromZipSha256 ? { repackagedFromZipSha256 } : {}), artifacts }, null, 2) + '\n')
+  await writeFile(join(output, 'BUILD-INFO.json'), JSON.stringify({ product, version, builtAt, packagedAt: new Date().toISOString(), architecture, architectures: expectedArchitectures, minimumMacOS, signing: 'ad-hoc', notarized: false, sourceDigest: before, appBundleDigest: verifiedAppDigest, installerDigest: installerBefore, binarySha256: sha256(await readFile(binary)), ...(repackagedFromZipSha256 ? { repackagedFromZipSha256 } : {}), artifacts }, null, 2) + '\n')
   console.log(`\nDistribution files: ${resolve(output)}`)
 } finally {
   await rm(workspace, { recursive: true, force: true })

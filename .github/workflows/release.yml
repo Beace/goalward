@@ -1,0 +1,189 @@
+name: Draft macOS universal release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix (for example, 0.1.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      target_sha: ${{ steps.release.outputs.target_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate ref, version, and changelog
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+
+          event = os.environ['EVENT_NAME']
+          ref = os.environ['EVENT_REF']
+          if event == 'workflow_dispatch':
+              if ref != 'refs/heads/main':
+                  raise SystemExit('Run the release workflow from main')
+              version = os.environ['INPUT_VERSION']
+          elif event == 'push' and ref.startswith('refs/tags/v'):
+              version = ref.removeprefix('refs/tags/v')
+          else:
+              raise SystemExit(f'Unexpected release event/ref: {event} {ref}')
+          if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+              raise SystemExit(f'Invalid release version: {version}')
+
+          package = json.loads(Path('package.json').read_text())
+          tauri = json.loads(Path('src-tauri/tauri.conf.json').read_text())
+          cargo = tomllib.loads(Path('src-tauri/Cargo.toml').read_text())
+          lock = tomllib.loads(Path('src-tauri/Cargo.lock').read_text())
+          packages = [item for item in lock['package'] if item['name'] == 'goalward']
+          if len(packages) != 1 or any(value != version for value in (
+              package['version'], tauri['version'], cargo['package']['version'], packages[0]['version'])):
+              raise SystemExit('Version differs across package.json, Tauri, Cargo.toml, or Cargo.lock')
+
+          subprocess.run(['git', 'merge-base', '--is-ancestor', 'HEAD', 'origin/main'], check=True)
+          if event == 'workflow_dispatch' and subprocess.run(
+              ['git', 'show-ref', '--verify', '--quiet', f'refs/tags/v{version}']).returncode == 0:
+              raise SystemExit(f'v{version} already exists; use the tag workflow or choose another version')
+
+          changelog = Path('CHANGELOG.md').read_text().splitlines()
+          headings = [index for index, line in enumerate(changelog)
+                      if re.fullmatch(rf'## \[{re.escape(version)}\](?:\s+-\s+\d{{4}}-\d{{2}}-\d{{2}})?', line)]
+          if len(headings) != 1:
+              raise SystemExit(f'Expected exactly one CHANGELOG.md section for {version}')
+          end = next((index for index in range(headings[0] + 1, len(changelog))
+                      if changelog[index].startswith('## ')), len(changelog))
+          if not any(line.strip() for line in changelog[headings[0] + 1:end]):
+              raise SystemExit(f'CHANGELOG.md section for {version} is empty')
+
+          target = git('rev-parse', 'HEAD')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\n')
+              output.write(f'target_sha={target}\n')
+          print(f'Validated Goalward {version} at {target}')
+          PY
+
+  build:
+    needs: prepare
+    uses: ./.github/workflows/macos-universal-build.yml
+    with:
+      expected_version: ${{ needs.prepare.outputs.version }}
+    permissions:
+      contents: read
+
+  draft-release:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: goalward-macos-universal
+          path: releases/
+
+      - name: Verify downloaded assets and prepare notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          version = os.environ['VERSION']
+          output = Path('releases') / version
+          prefix = f'Goalward_{version}_macos-universal'
+          expected = {f'{prefix}.dmg', f'{prefix}.zip'}
+          info = json.loads((output / 'BUILD-INFO.json').read_text())
+          if info['version'] != version or info['architecture'] != 'universal':
+              raise SystemExit('Downloaded metadata has the wrong version or architecture')
+          if sorted(info['architectures']) != ['arm64', 'x86_64']:
+              raise SystemExit('Downloaded metadata does not list both macOS architectures')
+          if info['signing'] != 'ad-hoc' or info['notarized'] is not False:
+              raise SystemExit('Signing status differs from this trial release workflow')
+          if {item['file'] for item in info['artifacts']} != expected:
+              raise SystemExit('Downloaded DMG/ZIP set is incomplete')
+          for item in info['artifacts']:
+              path = output / item['file']
+              with path.open('rb') as stream:
+                  digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+              if digest != item['sha256'] or path.stat().st_size != item['bytes']:
+                  raise SystemExit(f'Asset failed verification: {path}')
+          for filename in ('SHA256SUMS.txt', '安装说明.txt'):
+              if not (output / filename).is_file():
+                  raise SystemExit(f'Missing release asset: {filename}')
+
+          lines = Path('CHANGELOG.md').read_text().splitlines()
+          start = next(index for index, line in enumerate(lines)
+                       if line == f'## [{version}]' or line.startswith(f'## [{version}] - '))
+          end = next((index for index in range(start + 1, len(lines))
+                      if lines[index].startswith('## ')), len(lines))
+          notes = '\n'.join(lines[start:end]).strip() + '\n'
+          Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(notes)
+          PY
+          (cd "releases/$VERSION" && sha256sum --check SHA256SUMS.txt)
+
+      - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+        run: |
+          tag="v$VERSION"
+          output="releases/$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A release for $tag already exists; inspect the existing draft before rerunning." >&2
+            exit 1
+          fi
+          options=(--repo "$GITHUB_REPOSITORY" --draft --prerelease --latest=false --title "Goalward $VERSION macOS universal trial" --notes-file "$RUNNER_TEMP/release-notes.md")
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            options+=(--verify-tag)
+          else
+            options+=(--target "$TARGET_SHA")
+          fi
+          gh release create "$tag" \
+            "$output/Goalward_${VERSION}_macos-universal.dmg" \
+            "$output/Goalward_${VERSION}_macos-universal.zip" \
+            "$output/SHA256SUMS.txt" \
+            "$output/BUILD-INFO.json" \
+            "$output/安装说明.txt" \
+            "${options[@]}"
