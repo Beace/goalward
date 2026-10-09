@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -24,8 +22,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Test versioning and release notes
-        run: python3 -m unittest scripts/test_release.py -v
+      - name: Test versioning, release notes, and GitHub Release state
+        run: python3 -m unittest discover -s scripts -p 'test_release*.py' -v
 
   build:
     uses: ./.github/workflows/macos-universal-build.yml

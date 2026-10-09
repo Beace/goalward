@@ -1,49 +1,77 @@
 name: Publish macOS universal prerelease
 
 on:
-  push:
-    branches: [main]
+  # GitHub evaluates cron in UTC: 03:17 UTC is 11:17 Asia/Shanghai.
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# Keep retries of one merged commit apart without dropping later merged events.
-# release.py derives each version from the main first-parent history, not from
-# the order in which these long-running builds finish.
+# Serialize scheduled and manual releases. A later pending run may replace an
+# earlier one; each run plans the complete unpublished main history.
 concurrency:
-  group: mac-release-sha-${{ github.sha }}
+  group: goalward-macos-release-main
   cancel-in-progress: false
 
 jobs:
   prepare:
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      # Draft Releases are visible to a token with write access. This step
+      # only reads them, but must detect an interrupted release before build.
+      contents: write
       pull-requests: read
     outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
       version: ${{ steps.plan.outputs.version }}
       previous_version: ${{ steps.plan.outputs.previous_version }}
       previous_sha: ${{ steps.plan.outputs.previous_sha }}
       target_sha: ${{ steps.plan.outputs.target_sha }}
-      pr_number: ${{ steps.plan.outputs.pr_number }}
-      pr_author: ${{ steps.plan.outputs.pr_author }}
     steps:
+      - name: Require the main branch
+        run: |
+          if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
+            echo 'Releases must be started from the main branch.' >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Resolve the merged PR and plan its release
+      - name: Plan the unpublished changes
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          MERGE_SHA: ${{ github.sha }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
-          test "$(git rev-parse HEAD)" = "$MERGE_SHA"
-          git merge-base --is-ancestor "$MERGE_SHA" origin/main
-          python3 scripts/release.py plan --sha "$MERGE_SHA" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/release-plan.json"
+          git fetch --tags origin
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git merge-base --is-ancestor "$TARGET_SHA" origin/main
+          python3 scripts/release_remote.py anchor \
+            --repo "$GITHUB_REPOSITORY" \
+            --baseline .github/release-baseline.json > "$RUNNER_TEMP/release-anchor.json"
+          python3 - <<'PY' > "$RUNNER_TEMP/release-plan.json"
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          anchor = json.loads(Path(os.environ['RUNNER_TEMP'], 'release-anchor.json').read_text())
+          subprocess.run([
+              sys.executable, 'scripts/release.py', 'plan',
+              '--sha', os.environ['TARGET_SHA'],
+              '--repo', os.environ['GITHUB_REPOSITORY'],
+              '--previous-version', anchor['version'],
+              '--previous-sha', anchor['sha'],
+          ], check=True)
+          PY
           python3 - <<'PY'
           import json
           import os
@@ -53,54 +81,79 @@ jobs:
           from pathlib import Path
 
           plan = json.loads(Path(os.environ['RUNNER_TEMP'], 'release-plan.json').read_text())
-          required = ('version', 'previous_version', 'previous_sha', 'target_sha', 'bump', 'subject')
+          required = ('has_changes', 'version', 'previous_version', 'previous_sha', 'target_sha', 'bump', 'commits')
           if any(key not in plan for key in required):
               raise SystemExit('Release plan is missing required fields')
-          if plan['target_sha'] != os.environ['MERGE_SHA'] or not re.fullmatch(r'[0-9a-f]{40}', plan['target_sha']):
-              raise SystemExit('Release plan does not target this merged PR')
+          if plan['target_sha'] != os.environ['TARGET_SHA'] or not re.fullmatch(r'[0-9a-f]{40}', plan['target_sha']):
+              raise SystemExit('Release plan does not target this main commit')
           if not re.fullmatch(r'\d+\.\d+\.\d+', plan['version']):
               raise SystemExit('Release plan has an invalid version')
           if not re.fullmatch(r'\d+\.\d+\.\d+', plan['previous_version']):
               raise SystemExit('Release plan has an invalid previous version')
           if not re.fullmatch(r'[0-9a-f]{40}', plan['previous_sha']):
               raise SystemExit('Release plan has an invalid previous commit')
-          if plan['bump'] not in ('major', 'minor', 'patch'):
-              raise SystemExit('Release plan has an invalid version bump')
-          sha = os.environ['MERGE_SHA']
+          if type(plan['has_changes']) is not bool:
+              raise SystemExit('Release plan has an invalid change flag')
+          if not plan['has_changes']:
+              if plan['commits'] or plan['bump'] is not None or plan['version'] != plan['previous_version']:
+                  raise SystemExit('An unchanged release plan contains a version bump')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                  output.write('has_changes=false\n')
+              print(f"No unpublished changes at {plan['target_sha']}; skipping the Mac build")
+              raise SystemExit(0)
+          if plan['bump'] not in ('major', 'minor', 'patch') or not plan['commits']:
+              raise SystemExit('Release plan has no valid version bump or commits')
           repo = os.environ['GITHUB_REPOSITORY']
-          for attempt in range(6):
-              result = subprocess.run(
-                  ['gh', 'api', f'repos/{repo}/commits/{sha}/pulls?per_page=100'],
-                  capture_output=True, text=True)
-              if result.returncode:
-                  raise SystemExit(f'Could not resolve merged PR: {result.stderr.strip()}')
-              pulls = json.loads(result.stdout)
-              matches = [pr for pr in pulls if pr.get('merged_at')
-                         and pr.get('merge_commit_sha') == sha
-                         and pr.get('base', {}).get('ref') == 'main'
-                         and pr.get('base', {}).get('repo', {}).get('full_name') == repo]
-              if len(matches) > 1:
-                  raise SystemExit('More than one merged PR claims this main commit')
-              if matches:
-                  break
-              time.sleep(3)
-          else:
-              raise SystemExit('The main commit is not associated with a merged PR')
-          pr = matches[0]
-          author = pr.get('user', {}).get('login')
-          number = pr.get('number')
-          if not isinstance(number, int) or number < 1 or not isinstance(author, str):
-              raise SystemExit('Merged PR is missing its number or author')
+          for commit in plan['commits']:
+              sha = commit['sha']
+              for attempt in range(6):
+                  result = subprocess.run(
+                      ['gh', 'api', f'repos/{repo}/commits/{sha}/pulls?per_page=100'],
+                      capture_output=True, text=True)
+                  if result.returncode:
+                      raise SystemExit(f'Could not resolve merged PR for {sha}: {result.stderr.strip()}')
+                  pulls = json.loads(result.stdout)
+                  matches = [pr for pr in pulls if pr.get('merged_at')
+                             and pr.get('merge_commit_sha') == sha
+                             and pr.get('base', {}).get('ref') == 'main'
+                             and pr.get('base', {}).get('repo', {}).get('full_name') == repo]
+                  if len(matches) > 1:
+                      raise SystemExit(f'More than one merged PR claims {sha}')
+                  if matches:
+                      break
+                  time.sleep(3)
+              else:
+                  raise SystemExit(f'Main commit {sha} is not associated with a merged PR')
+              pr = matches[0]
+              author = pr.get('user', {}).get('login')
+              number = pr.get('number')
+              if not isinstance(number, int) or number < 1 or not isinstance(author, str) or not author:
+                  raise SystemExit(f'Merged PR for {sha} is missing its number or author')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('has_changes=true\n')
               for key in ('version', 'previous_version', 'previous_sha', 'target_sha'):
                   output.write(f'{key}={plan[key]}\n')
-              output.write(f'pr_number={number}\n')
-              output.write(f'pr_author={author}\n')
-          print(f"Goalward {plan['version']} ({plan['bump']}) from {plan['target_sha']}")
+          print(f"Goalward {plan['version']} ({plan['bump']}) from {len(plan['commits'])} merged PRs at {plan['target_sha']}")
           PY
+
+      - name: Reject a conflicting unpublished draft before building
+        if: steps.plan.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_VERSION: ${{ steps.plan.outputs.previous_version }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          TARGET_SHA: ${{ steps.plan.outputs.target_sha }}
+        run: |
+          python3 scripts/release_remote.py check-candidate \
+            --repo "$GITHUB_REPOSITORY" \
+            --anchor-version "$PREVIOUS_VERSION" \
+            --tag "v$VERSION" \
+            --target "$TARGET_SHA" \
+            --fail-on-assets
 
   build:
     needs: prepare
+    if: needs.prepare.outputs.has_changes == 'true'
     uses: ./.github/workflows/macos-universal-build.yml
     with:
       source_sha: ${{ needs.prepare.outputs.target_sha }}
@@ -110,15 +163,54 @@ jobs:
 
   publish:
     needs: [prepare, build]
+    if: needs.prepare.outputs.has_changes == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.target_sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Recheck the release anchor after the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
+          PREVIOUS_SHA: ${{ needs.prepare.outputs.previous_sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git fetch --tags origin
+          python3 scripts/release_remote.py verify-anchor \
+            --repo "$GITHUB_REPOSITORY" \
+            --baseline .github/release-baseline.json \
+            --version "$PREVIOUS_VERSION" \
+            --sha "$PREVIOUS_SHA"
+          python3 scripts/release_remote.py check-candidate \
+            --repo "$GITHUB_REPOSITORY" \
+            --anchor-version "$PREVIOUS_VERSION" \
+            --tag "v$VERSION" \
+            --target "$TARGET_SHA"
+          python3 scripts/release.py plan \
+            --sha "$TARGET_SHA" \
+            --repo "$GITHUB_REPOSITORY" \
+            --previous-version "$PREVIOUS_VERSION" \
+            --previous-sha "$PREVIOUS_SHA" > "$RUNNER_TEMP/release-plan.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan = json.loads(Path(os.environ['RUNNER_TEMP'], 'release-plan.json').read_text())
+          if (plan['has_changes'] is not True
+                  or plan['version'] != os.environ['VERSION']
+                  or plan['target_sha'] != os.environ['TARGET_SHA']):
+              raise SystemExit('The release plan changed while the Mac build ran')
+          PY
 
       - uses: actions/download-artifact@v8
         with:
@@ -145,7 +237,7 @@ jobs:
               raise SystemExit('Downloaded distribution contains missing or unexpected files')
           info = json.loads((output / 'BUILD-INFO.json').read_text())
           if info['version'] != version or info['sourceCommit'] != os.environ['TARGET_SHA']:
-              raise SystemExit('Build metadata version or source commit differs from the merged PR')
+              raise SystemExit('Build metadata version or source commit differs from the planned main snapshot')
           if info['architecture'] != 'universal' or sorted(info['architectures']) != ['arm64', 'x86_64']:
               raise SystemExit('Build metadata does not identify both Mac architectures')
           if info['signing'] != 'ad-hoc' or info['notarized'] is not False:
@@ -174,17 +266,52 @@ jobs:
           PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
           PREVIOUS_SHA: ${{ needs.prepare.outputs.previous_sha }}
           TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          PR_AUTHOR: ${{ needs.prepare.outputs.pr_author }}
         run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import time
+          from pathlib import Path
+
+          plan = json.loads(Path(os.environ['RUNNER_TEMP'], 'release-plan.json').read_text())
+          repo = os.environ['GITHUB_REPOSITORY']
+          entries = []
+          for commit in plan['commits']:
+              sha = commit['sha']
+              for attempt in range(6):
+                  result = subprocess.run(
+                      ['gh', 'api', f'repos/{repo}/commits/{sha}/pulls?per_page=100'],
+                      capture_output=True, text=True)
+                  if result.returncode:
+                      raise SystemExit(f'Could not resolve merged PR for {sha}: {result.stderr.strip()}')
+                  pulls = json.loads(result.stdout)
+                  matches = [pr for pr in pulls if pr.get('merged_at')
+                             and pr.get('merge_commit_sha') == sha
+                             and pr.get('base', {}).get('ref') == 'main'
+                             and pr.get('base', {}).get('repo', {}).get('full_name') == repo]
+                  if len(matches) > 1:
+                      raise SystemExit(f'More than one merged PR claims {sha}')
+                  if matches:
+                      break
+                  time.sleep(3)
+              else:
+                  raise SystemExit(f'Main commit {sha} is not associated with a merged PR')
+              pr = matches[0]
+              author = pr.get('user', {}).get('login')
+              number = pr.get('number')
+              if not isinstance(number, int) or number < 1 or not isinstance(author, str) or not author:
+                  raise SystemExit(f'Merged PR for {sha} is missing its number or author')
+              entries.append({**commit, 'pr_number': number, 'pr_author': author})
+          Path(os.environ['RUNNER_TEMP'], 'release-entries.json').write_text(json.dumps(entries))
+          PY
           python3 scripts/release.py notes \
             --sha "$TARGET_SHA" \
             --repo "$GITHUB_REPOSITORY" \
             --version "$VERSION" \
             --previous-version "$PREVIOUS_VERSION" \
             --previous-sha "$PREVIOUS_SHA" \
-            --pr-number "$PR_NUMBER" \
-            --pr-author "$PR_AUTHOR" \
+            --entries-file "$RUNNER_TEMP/release-entries.json" \
             --output "$RUNNER_TEMP/release-notes.md"
           test -s "$RUNNER_TEMP/release-notes.md"
 
@@ -192,6 +319,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
+          PREVIOUS_SHA: ${{ needs.prepare.outputs.previous_sha }}
           TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
         run: |
           python3 - <<'PY'
@@ -261,6 +390,16 @@ jobs:
                       raise SystemExit(f'{tag} asset differs from the verified build: {name}')
               return assets
 
+          # Fail closed if anyone changed the published anchor while the build
+          # or the asset verification was running.
+          command('python3', 'scripts/release_remote.py', 'verify-anchor',
+                  '--repo', repo, '--baseline', '.github/release-baseline.json',
+                  '--version', os.environ['PREVIOUS_VERSION'],
+                  '--sha', os.environ['PREVIOUS_SHA'])
+          command('python3', 'scripts/release_remote.py', 'check-candidate',
+                  '--repo', repo,
+                  '--anchor-version', os.environ['PREVIOUS_VERSION'],
+                  '--tag', tag, '--target', target)
           current = release()
           tag_sha = remote_tag()
           if current is None:
