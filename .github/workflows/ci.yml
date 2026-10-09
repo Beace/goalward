@@ -1,21 +1,60 @@
-name: macOS universal CI
+name: Pull request unit tests
 
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: mac-ci-${{ github.event.pull_request.number || github.ref }}
+  group: pr-tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    uses: ./.github/workflows/macos-universal-build.yml
-    permissions:
-      contents: read
+  release-tooling:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test versioning, release notes, and GitHub Release state
+        run: python3 -m unittest discover -s scripts -p 'test_release*.py' -v
+
+  frontend-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked JavaScript dependencies from the public registry
+        run: npm ci --registry=https://registry.npmjs.org --no-audit --no-fund
+      - name: Run frontend unit tests
+        run: npm test
+
+  rust-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup default 1.99.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: goalward-unit-tests-rust
+          cache-bin: 'false'
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib

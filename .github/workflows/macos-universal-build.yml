@@ -8,6 +8,16 @@ on:
         required: false
         type: string
         default: ''
+      source_sha:
+        description: Merged main commit to package. Empty for CI.
+        required: false
+        type: string
+        default: ''
+      release_version:
+        description: Version stamped into the merged source before packaging. Empty for CI.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -20,21 +30,23 @@ jobs:
       CARGO_INCREMENTAL: '0'
       CARGO_BUILD_JOBS: '2'
       DMG_PYTHON: python3
+      GOALWARD_SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: arm64
 
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: package-lock.json
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          architecture: arm64
 
       - name: Install Rust targets and Clippy
         run: |
@@ -47,11 +59,25 @@ jobs:
           workspaces: src-tauri -> target
           shared-key: goalward-universal-rust
           cache-bin: 'false'
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          save-if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.release_version != '' }}
+
+      # Stamping changes only the root package versions; resolve caches from
+      # the committed dependency locks before modifying this ephemeral checkout.
+      - name: Stamp the release version
+        if: inputs.release_version != ''
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'A release version requires a full merged commit SHA.' >&2
+            exit 1
+          fi
+          python3 scripts/release.py stamp "$RELEASE_VERSION"
 
       - name: Check release versions
         env:
-          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          EXPECTED_VERSION: ${{ inputs.release_version || inputs.expected_version }}
         run: |
           python3 - <<'PY'
           import json
@@ -105,10 +131,13 @@ jobs:
         run: npm run mac:dist
 
       - name: Verify distribution files
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           python3 - <<'PY'
           import hashlib
           import json
+          import os
           from pathlib import Path
 
           version = json.loads(Path('package.json').read_text())['version']
@@ -118,6 +147,9 @@ jobs:
           info = json.loads((output / 'BUILD-INFO.json').read_text())
           if info['version'] != version or info['architecture'] != 'universal':
               raise SystemExit('Build metadata does not match the requested universal version')
+          expected_source = os.environ['EXPECTED_SOURCE_SHA']
+          if expected_source and info.get('sourceCommit') != expected_source:
+              raise SystemExit('Build metadata does not match the merged source commit')
           if sorted(info['architectures']) != ['arm64', 'x86_64']:
               raise SystemExit('Build metadata does not list both macOS architectures')
           if info['signing'] != 'ad-hoc' or info['notarized'] is not False:
