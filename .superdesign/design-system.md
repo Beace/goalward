@@ -198,6 +198,7 @@ These are project-specific applications of the skill, rather than additional cla
 | Interaction | Required behavior |
 | --- | --- |
 | Buttons, switches, runtime / model selectors | Immediate pressed / selected feedback; preserve standard activation semantics; no decorative bounce |
+| Pointer hover on buttons, tabs, selectors and menu / list items | Existing background, text and border colors use the shared `--motion-feedback-duration` / `--motion-feedback-ease` transition (120 ms) in `src/index.css`, on both enter and leave. Gate hover transitions to a fine pointer with hover capability. Press, keyboard highlight changes and reduced motion stay immediate; do not add a new hover color merely to animate it. |
 | Popover, command menu, dialog, inspector | Origin matches the trigger or pane edge; symmetric enter / exit; interruption and focus restoration work during rapid open / close |
 | Task, agent, settings category switching | Update the selected state immediately; use restrained continuity where useful; no whole-page staged entrance |
 | Tool details, raw records, advanced settings | Shared measured-height spring with a rotating indicator; retain current height/velocity on reversal, hide closed content from keyboard/accessibility immediately, use static updates for reduced motion. Once open, streaming and nested content use natural layout without replaying the parent animation. |

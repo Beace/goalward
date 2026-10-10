@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { hoverFeedbackHandlers } from "@/lib/motion"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { Select as SelectPrimitive } from "radix-ui"
 
@@ -71,6 +72,9 @@ function SelectContent({
   position = "item-aligned",
   align = "center",
   ref,
+  onPointerOverCapture,
+  onPointerMoveCapture,
+  onKeyDownCapture,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   const animatedRef = useDialogSurfaceFade('popover', ref)
@@ -87,6 +91,7 @@ function SelectContent({
         )}
         position={position}
         align={align}
+        {...hoverFeedbackHandlers<HTMLDivElement>({ onPointerOverCapture, onPointerMoveCapture, onKeyDownCapture })}
         {...props}
       >
         <SelectScrollUpButton />

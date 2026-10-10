@@ -23,7 +23,7 @@
 .goal-subtitle { margin: 0; font-size: 12px; line-height: 19px; color: var(--sidebar-foreground); overflow-wrap: anywhere; }
 .goal-tabs { flex: 1; min-height: 0; gap: 0; }
 .goal-tabs > [data-slot=tabs-list] { margin: 12px 0 0; padding: 0 24px; border-bottom: 1px solid var(--border); height: 38px; min-height: 38px; width: 100%; border-radius: 0; justify-content: flex-start; flex-shrink: 0; gap: 24px; }
-.goal-tabs > [data-slot=tabs-list] [data-slot=tabs-trigger] { flex: none; border: 0; padding: 0 0 9px; font-size: 12px; border-radius: 0; transition: none; }
+.goal-tabs > [data-slot=tabs-list] [data-slot=tabs-trigger] { flex: none; border: 0; padding: 0 0 9px; font-size: 12px; border-radius: 0; }
 .goal-tabs > [data-slot=tabs-list] [data-slot=tabs-trigger]::after { bottom: 0; background: var(--primary); transition: none; }
 .goal-tab-count { font-size: 11px; color: var(--muted-foreground); }
 .goal-scroll { overflow-y: auto; min-height: 0; padding: 18px 24px 28px; }

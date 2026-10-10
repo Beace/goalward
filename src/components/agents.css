@@ -33,7 +33,7 @@
 .agents-tabs { flex:1; min-height:0; gap:0; }
 .agents-tab-bar { border-bottom:1px solid var(--color-border); padding:0 24px; flex-shrink:0; }
 .agents-tab-bar [data-slot=tabs-list] { height:40px; gap:22px; padding:0; border-radius:0; background:transparent; }
-.agents-tab-bar [data-slot=tabs-trigger] { padding:0; height:40px; font-size:12px; color:var(--color-muted-foreground); background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; box-shadow:none; transition:none; }
+.agents-tab-bar [data-slot=tabs-trigger] { padding:0; height:40px; font-size:12px; color:var(--color-muted-foreground); background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; box-shadow:none; }
 .agents-tab-bar [data-slot=tabs-trigger][data-state=active] { color:var(--color-primary); border-bottom-color:var(--color-primary); background:transparent; }
 .agents-tab-bar [data-slot=tabs-trigger] span { font-size:10px; color:var(--color-muted-foreground); }
 .agents-content { flex:1; overflow:auto; min-height:0; margin:0; padding:20px 24px 28px; }

@@ -3,6 +3,7 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
+import { hoverFeedbackHandlers } from "@/lib/motion"
 import { Tabs as TabsPrimitive } from "radix-ui"
 
 function Tabs({
@@ -42,6 +43,9 @@ const tabsListVariants = cva(
 function TabsList({
   className,
   variant = "default",
+  onPointerOverCapture,
+  onPointerMoveCapture,
+  onKeyDownCapture,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.List> &
   VariantProps<typeof tabsListVariants>) {
@@ -50,6 +54,7 @@ function TabsList({
       data-slot="tabs-list"
       data-variant={variant}
       className={cn(tabsListVariants({ variant }), className)}
+      {...hoverFeedbackHandlers<HTMLDivElement>({ onPointerOverCapture, onPointerMoveCapture, onKeyDownCapture })}
       {...props}
     />
   )
