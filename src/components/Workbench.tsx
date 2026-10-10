@@ -25,7 +25,7 @@ import { useComposerAttachments } from './useComposerAttachments'
 import { promptWithAttachments } from '@/lib/attachments'
 import { MemberConfiguration } from './MemberConfiguration'
 import { RunActivityList, RunFeedback } from './RunFeedback'
-import { quietSpring } from '@/lib/motion'
+import { hoverFeedbackHandlers, quietSpring } from '@/lib/motion'
 import { getTaskStatus } from '@/lib/domain'
 import { groupConversationMessages } from '@/lib/conversation'
 import { formatTime } from '@/lib/utils'
@@ -159,7 +159,7 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
           {goalTitle && <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon-sm" className="task-goal-link" onClick={onGoal} aria-label={`所属目标：${goalTitle}`}><GitBranch size={14} /></Button></TooltipTrigger><TooltipContent>所属目标：{goalTitle}</TooltipContent></Tooltip></TooltipProvider>}
           <TooltipProvider><Tooltip><TooltipTrigger asChild><span className="task-directory" tabIndex={0}><Folder size={12} /><span>{task.directory || '新任务需要选择工作目录'}</span></span></TooltipTrigger><TooltipContent>{task.directory || '新任务需要选择工作目录'}</TooltipContent></Tooltip></TooltipProvider>
         </div>
-      <div className="task-actions"><div className="mode-switch" aria-label="执行模式">{(['solo', 'team'] as const).map(mode => <Button key={mode} variant="ghost" size="sm" disabled={running || historic} aria-pressed={task.mode === mode} onClick={() => changeMode(mode)}>{task.mode === mode && <motion.span className="mode-indicator" layoutId={`mode-${task.id}`} transition={reduced ? { duration: 0 } : quietSpring} />}<span className="relative flex items-center gap-1.5">{mode === 'solo' ? <Terminal size={13} /> : <Users size={13} />}{mode === 'solo' ? '单 Agent' : '协作'}</span></Button>)}</div>
+      <div className="task-actions"><div className="mode-switch" aria-label="执行模式" {...hoverFeedbackHandlers<HTMLDivElement>({})}>{(['solo', 'team'] as const).map(mode => <Button key={mode} variant="ghost" size="sm" disabled={running || historic} aria-pressed={task.mode === mode} onClick={() => changeMode(mode)}>{task.mode === mode && <motion.span className="mode-indicator" layoutId={`mode-${task.id}`} transition={reduced ? { duration: 0 } : quietSpring} />}<span className="relative flex items-center gap-1.5">{mode === 'solo' ? <Terminal size={13} /> : <Users size={13} />}{mode === 'solo' ? '单 Agent' : '协作'}</span></Button>)}</div>
         <div className="flex items-center gap-2 ml-auto">{task.runs.length > 0 && <Select value={selectedRun?.id} onValueChange={onSelectRun}><SelectTrigger className="run-select" aria-label="执行历史"><History size={12} /><SelectValue>第 {task.runs.findIndex(run => run.id === selectedRun?.id) + 1} 次执行</SelectValue></SelectTrigger><SelectContent>{task.runs.map((r, i) => <SelectItem key={r.id} value={r.id}>第 {i + 1} 次执行 {r === latest ? '· 最新' : ''}</SelectItem>)}</SelectContent></Select>}{running && <Button variant="outline" size="sm" onClick={onStop}><Square size={11} />停止执行</Button>}</div>
       </div>
       </div>

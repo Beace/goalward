@@ -18,8 +18,16 @@
   --color-sidebar-border: #2e3231; --color-sidebar-ring: #c9b8a0;
   --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 8px;
 }
-:root { --app-font-sans: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color-scheme: dark; --background: #191a1a; --foreground: #eaece8; --card: #202222; --primary: #d9c8b1; --radius: 6px; --motion-state-duration: 200ms; --motion-state-ease: cubic-bezier(0.77, 0, 0.175, 1); --motion-press-duration: 120ms; --motion-press-ease: cubic-bezier(0.23, 1, 0.32, 1); }
+:root { --app-font-sans: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color-scheme: dark; --background: #191a1a; --foreground: #eaece8; --card: #202222; --primary: #d9c8b1; --radius: 6px; --motion-state-duration: 200ms; --motion-state-ease: cubic-bezier(0.77, 0, 0.175, 1); --motion-press-duration: 120ms; --motion-press-ease: cubic-bezier(0.23, 1, 0.32, 1); --motion-feedback-duration: 120ms; --motion-feedback-ease: cubic-bezier(0, 0, .58, 1); }
 :root { --file-icon-orange: #e6a071; --file-icon-blue: #83b4e8; --file-icon-purple: #b59cde; --file-icon-cyan: #78c6d6; --file-icon-yellow: #d7be78; --file-icon-green: #89b99a; --file-icon-red: #df9294; }
+:root {
+  --motion-feedback-transition:
+    background-color var(--motion-feedback-duration) var(--motion-feedback-ease),
+    color var(--motion-feedback-duration) var(--motion-feedback-ease),
+    border-color var(--motion-feedback-duration) var(--motion-feedback-ease),
+    text-decoration-color var(--motion-feedback-duration) var(--motion-feedback-ease),
+    opacity var(--motion-feedback-duration) var(--motion-feedback-ease);
+}
 * { box-sizing: border-box; border-color: #2e3231; }
 body { margin: 0; font-family: var(--font-sans); background: #101111; color: var(--foreground); font-size: 13px; line-height: 1.6; overflow: hidden; }
 button, input, textarea { font: inherit; }
@@ -32,7 +40,7 @@ button:active:not(:disabled) { filter: brightness(.92); }
 svg { stroke-width: 1.5; flex-shrink: 0; }
 ::selection { background: #454239; }
 ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-thumb { background: #3b403b; border-radius: 3px; }
-[data-slot=button] { font-size: 12px; border-radius: 4px; transition-property: color, background-color, border-color, opacity; transition-duration: 100ms; }
+[data-slot=button] { font-size: 12px; border-radius: 4px; }
 [data-slot=button][data-size=default] { height: 32px; padding: 0 12px; }
 [data-slot=button][data-size=sm] { height: 28px; padding: 0 10px; }
 [data-slot=button][data-size=icon-sm] { width: 28px; height: 28px; }
@@ -188,7 +196,6 @@ kbd { font-family: var(--font-sans); font-size: 10px; color: #90998e; }
 .inspector-resize { z-index: 35; }
 
 /* Workbench v13: one recipient entrance and a quiet, pinned instruction area. */
-:root { --motion-feedback-duration: 120ms; --motion-feedback-ease: cubic-bezier(0, 0, .58, 1); }
 .composer-wrap { padding: 8px 16px; border-top: 1px solid var(--color-border); background: var(--background); }
 .composer-wrap .run-feedback { min-height: 36px; padding: 4px 0; }
 .composer { border-color: var(--color-border-strong); background: var(--color-surface-inset); transition: border-color var(--motion-feedback-duration) var(--motion-feedback-ease); }
@@ -289,3 +296,66 @@ kbd { font-family: var(--font-sans); font-size: 10px; color: #90998e; }
 .composer-attachment-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted-foreground); }
 .composer-attachment button { width: 28px; height: 28px; }
 .composer-importing { display: flex; align-items: center; gap: 6px; padding: 4px 12px; color: var(--color-muted-foreground); font-size: 12px; }
+
+/* Hover feedback belongs to the control surface, including native disclosure buttons.
+   Keep the transition on the resting state so both enter and leave can retarget.
+   Command items keep instant keyboard selection; their state is not a hover style. */
+:is(button:not([data-slot=checkbox], [data-slot=switch]), [data-slot=button], [data-slot=tabs-trigger], [data-slot=select-trigger],
+    [data-slot=select-item], [data-slot=dropdown-menu-item],
+    [data-slot=dropdown-menu-checkbox-item], [data-slot=dropdown-menu-radio-item],
+    [data-slot=dropdown-menu-sub-trigger], a[data-slot=badge], [data-slot=table-row],
+    .recipient-model-row) {
+  transition: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  :is(button:not([data-slot=checkbox], [data-slot=switch]), [data-slot=button], [data-slot=tabs-trigger], [data-slot=select-trigger],
+      [data-slot=select-item], [data-slot=dropdown-menu-item],
+      [data-slot=dropdown-menu-checkbox-item], [data-slot=dropdown-menu-radio-item],
+      [data-slot=dropdown-menu-sub-trigger], a[data-slot=badge], [data-slot=table-row],
+      .recipient-model-row) {
+    transition: var(--motion-feedback-transition);
+  }
+  .dashboard-page [data-slot=button] {
+    transition: var(--motion-feedback-transition), transform var(--motion-press-duration) var(--motion-press-ease);
+  }
+  .overlay-resize-handle::after {
+    transition: background-color var(--motion-feedback-duration) var(--motion-feedback-ease);
+  }
+}
+/* Presses, keyboard focus/selection and direct resize feedback never wait for hover. */
+:is(button:not([data-slot=checkbox], [data-slot=switch]), [data-slot=button], [data-slot=tabs-trigger], [data-slot=select-trigger],
+    [data-slot=select-item], [data-slot=dropdown-menu-item],
+    [data-slot=dropdown-menu-checkbox-item], [data-slot=dropdown-menu-radio-item],
+    [data-slot=dropdown-menu-sub-trigger], a[data-slot=badge]):is(:active, :focus-visible, :disabled, [data-disabled], [aria-disabled=true]),
+.dashboard-page [data-slot=button]:is(:active, :focus-visible, :disabled),
+.recipient-model-row:has(:active, :focus-visible),
+.overlay-resize-handle:is([data-active], :focus-visible)::after {
+  transition-duration: 0ms;
+}
+/* Keyboard navigation clears the previous highlight as quickly as it sets the next. */
+:is([role=tablist], [role=menu], [role=listbox], .mode-switch):is([data-hover-input=keyboard], :not([data-hover-input=pointer]):has(:focus-visible))
+  :is(button, [data-slot=tabs-trigger], [data-slot=select-item],
+      [data-slot=dropdown-menu-item], [data-slot=dropdown-menu-checkbox-item],
+      [data-slot=dropdown-menu-radio-item], [data-slot=dropdown-menu-sub-trigger]) {
+  transition-duration: 0ms;
+}
+@media (hover: hover) and (pointer: fine) {
+  /* :hover can be resolved before pointer capture changes the input marker.
+     Tabs only change hover text; mode buttons only change hover background.
+     Enable those properties in that same style update, while keyboard selection
+     backgrounds, borders and underlines continue to settle immediately. */
+  [data-slot=tabs-list][data-hover-input=keyboard] [data-slot=tabs-trigger]:hover:not(:focus-visible):not(:active):not(:disabled):not(:is(.agents-tab-bar, .work-tab-bar, .inspector-tabs-heading) [data-slot=tabs-trigger]) {
+    transition-duration: 0ms, var(--motion-feedback-duration), 0ms, 0ms, 0ms;
+  }
+  .mode-switch[data-hover-input=keyboard] [data-slot=button]:hover:not(:focus-visible):not(:active):not(:disabled) {
+    transition-duration: var(--motion-feedback-duration), 0ms, 0ms, 0ms, 0ms;
+  }
+  [data-slot=tabs-list][data-hover-input=pointer] [data-slot=tabs-trigger]:not(:active):not(:disabled),
+  .mode-switch[data-hover-input=pointer] [data-slot=button]:not(:active):not(:disabled),
+  :is([data-slot=select-content], [data-slot=dropdown-menu-content], [data-slot=dropdown-menu-sub-content])[data-hover-input=pointer]
+    :is([data-slot=select-item], [data-slot=dropdown-menu-item],
+        [data-slot=dropdown-menu-checkbox-item], [data-slot=dropdown-menu-radio-item],
+        [data-slot=dropdown-menu-sub-trigger]):not(:active):not([data-disabled]) {
+    transition-duration: var(--motion-feedback-duration);
+  }
+}
