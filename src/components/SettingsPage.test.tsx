@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage, type SettingsPageProps } from './SettingsPage'
+import { I18nProvider } from '@/i18n'
 import type { LocalDiscoveryReport, Settings } from '@/lib/types'
 
 const bridge = vi.hoisted(() => ({
@@ -274,6 +275,22 @@ describe('model reasoning defaults', () => {
 
 
 describe('SettingsPage appearance', () => {
+  it('saves a manual English choice and can return to following the system', async () => {
+    bridge.listSystemFonts.mockResolvedValue([])
+    const callbacks = mount()
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    expect(screen.getByRole('combobox', { name: '界面语言' }).textContent).toBe('跟随系统')
+    await selectOption('界面语言', 'English')
+    expect(callbacks.onSave).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '保存更改' }))
+    await waitFor(() => expect(callbacks.onSave).toHaveBeenCalledOnce())
+    expect(callbacks.onSave.mock.calls[0][0].language).toBe('en')
+    await selectOption('界面语言', '跟随系统')
+    fireEvent.click(screen.getByRole('button', { name: '保存更改' }))
+    await waitFor(() => expect(callbacks.onSave).toHaveBeenCalledTimes(2))
+    expect(callbacks.onSave.mock.calls[1][0].language).toBeUndefined()
+  })
+
   it('keeps a saved missing font and reports fallback without silently rewriting it', async () => {
     bridge.listSystemFonts.mockResolvedValue(['Menlo', 'PingFang SC'])
     const callbacks = mount({ settings: { ...settings(), fontFamily: 'Uninstalled Font' } })
@@ -293,5 +310,40 @@ describe('SettingsPage appearance', () => {
     await screen.findByText('本机可用字体 · 1 款')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(callbacks.onSave).not.toHaveBeenCalled()
+  })
+
+  it('renders settings and the language control in English', async () => {
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'en-US' })
+    bridge.listSystemFonts.mockResolvedValue([])
+    const onSave = vi.fn(async (_settings: Settings) => undefined)
+    render(<I18nProvider><SettingsPage settings={settings()} activeCount={0} onSave={onSave} onBack={vi.fn()} onExport={vi.fn()} /></I18nProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Appearance' }))
+    expect(screen.getByRole('heading', { name: 'Appearance' })).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: 'Interface language' }).textContent).toBe('Follow system')
+    expect(document.documentElement.lang).toBe('en')
+    await selectOption('Interface language', '中文')
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+    expect(onSave.mock.calls[0][0].language).toBe('zh')
+  })
+
+  it('translates only a saved built-in runtime description for display', async () => {
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'en-US' })
+    const initial = settings()
+    const savedDescription = '使用本机 Codex CLI 的登录与配置；安装状态需检测。'
+    initial.runtimes[0].description = savedDescription
+    initial.runtimes[1].description = 'My own Claude Code notes 中文'
+    const onSave = vi.fn(async (_settings: Settings) => undefined)
+    render(<I18nProvider><SettingsPage settings={initial} activeCount={0} onSave={onSave} onBack={vi.fn()} onExport={vi.fn()} /></I18nProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Advanced startup settings' }))
+    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('Uses local Codex CLI login and configuration; installation must be checked.')
+    fireEvent.click(screen.getByRole('button', { name: /^Claude Code\s*Disabled/ }))
+    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('My own Claude Code notes 中文')
+    fireEvent.click(screen.getByRole('button', { name: /^Codex\s*Disabled/ }))
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Local Codex' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+    expect(onSave.mock.calls[0][0].runtimes[0].description).toBe(savedDescription)
+    expect(onSave.mock.calls[0][0].runtimes[1].description).toBe('My own Claude Code notes 中文')
   })
 })

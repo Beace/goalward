@@ -3,6 +3,7 @@ import {
   FileJson, FileSpreadsheet, FileTerminal, FileText, FileType, FileVideo,
   Globe, Paintbrush, createLucideIcon, type LucideIcon,
 } from 'lucide-react'
+import { useI18n } from '@/i18n'
 
 const Markdown = createLucideIcon('Markdown', [
   ['rect', { x: 2, y: 5, width: 20, height: 14, rx: 2, key: 'frame' }],
@@ -30,13 +31,18 @@ const formats: { extensions: string[]; icon: LucideIcon; label: string; tone: Ic
   { extensions: ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac'], icon: FileAudio, label: '音频', tone: 'purple' },
   { extensions: ['mp4', 'mov', 'webm', 'mkv', 'avi'], icon: FileVideo, label: '视频', tone: 'red' },
 ]
+const englishLabels: Record<string, string> = {
+  样式文件: 'Stylesheet', 代码文件: 'Code file', 配置文件: 'Configuration file', 脚本: 'Script',
+  图片: 'Image', 表格: 'Spreadsheet', 文档: 'Document', 压缩文件: 'Archive', 音频: 'Audio', 视频: 'Video',
+}
 
 export function FileIcon({ name, kind }: { name: string; kind?: string }) {
+  const { t } = useI18n()
   const filename = name.split(/[\\/]/).at(-1)?.toLowerCase() ?? ''
   const extension = filename.includes('.') ? filename.split('.').at(-1) : ''
   const format = formats.find(format => format.extensions.includes(extension ?? ''))
     ?? (kind === 'html' ? formats[0] : kind === 'markdown' ? formats[1] : undefined)
   const Icon = kind === 'web' ? Globe : format?.icon ?? File
-  const label = kind === 'web' ? '网页' : format?.label ?? '文件'
+  const label = kind === 'web' ? t('网页', 'Web page') : format?.label ? t(format.label, englishLabels[format.label] ?? format.label) : t('文件', 'File')
   return <span className="file-type-icon" data-tone={kind === 'web' ? 'cyan' : format?.tone ?? 'muted'} title={label} aria-hidden="true"><Icon size={16} strokeWidth={1.5}/></span>
 }

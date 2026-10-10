@@ -1,11 +1,16 @@
 import type { Member, ModelConfig, ReasoningEffort, RuntimeConfig } from './types'
+import { translate } from '@/i18n'
 
 export const reasoningEfforts: ReasoningEffort[] = ['inherit', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const labels: Record<ReasoningEffort, string> = {
   inherit: 'Runtime 默认', none: '不启用 · none', minimal: '最低 · minimal', low: '低 · low',
   medium: '中 · medium', high: '高 · high', xhigh: '超高 · xhigh', max: '最高 · max', ultra: '极高 · ultra',
 }
-export function reasoningLabel(value: ReasoningEffort): string { return labels[value] ?? String(value) }
+const labelsEn: Record<ReasoningEffort, string> = {
+  inherit: 'Runtime default', none: 'Disabled · none', minimal: 'Minimal · minimal', low: 'Low · low',
+  medium: 'Medium · medium', high: 'High · high', xhigh: 'Extra high · xhigh', max: 'Maximum · max', ultra: 'Ultra · ultra',
+}
+export function reasoningLabel(value: ReasoningEffort): string { return translate(labels[value] ?? String(value), labelsEn[value] ?? String(value)) }
 
 // Compatibility fallback for existing catalog entries. Verified against the local
 // Codex catalog on 2026-09-16; newly discovered metadata takes precedence.
@@ -61,20 +66,20 @@ export function validateModelReasoning(model: ModelConfig, runtimes: RuntimeConf
   const scoped = model.supportedReasoningEffortsByRuntime
   if ((model.supportedReasoningEfforts !== undefined && !validEfforts(model.supportedReasoningEfforts))
     || (scoped !== undefined && (!scoped || typeof scoped !== 'object' || Array.isArray(scoped)
-      || Object.entries(scoped).some(([runtimeId, efforts]) => !runtimeId.trim() || !validEfforts(efforts))))) return '模型的思考强度能力数据无效，请重新检测此模型。'
+      || Object.entries(scoped).some(([runtimeId, efforts]) => !runtimeId.trim() || !validEfforts(efforts))))) return translate('模型的思考强度能力数据无效，请重新检测此模型。', 'The model reasoning capability data is invalid. Detect this model again.')
   const value = model.reasoningEffort
   if (value === undefined) return
-  if (!getModelReasoningOptions(model, runtimes).some(option => option.value === value)) return '此思考强度不适用于当前模型的全部兼容 Runtime，请选择其他档位或继承 Runtime 默认。'
+  if (!getModelReasoningOptions(model, runtimes).some(option => option.value === value)) return translate('此思考强度不适用于当前模型的全部兼容 Runtime，请选择其他档位或继承 Runtime 默认。', 'This reasoning level is not supported by all compatible runtimes. Choose another level or inherit the runtime default.')
 }
 
 export function validateReasoning(runtime: RuntimeConfig, model: ModelConfig | undefined, value: unknown): string | undefined {
-  if (typeof value !== 'string' || !reasoningEfforts.includes(value as ReasoningEffort)) return '思考强度配置无效，请重新选择。'
+  if (typeof value !== 'string' || !reasoningEfforts.includes(value as ReasoningEffort)) return translate('思考强度配置无效，请重新选择。', 'Invalid reasoning level. Choose again.')
   if (!getReasoningOptions(runtime, model).some(option => option.value === value)) return runtime.adapter === 'generic'
-    ? '此 Runtime 使用通用适配器，思考强度请设为 Runtime 默认，并通过其 CLI 启动参数配置。'
-    : '当前模型或 Runtime 不支持所选思考强度，请重新选择。'
+    ? translate('此 Runtime 使用通用适配器，思考强度请设为 Runtime 默认，并通过其 CLI 启动参数配置。', 'This runtime uses a generic adapter. Keep reasoning at Runtime default and configure it through CLI arguments.')
+    : translate('当前模型或 Runtime 不支持所选思考强度，请重新选择。', 'The selected reasoning level is not supported by this model or runtime. Choose again.')
   if (value === 'inherit') return
   const conflict = reasoningArgumentConflict(runtime)
-  if (conflict) return `额外启动参数 ${conflict} 与显式思考强度冲突，请移除冲突参数或改为 Runtime 默认。`
+  if (conflict) return translate(`额外启动参数 ${conflict} 与显式思考强度冲突，请移除冲突参数或改为 Runtime 默认。`, `Launch argument ${conflict} conflicts with the selected reasoning level. Remove it or use Runtime default.`)
 }
 
 export function resolveReasoningEffort(member: Member, runtime: RuntimeConfig, models: ModelConfig[]): ReasoningEffort {
@@ -101,7 +106,7 @@ function reasoningArgumentConflict(runtime: RuntimeConfig): string | undefined {
       else if (arg.startsWith('-c')) config = arg.slice(2).replace(/^=/, '')
       if (config !== undefined) {
         const key = config.split('=')[0].trim().replace(/["']/g, '')
-        if (['model_reasoning_effort', 'model', 'profile', 'profiles', 'experimental_use_profile'].some(root => key === root || key.startsWith(root + '.'))) return '--config（模型或思考强度）'
+        if (['model_reasoning_effort', 'model', 'profile', 'profiles', 'experimental_use_profile'].some(root => key === root || key.startsWith(root + '.'))) return translate('--config（模型或思考强度）', '--config (model or reasoning level)')
       }
     }
   }

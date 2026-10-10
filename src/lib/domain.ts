@@ -2,6 +2,7 @@ import type { AppState, Member, Message, RunStatus, RuntimeEvent, Settings, Task
 import { reconcileSteps } from './workspace'
 import { traexDescription } from './traex-runtime'
 import { advanceRuntimeOutput, getRuntimeOutput, getRuntimeSessionId } from './runtime-output'
+import { translate } from '@/i18n'
 export { getRunActivity } from './runtime-output'
 export type { RunActivity } from './runtime-output'
 
@@ -20,24 +21,24 @@ export function getTaskStatus(task: Task): RunStatus | 'idle' {
 export function createInitialState(): AppState {
   const settings: Settings = {
     runtimes: [
-      { id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex', enabled: true, args: [], defaultModel: '', description: '使用本机 Codex CLI 的登录与配置；安装状态需检测。' },
-      { id: 'claude', name: 'Claude Code', executable: 'claude', adapter: 'claude', enabled: true, args: [], defaultModel: '', description: '使用本机 Claude Code CLI 的登录与配置；安装状态需检测。' },
-      { id: 'traex', name: 'TraeX', executable: 'traex', adapter: 'codex', enabled: true, args: [], defaultModel: '', description: traexDescription },
-      { id: 'kimi', name: 'Kimi CLI', executable: 'kimi', adapter: 'kimi', enabled: false, args: [], defaultModel: '', description: '通过 ACP 执行，默认自动批准工具请求；模型与思考设置继承 Runtime。' },
-      { id: 'pi', name: 'Pi', executable: 'pi', adapter: 'pi', enabled: false, args: [], defaultModel: '', description: '通过 JSON 事件流执行并续接任务会话；登录、工具权限与思考设置继承 Pi。' },
-      { id: 'deepseek-harness', name: 'DeepSeek Harness', executable: 'dsh', adapter: 'generic', enabled: false, args: [], defaultModel: '', description: '启用前确认本机 Harness 的可执行路径、参数和输入方式。' },
+      { id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex', enabled: true, args: [], defaultModel: '', description: translate('使用本机 Codex CLI 的登录与配置；安装状态需检测。', 'Uses local Codex CLI login and configuration; installation must be checked.') },
+      { id: 'claude', name: 'Claude Code', executable: 'claude', adapter: 'claude', enabled: true, args: [], defaultModel: '', description: translate('使用本机 Claude Code CLI 的登录与配置；安装状态需检测。', 'Uses local Claude Code CLI login and configuration; installation must be checked.') },
+      { id: 'traex', name: 'TraeX', executable: 'traex', adapter: 'codex', enabled: true, args: [], defaultModel: '', description: translate(traexDescription, 'Uses local TraeX CLI login and configuration; shares execution and session protocols with Codex.') },
+      { id: 'kimi', name: 'Kimi CLI', executable: 'kimi', adapter: 'kimi', enabled: false, args: [], defaultModel: '', description: translate('通过 ACP 执行，默认自动批准工具请求；模型与思考设置继承 Runtime。', 'Runs through ACP and approves tool requests by default; model and reasoning settings come from the runtime.') },
+      { id: 'pi', name: 'Pi', executable: 'pi', adapter: 'pi', enabled: false, args: [], defaultModel: '', description: translate('通过 JSON 事件流执行并续接任务会话；登录、工具权限与思考设置继承 Pi。', 'Runs through JSON events and resumes task sessions; login, tool permissions, and reasoning settings come from Pi.') },
+      { id: 'deepseek-harness', name: 'DeepSeek Harness', executable: 'dsh', adapter: 'generic', enabled: false, args: [], defaultModel: '', description: translate('启用前确认本机 Harness 的可执行路径、参数和输入方式。', 'Confirm the local Harness executable, arguments, and input method before enabling.') },
     ],
     models: [], providers: [], defaultRuntime: 'codex', defaultMode: 'solo',
     maxParallel: 3, defaultDirectory: '',
   }
-  const demo = createTask(settings, '为工作台增加全局命令面板', '', 'team')
+  const demo = createTask(settings, translate('为工作台增加全局命令面板', 'Add a global command palette to the workbench'), '', 'team')
   demo.demo = true
-  const traex = settings.runtimes[2]
-  demo.members[2] = { ...demo.members[2], runtimeId: traex.id, name: 'TraeX' }
+  const pi = settings.runtimes.find(runtime => runtime.id === 'pi')!
+  demo.members[2] = { ...demo.members[2], runtimeId: pi.id, name: 'Pi' }
   const runId = id()
   const createdAt = demo.createdAt
   demo.runs = [{
-    id: runId, createdAt, directory: '', prompt: '设计一个可通过 ⌘K 打开的全局命令面板，支持搜索任务与运行时。',
+    id: runId, createdAt, directory: '', prompt: translate('设计一个可通过 ⌘K 打开的全局命令面板，支持搜索任务与运行时。', 'Design a global command palette opened with Command+K to search tasks and runtimes.'),
     members: demo.members.map(member => ({
       ...member,
       runtime: { ...settings.runtimes.find(runtime => runtime.id === member.runtimeId)!, args: [] },
@@ -45,13 +46,13 @@ export function createInitialState(): AppState {
     })),
   }]
   demo.messages = [
-    { id: id(), role: 'system', text: '这是设计演示，以下对话和执行记录均为示例，未启动任何 Runtime。创建真实任务后才能执行。', createdAt },
-    { id: id(), role: 'user', text: '为工作台增加一个全局命令面板，支持搜索任务、切换运行时，并支持键盘操作。', createdAt },
-    { id: id(), role: 'assistant', memberId: demo.members[0].id, runId, text: '示例分工：\n1. 协调 / 实现：梳理命令与搜索入口。\n2. 测试：检查键盘导航、焦点恢复和空结果。\n3. 审查：检查交互一致性与可访问性。\n\n本任务用于展示工作台结构；没有实际生成文件或运行测试。', createdAt },
+    { id: id(), role: 'system', text: translate('这是设计演示，以下对话和执行记录均为示例，未启动任何 Runtime。创建真实任务后才能执行。', 'This is a design demo. The conversation and run history below are examples; no runtime was started. Create a real task to run an agent.'), createdAt },
+    { id: id(), role: 'user', text: translate('为工作台增加一个全局命令面板，支持搜索任务、切换运行时，并支持键盘操作。', 'Add a global command palette to the workbench for searching tasks, switching runtimes, and using the keyboard.'), createdAt },
+    { id: id(), role: 'assistant', memberId: demo.members[0].id, runId, text: translate('示例分工：\n1. 协调 / 实现：梳理命令与搜索入口。\n2. 测试：检查键盘导航、焦点恢复和空结果。\n3. 审查：检查交互一致性与可访问性。\n\n本任务用于展示工作台结构；没有实际生成文件或运行测试。', 'Example assignments:\n1. Coordination / Implementation: define command and search entry points.\n2. Testing: check keyboard navigation, focus restoration, and empty results.\n3. Review: check interaction consistency and accessibility.\n\nThis task demonstrates the workbench layout; no files or tests were actually run.'), createdAt },
   ]
   demo.events = demo.members.map(member => ({
     id: id(), taskId: demo.id, runId, memberId: member.id, timestamp: createdAt,
-    kind: 'completed', text: `示例记录 · ${member.role} · 未执行真实命令`, exitCode: null,
+    kind: 'completed', text: translate(`示例记录 · ${member.role} · 未执行真实命令`, `Demo record · ${member.role} · No real command executed`), exitCode: null,
   }))
   return { version: 2, goals: [], agents: [], settings, tasks: [demo], activeTaskId: demo.id }
 }
@@ -59,13 +60,13 @@ export function createInitialState(): AppState {
 export function createTask(settings: Settings, title: string, directory: string, mode: 'solo' | 'team'): Task {
   const enabled = settings.runtimes.filter(runtime => runtime.enabled && runtime.executable.trim()
     && (runtime.adapter !== 'generic' || runtime.args.some(arg => arg.includes('{prompt}'))))
-  if (enabled.length === 0) throw new Error('请先在设置中启用至少一个 Runtime。')
+  if (enabled.length === 0) throw new Error(translate('请先在设置中启用至少一个 Runtime。', 'Enable at least one runtime in Settings first.'))
   const preferred = enabled.find(runtime => runtime.id === settings.defaultRuntime) ?? enabled[0]
   const runtimes = [preferred, ...enabled.filter(runtime => runtime.id !== preferred.id)]
   const parallel = Number.isFinite(settings.maxParallel) ? Math.max(1, Math.min(3, Math.floor(settings.maxParallel))) : 1
-  const roles = mode === 'solo' ? ['执行'] : ['协调 / 实现', '测试', '审查'].slice(0, parallel)
+  const roles = mode === 'solo' ? [translate('执行', 'Execution')] : [translate('协调 / 实现', 'Coordination / Implementation'), translate('测试', 'Testing'), translate('审查', 'Review')].slice(0, parallel)
   return {
-    id: id(), title: title.trim() || '新任务', directory: directory.trim(), mode,
+    id: id(), title: title.trim() || translate('新任务', 'New task'), directory: directory.trim(), mode,
     members: roles.map((role, index) => {
       const runtime = runtimes[index % runtimes.length]
       return { id: id(), name: runtime.name, role, runtimeId: runtime.id, modelId: runtime.defaultModel }

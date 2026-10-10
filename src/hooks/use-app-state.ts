@@ -5,6 +5,7 @@ import { migrateWorkspace, reconcileSteps } from '@/lib/workspace'
 import type { AppState, RuntimeEvent, Task } from '@/lib/types'
 import { completionNotifications } from '@/lib/completion-notifications'
 import { sendNativeNotification } from '@/lib/native-notifications'
+import { translate } from '@/i18n'
 
 interface Waiter { revision: number; resolve: () => void; reject: (error: unknown) => void }
 export function useAppState() {
@@ -44,7 +45,7 @@ export function useAppState() {
             const failed = waiters.current.filter(w => w.revision <= job.revision)
             waiters.current = waiters.current.filter(w => w.revision > job.revision)
             failed.forEach(w => w.reject(e))
-            setError(`保存失败：${String(e)}`)
+            setError(translate(`保存失败：${String(e)}`, `Save failed: ${String(e)}`))
           }
         }
         writing.current = false
@@ -53,7 +54,7 @@ export function useAppState() {
     return result
   }, [])
   const update = useCallback((fn: (state: AppState) => AppState) => {
-    if (!current.current) return Promise.reject(new Error('应用尚未加载'))
+    if (!current.current) return Promise.reject(new Error(translate('应用尚未加载', 'The app has not loaded yet')))
     let next: AppState
     try { next = fn(current.current) } catch (e) { return Promise.reject(e) }
     if (next === current.current) return Promise.resolve()
@@ -64,7 +65,7 @@ export function useAppState() {
       // Only a committed transition can announce completion. OS permission or
       // delivery errors must not reject the saved operation or delay a new run.
       for (const notification of notifications) {
-        void sendNativeNotification(notification).catch(error => console.warn('原生通知发送失败：', error))
+        void sendNativeNotification(notification).catch(error => console.warn(translate('原生通知发送失败：', 'Could not send native notification: '), error))
       }
     })
   }, [persist])
@@ -73,7 +74,7 @@ export function useAppState() {
     const existing = hydration.current.get(taskId)
     if (existing) return existing
     const task = current.current?.tasks.find(task => task.id === taskId)
-    if (!task) return Promise.reject(new Error('任务已不存在'))
+    if (!task) return Promise.reject(new Error(translate('任务已不存在', 'The task no longer exists')))
     if (!task.historyPending) return Promise.resolve(task)
     const signal = lifecycle.current?.signal
     setHistoryErrors(errors => { const next = { ...errors }; delete next[taskId]; return next })
@@ -83,7 +84,7 @@ export function useAppState() {
         signal?.throwIfAborted()
         const snapshot = current.current!
         const latest = snapshot.tasks.find(task => task.id === taskId)
-        if (!latest) throw new Error('任务已不存在')
+        if (!latest) throw new Error(translate('任务已不存在', 'The task no longer exists'))
         const historyTask = { ...latest, events }
         const tail = await loadTraceEvents({ ...snapshot, tasks: [historyTask] })
         signal?.throwIfAborted()
@@ -92,7 +93,7 @@ export function useAppState() {
         // overwrite already-saved chat messages.
         await update(state => {
           const target = state.tasks.find(task => task.id === taskId)
-          if (!target) throw new Error('任务已不存在')
+          if (!target) throw new Error(translate('任务已不存在', 'The task no longer exists'))
           const base = { ...state, tasks: [{ ...target, events, historyPending: undefined }] }
           const merged = mergeRecoveredEvents(base, [...tail, ...(buffered.current.get(taskId) ?? [])])
           const recovered = recoverInterruptedState(merged).tasks[0]
@@ -100,7 +101,7 @@ export function useAppState() {
           return { ...state, tasks: state.tasks.map(task => task.id === taskId ? reconcileSteps(recovered) : task) }
         })
         signal?.throwIfAborted()
-        return current.current!.tasks.find(task => task.id === taskId) ?? Promise.reject(new Error('任务已不存在'))
+        return current.current!.tasks.find(task => task.id === taskId) ?? Promise.reject(new Error(translate('任务已不存在', 'The task no longer exists')))
       } catch (error) {
         if (!signal?.aborted) setHistoryErrors(errors => ({ ...errors, [taskId]: String(error) }))
         throw error
@@ -151,7 +152,7 @@ export function useAppState() {
         for (const task of current.current.tasks) if (task.historyPending && task.runs.some(run => run.members.some(member => member.status === 'running'))) {
           void ensureTaskReady(task.id).catch(() => {})
         }
-      } catch (e) { if (!disposed) setError(`加载本地数据失败：${String(e)}`) }
+      } catch (e) { if (!disposed) setError(translate(`加载本地数据失败：${String(e)}`, `Could not load local data: ${String(e)}`)) }
     })()
     return () => { disposed = true; controller.abort(); hydration.current.clear(); buffered.current.clear(); ready.current = false; release() }
   }, [persist, update, ensureTaskReady])

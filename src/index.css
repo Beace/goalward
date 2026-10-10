@@ -173,7 +173,7 @@ kbd { font-family: var(--font-sans); font-size: 10px; color: #90998e; }
   .task-heading { padding-left: 16px; padding-right: 16px; }
   .run-last-event, .composer-routing-hint { display: none; }
   .configuration-count { display: none; }
-  .configuration-member-row > button[aria-label=添加成员] { margin-left: auto; }
+  .configuration-member-row > .configuration-add-member { margin-left: auto; }
   .configuration-runtime { flex-basis: 100px; }
   .configuration-model { flex-basis: 112px; max-width: none; }
   .configuration-action kbd { display: none; }

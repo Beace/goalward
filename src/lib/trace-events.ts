@@ -1,4 +1,5 @@
 import type { Adapter, Run, RunMember, RuntimeEvent, Task } from './types'
+import { getCurrentLanguage } from '@/i18n'
 
 type JsonObject = Record<string, unknown>
 export type TraceCategory = 'runtime' | 'session' | 'turn' | 'message' | 'reasoning' | 'web-search' | 'command' | 'file-change' | 'tool' | 'result' | 'diagnostic' | 'output' | 'unknown'
@@ -209,6 +210,25 @@ function lifecycle(event: RuntimeEvent): TraceEntry {
   return { ...event, category: 'runtime', title: titles[event.kind], phase: event.kind === 'started' ? '开始' : event.kind === 'stopped' ? '已停止' : event.kind === 'completed' ? '完成' : '失败', severity: event.kind === 'failed' ? 'error' : event.kind === 'completed' ? 'success' : 'neutral', eventType: event.kind, sourceIds: [event.id] }
 }
 
+const TRACE_LABELS_EN: Record<string, string> = {
+  '失败': 'Failed', '完成': 'Completed', '开始': 'Started', '进行中': 'In progress', '接收中': 'Receiving', '结束': 'Ended', '执行中': 'Running', '已停止': 'Stopped',
+  '未完整解析的输出': 'Partially parsed output', '诊断输出': 'Diagnostic output', '标准输出': 'Standard output', '结构化输出': 'Structured output',
+  'Runtime 错误': 'Runtime error', '生成回复': 'Generating response', '思考状态': 'Reasoning status', '网页搜索': 'Web search', '读取网页': 'Read web page',
+  '执行命令': 'Run command', '文件变更': 'File changes', '调用 MCP 工具': 'Call MCP tool', 'Agent 协作': 'Agent collaboration', '更新计划': 'Update plan',
+  '创建会话': 'Create session', '执行轮次': 'Run turn', '调用工具': 'Call tool', '回复状态': 'Response status', '工具参数': 'Tool arguments',
+  '回复片段': 'Response segment', '内容片段': 'Content segment', '工具结果': 'Tool result', 'Agent 回复': 'Agent response', '用户消息': 'User message',
+  '初始化会话': 'Initialize session', '会话状态': 'Session status', '执行结果': 'Run result', '继续会话': 'Resume session',
+  '等待工具权限确认': 'Await tool permission', '权限请求已处理': 'Permission request handled', 'Kimi 执行结果': 'Kimi run result',
+  'Kimi 工具调用': 'Kimi tool call', '更新执行计划': 'Update execution plan', 'Kimi 会话状态': 'Kimi session status', 'Pi 会话': 'Pi session',
+  'Pi 请求失败': 'Pi request failed', '思考过程': 'Reasoning', '工具消息': 'Tool message', '用户输入': 'User input', 'Pi 执行轮次': 'Pi run turn',
+  '启动 Runtime': 'Start runtime', '执行完成': 'Run completed', '执行失败': 'Run failed', '停止执行': 'Stop run',
+}
+function localizeTraceLabel(label: string | undefined) {
+  if (!label || getCurrentLanguage() === 'zh') return label
+  if (label.startsWith('事件：')) return `Event: ${label.slice(3)}`
+  return TRACE_LABELS_EN[label] ?? label
+}
+
 /** Read-only presentation of persisted raw events. Neither storage nor export is changed. */
 export function getTraceEntries(task: Task, run?: Run): TraceEntry[] {
   const entries: TraceEntry[] = []
@@ -273,5 +293,5 @@ export function getTraceEntries(task: Task, run?: Run): TraceEntry[] {
     // still preserved, but must not be presented as actively arriving forever.
     if (members.get(route)?.status !== 'running') flush(stream, true)
   }
-  return entries
+  return getCurrentLanguage() === 'zh' ? entries : entries.map(entry => ({ ...entry, title: localizeTraceLabel(entry.title) ?? entry.title, phase: localizeTraceLabel(entry.phase) }))
 }

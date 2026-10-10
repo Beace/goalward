@@ -1,4 +1,5 @@
 import type { AppState } from './types'
+import { translate } from '@/i18n'
 
 export interface CompletionNotification { title: string; body: string }
 
@@ -8,9 +9,9 @@ export function completionNotifications(before: AppState, after: AppState): Comp
   return after.tasks.flatMap(task => {
     const old = previous.get(task.id)
     if (!old || old === task || old.demo || task.demo) return []
-    const name = task.title.trim().replace(/\s+/g, ' ').slice(0, 120) || '未命名任务'
+    const name = task.title.trim().replace(/\s+/g, ' ').slice(0, 120) || translate('未命名任务', 'Untitled task')
     if (old.businessStatus !== 'done' && task.businessStatus === 'done') {
-      return [{ title: '任务已完成', body: name }]
+      return [{ title: translate('任务已完成', 'Task completed'), body: name }]
     }
     if (old.historyPending || task.historyPending || old.runs === task.runs) return []
     const runs = new Map(old.runs.map(run => [run.id, run]))
@@ -23,8 +24,8 @@ export function completionNotifications(before: AppState, after: AppState): Comp
       const failed = run.members.some(member => member.status === 'failed')
       const step = task.plan?.find(step => step.id === run.stepId)
       return [{
-        title: failed ? '对话执行失败' : '对话已结束',
-        body: `${name}${step ? ` · ${step.title}` : ''}${failed ? '：请查看执行过程中的错误。' : '：本轮回复已完成。'}`,
+        title: failed ? translate('对话执行失败', 'Conversation run failed') : translate('对话已结束', 'Conversation ended'),
+        body: `${name}${step ? ` · ${step.title}` : ''}${failed ? translate('：请查看执行过程中的错误。', ': See the error in the execution trace.') : translate('：本轮回复已完成。', ': This run’s response is complete.')}`,
       }]
     })
   })
