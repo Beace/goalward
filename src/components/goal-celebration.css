@@ -1,0 +1,9 @@
+.goal-celebration { position: absolute; top: 12px; right: 18px; z-index: 20; display: flex; align-items: center; gap: 9px; max-width: calc(100% - 36px); padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--popover); color: var(--foreground); box-shadow: var(--shadow-overlay); font-size: 13px; line-height: 21px; }
+.goal-celebration > svg { color: var(--status-success); flex-shrink: 0; }
+.goal-celebration > span[role=status] { min-width: 0; overflow-wrap: anywhere; }
+.goal-celebration-particles { position: fixed; inset: 0; z-index: 40; overflow: hidden; pointer-events: none; }
+.goal-celebration-particles i { position: absolute; top: 0; width: 6px; height: 9px; border-radius: 1px; background: var(--primary); }
+.goal-celebration-particles i:nth-child(even) { background: var(--status-success); }
+.goal-celebration-particles i:nth-child(3n) { background: var(--muted-foreground); }
+@media (prefers-reduced-motion: reduce) { .goal-celebration-particles { display: none; } }
+@media (prefers-contrast: more) { .goal-celebration { border-color: var(--muted-foreground); } }

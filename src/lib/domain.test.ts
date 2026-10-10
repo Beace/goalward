@@ -174,9 +174,13 @@ describe('reload recovery and context handoff', () => {
 
   it('preserves all saved public context and the complete instruction for legacy or generic sessions', () => {
     const { task, member } = liveState()
+    task.delivery = '导出入口清单'
+    task.deadline = '2026-10-16'
     task.messages = Array.from({ length: 12 }, (_, index) => ({ id: String(index), role: 'user', text: `context-${index}:` + 'x'.repeat(2000), createdAt: task.createdAt }))
     const prompt = buildPrompt(task, 'new instruction '.repeat(2000), member)
     expect(prompt).toContain('职责：执行')
+    expect(prompt).toContain('预期产物：导出入口清单')
+    expect(prompt).toContain('任务截止日期：2026-10-16')
     expect(prompt).toContain('不代表恢复了旧会话内部状态')
     expect(prompt).toContain('context-11:')
     expect(prompt).toContain('context-0:')

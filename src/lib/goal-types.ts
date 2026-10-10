@@ -32,6 +32,45 @@ export interface GoalCriterion {
   status: 'unverified' | 'satisfied' | 'unsatisfied'
   evidence: string
   checkedAt?: string
+  baseline?: string
+  target?: string
+  method?: string
+}
+export interface GoalAssistantDraft {
+  title: string
+  intent: string
+  expected: string
+  constraints: string
+  deadline: string
+  currentSummary: string
+  criteria: Array<{ text: string; baseline: string; target: string; method: string }>
+}
+export interface GoalTaskProposal {
+  id: string
+  title: string
+  delivery: string
+  acceptance: string
+  deadline: string
+  dependsOn: string[]
+  status: 'suggested' | 'adopted' | 'dismissed'
+  taskId?: string
+  baseGoalVersion: number
+  /** User-owned content survives a later planning reply. Never accepted from model JSON. */
+  edited?: boolean
+}
+export interface GoalAssistantState {
+  taskId?: string
+  draft?: GoalAssistantDraft
+  /** Kept after invalidation so a captured old draft cannot be confirmed again. */
+  draftGoalVersion?: number
+  draftStateVersion?: number
+  proposals?: GoalTaskProposal[]
+  confirmedVersion?: number
+  input?: string
+  requestPhase?: 'clarify' | 'plan'
+  processedRunId?: string
+  /** A completed reply can be readable even when its structured proposal is invalid. */
+  error?: string
 }
 export interface GoalDefinition {
   version: number
@@ -103,4 +142,6 @@ export interface Goal {
   reviewSchedule?: GoalReviewSchedule
   createdAt: string
   updatedAt: string
+  /** Additive metadata; conversation history remains in the assistant Task. */
+  assistant?: GoalAssistantState
 }

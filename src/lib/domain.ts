@@ -211,6 +211,8 @@ export function buildPrompt(task: Task, prompt: string, member: Member, resumed 
     `任务：${limit(task.title, 300)}`,
     `你的成员名称：${limit(member.name, 100)}；职责：${limit(member.role, 300)}`,
     `职责指令：${limit(member.instructions || member.role, 6000)}`,
+    ...(task.delivery ? [`预期产物：${limit(task.delivery, 2000)}`] : []),
+    ...(task.deadline ? [`任务截止日期：${task.deadline}`] : []),
     `验收要求：${limit(task.acceptance || '尚未约定；请在结果中列出验证与限制。', 2000)}`,
     `执行方式：${task.mode === 'team' ? '多成员协作；只负责你的职责范围，不假定其他成员已完成工作。' : '单 Agent 执行。'}`,
     resumed ? '继续当前 Runtime 原生会话，保留已有上下文。以下为当前任务配置和新的用户指令。' : '这是一次新的 Runtime 会话。下面是管理器保存的完整公开对话；这不代表恢复了旧会话内部状态。',

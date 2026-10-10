@@ -6,6 +6,10 @@ const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
 const copy = <T,>(value: T): T => structuredClone(value)
 const userSource = (): GoalSource => ({ kind: 'user', label: translate('用户提供', 'User provided') })
 const iso = () => new Date().toISOString()
+export type GoalCriterionInput = string | { text: string; baseline?: string; target?: string; method?: string }
+const criterionDefinition = (value: GoalCriterionInput) => typeof value === 'string' ? { text: value.trim() } : { text: value.text.trim(), baseline: value.baseline?.trim(), target: value.target?.trim(), method: value.method?.trim() }
+const sameCriterionDefinition = (left: ReturnType<typeof criterionDefinition>, right: GoalCriterion) => left.text === right.text && (left.baseline ?? '') === (right.baseline ?? '') && (left.target ?? '') === (right.target ?? '') && (left.method ?? '') === (right.method ?? '')
+const invalidateAssistantDraft = (goal: Goal) => goal.assistant ? { ...goal.assistant, draft: undefined, draftGoalVersion: goal.assistant.draftGoalVersion ?? goal.version, draftStateVersion: goal.assistant.draftStateVersion ?? goal.currentState.version } : undefined
 export const goalStatusLabels: Record<GoalStatus, string> = { clarifying: '待澄清', active: '推进中', paused: '已暂停', achieved: '已达成', maintenance: '维护中', ended: '已结束' }
 export const goalEntryLabels: Record<GoalEntryKind, string> = { fact: '已知事实', artifact: '已有成果', decision: '已作决定', hypothesis: '待验证假设', unknown: '未知问题', blocker: '当前障碍', metric: '指标观测' }
 export const reviewJudgementLabels: Record<GoalReview['judgement'], string> = { on_track: '符合预期', at_risk: '存在风险', off_track: '偏离预期', unknown: '暂无法判断' }
@@ -14,30 +18,35 @@ export function goalDefinition(goal: Goal, reason = translate('目标快照', 'G
   return copy({ version: goal.version, title: goal.title, intent: goal.intent, expected: goal.expected, constraints: goal.constraints, deadline: goal.deadline, criteria: goal.criteria, createdAt: goal.updatedAt, reason })
 }
 
-export function createGoal(input: { title: string; intent?: string; expected?: string; constraints?: string; deadline?: string; criteria?: string[]; currentSummary?: string }, now = iso()): Goal {
+export function createGoal(input: { title: string; intent?: string; expected?: string; constraints?: string; deadline?: string; criteria?: GoalCriterionInput[]; currentSummary?: string }, now = iso()): Goal {
   if (!input.title.trim()) throw new Error(translate('请先描述想推进的目标。', 'Describe the goal you want to pursue first.'))
   const currentState: GoalStateSnapshot = { version: 1, summary: input.currentSummary?.trim() ?? '', entries: [], createdAt: now, reason: translate('建立初始现状', 'Established initial context'), source: copy(userSource()) }
   const goal: Goal = {
     id: id('goal'), title: input.title.trim(), intent: input.intent?.trim() ?? '', expected: input.expected?.trim() ?? '', constraints: input.constraints?.trim() ?? '', deadline: input.deadline ?? '',
-    version: 1, status: input.expected?.trim() ? 'active' : 'clarifying', criteria: (input.criteria ?? []).map(text => text.trim()).filter(Boolean).map(text => ({ id: id('criterion'), text, status: 'unverified', evidence: '' })),
+    version: 1, status: input.expected?.trim() ? 'active' : 'clarifying', criteria: (input.criteria ?? []).map(criterionDefinition).filter(item => item.text).map(item => ({ id: id('criterion'), ...item, status: 'unverified', evidence: '' })),
     definitions: [], currentState, stateHistory: [copy(currentState)], proposals: [], plan: [], reviews: [], createdAt: now, updatedAt: now,
   }
   goal.definitions.push(goalDefinition(goal, translate('创建目标', 'Created goal')))
   return goal
 }
 
-export function reviseGoal(goal: Goal, input: { title: string; intent: string; expected: string; constraints: string; deadline: string; criteria: string[]; reason: string }, now = iso()): Goal {
+export function reviseGoal(goal: Goal, input: { title: string; intent: string; expected: string; constraints: string; deadline: string; criteria: GoalCriterionInput[]; reason: string }, now = iso()): Goal {
   if (!input.title.trim()) throw new Error(translate('目标名称不能为空。', 'Goal name cannot be empty.'))
   if (!input.reason.trim()) throw new Error(translate('请记录本次修订的原因。', 'Record why this goal is being revised.'))
-  // Preserve assessments only when the success condition is unchanged.
+  // Expected-outcome changes invalidate all assessments. Old definitions retain evidence.
+  const outcomeChanged = goal.expected !== input.expected.trim()
   const remaining = [...goal.criteria]
-  const criteria = input.criteria.map(text => text.trim()).filter(Boolean).map(text => {
-    const index = remaining.findIndex(criterion => criterion.text === text)
-    return index < 0 ? { id: id('criterion'), text, status: 'unverified' as const, evidence: '' } : copy(remaining.splice(index, 1)[0])
+  const criteria = input.criteria.map(criterionDefinition).filter(item => item.text).map(item => {
+    const index = remaining.findIndex(criterion => sameCriterionDefinition(item, criterion))
+    if (index < 0) return { id: id('criterion'), ...item, status: 'unverified' as const, evidence: '' }
+    const previous = copy(remaining.splice(index, 1)[0])
+    return outcomeChanged ? { ...previous, status: 'unverified' as const, evidence: '', checkedAt: undefined } : previous
   })
-  const next: Goal = { ...goal, title: input.title.trim(), intent: input.intent.trim(), expected: input.expected.trim(), constraints: input.constraints.trim(), deadline: input.deadline, criteria, version: goal.version + 1, updatedAt: now }
+  const next: Goal = { ...goal, title: input.title.trim(), intent: input.intent.trim(), expected: input.expected.trim(), constraints: input.constraints.trim(), deadline: input.deadline, criteria, version: goal.version + 1, updatedAt: now, assistant: invalidateAssistantDraft(goal) }
   if (next.status === 'achieved' && (!criteria.length || criteria.some(criterion => criterion.status !== 'satisfied'))) next.status = 'active'
-  return { ...next, definitions: [...goal.definitions, goalDefinition(next, input.reason.trim())] }
+  // Archive the most recent assessment under its old definition before clearing it.
+  const archived = goal.definitions.map(definition => definition.version === goal.version ? { ...definition, criteria: copy(goal.criteria) } : definition)
+  return { ...next, definitions: [...archived, goalDefinition(next, input.reason.trim())] }
 }
 
 export function createStateEntry(kind: GoalEntryKind, text: string, source: GoalSource = userSource(), now = iso()): GoalStateEntry {
@@ -53,7 +62,8 @@ export function updateGoalState(goal: Goal, input: { summary?: string; entries?:
   const entries = copy(input.entries ?? goal.currentState.entries)
   for (const entry of input.appendEntries ?? []) if (!entries.some(existing => existing.id === entry.id)) entries.push(copy(entry))
   const snapshot: GoalStateSnapshot = { version: goal.currentState.version + 1, summary: input.summary === undefined ? goal.currentState.summary : input.summary.trim(), entries, createdAt: now, reason: input.reason.trim(), source: copy(input.source ?? userSource()), eventKey: input.eventKey }
-  return { ...goal, currentState: snapshot, stateHistory: [...goal.stateHistory, copy(snapshot)], updatedAt: now }
+  const assistant = snapshot.summary !== goal.currentState.summary ? invalidateAssistantDraft(goal) : goal.assistant?.draft ? { ...goal.assistant, draftStateVersion: snapshot.version } : goal.assistant
+  return { ...goal, currentState: snapshot, stateHistory: [...goal.stateHistory, copy(snapshot)], updatedAt: now, assistant }
 }
 
 export function proposeGoalState(goal: Goal, input: { title: string; entries: GoalStateEntry[]; source: GoalSource; eventKey?: string }, now = iso()): Goal {

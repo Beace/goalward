@@ -18,3 +18,11 @@
 .task-picker-empty { padding: 16px 6px; color: var(--color-muted-foreground); font-size: 12px; }
 .task-picker-empty h2 { font-size: 12px; font-weight: 500; margin-bottom: 8px; }
 .task-picker-footer { min-height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 4px 12px; border-top: 1px solid var(--color-border); color: var(--color-muted-foreground); font-size: 11px; flex-shrink: 0; }
+
+.task-owner-filter{display:flex;align-items:center;gap:6px;margin:0 12px 8px;color:var(--muted-foreground);font-size:12px;border-bottom:1px solid var(--border);min-height:32px}
+.task-owner-filter>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-owner-filter>svg{flex-shrink:0}
+.task-picker-item small{display:flex;align-items:center;gap:8px;min-width:0}
+.task-picker{container-type:inline-size}
+.task-picker-item time{display:none;font-variant-numeric:tabular-nums;white-space:nowrap}
+@container(min-width:300px){.task-picker-item time{display:inline}}

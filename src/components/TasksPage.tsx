@@ -1,5 +1,5 @@
 import { useState, type ReactNode, type RefObject } from 'react'
-import { ListTodo, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { ListTodo, Plus, Search, SlidersHorizontal, Target, X } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select'
@@ -13,17 +13,21 @@ import type { AppState } from '@/lib/types'
 import './goals.css'
 import './tasks.css'
 
-export function TasksPage({ state, selectedTaskId, onTask, onCreate, rememberedWidth, children }: {
+export function TasksPage({ state, selectedTaskId, onTask, onCreate, rememberedWidth, children, goalFilter, onGoalFilterChange }: {
   state: AppState; selectedTaskId?: string; onTask: (id: string) => void; onCreate: () => void
   rememberedWidth: RefObject<number>; children: ReactNode
+  goalFilter?: string; onGoalFilterChange?: (value: string) => void
 }) {
   const { t } = useI18n()
   const statusLabels: typeof taskStatusLabels = {
     todo: t('待开始', 'To do'), in_progress: t('进行中', 'In progress'), blocked: t('受阻', 'Blocked'),
     review: t('待验收', 'In review'), done: t('已完成', 'Done'), cancelled: t('已取消', 'Cancelled'),
   }
-  const [query, setQuery] = useState(''), [filter, setFilter] = useState('all'), [goal, setGoal] = useState('all')
-  const tasks = state.tasks.filter(task => task.title.toLowerCase().includes(query.trim().toLowerCase()) && (filter === 'all' || (task.businessStatus ?? 'todo') === filter) && (goal === 'all' || (goal === 'independent' ? !task.goalId : task.goalId === goal)))
+  const [query, setQuery] = useState(''), [filter, setFilter] = useState('all'), [localGoal, setLocalGoal] = useState('all')
+  const goal = goalFilter ?? localGoal
+  const setGoal = (value: string) => { setLocalGoal(value); onGoalFilterChange?.(value) }
+  const workTasks = state.tasks.filter(task => task.kind !== 'goal_assistant')
+  const tasks = workTasks.filter(task => task.title.toLowerCase().includes(query.trim().toLowerCase()) && (filter === 'all' || (task.businessStatus ?? 'todo') === filter) && (goal === 'all' || (goal === 'independent' ? !task.goalId : task.goalId === goal)))
   const filtered = !!query || filter !== 'all' || goal !== 'all'
   const clear = () => { setQuery(''); setFilter('all'); setGoal('all') }
   return <div className="tasks-workspace">
@@ -39,19 +43,20 @@ export function TasksPage({ state, selectedTaskId, onTask, onCreate, rememberedW
           </PopoverContent>
         </Popover>
       </div>
+      {goal !== 'all' && <div className="task-owner-filter"><Target size={13} /><span title={state.goals.find(item => item.id === goal)?.title}>{goal === 'independent' ? t('独立任务', 'Independent tasks') : state.goals.find(item => item.id === goal)?.title ?? t('目标已不存在', 'Goal no longer exists')}</span><Button variant="ghost" size="icon-sm" aria-label={t('查看全部任务', 'Show all tasks')} title={t('查看全部任务', 'Show all tasks')} onClick={() => setGoal('all')}><X size={13} /></Button></div>}
       <div className="task-picker-list">
         {tasks.map(task => {
           const status = getTaskStatus(task)
           const business = task.demo ? t('演示', 'Demo') : statusLabels[task.businessStatus ?? 'todo']
           const owner = task.demo ? t('示例任务', 'Demo task') : state.goals.find(item => item.id === task.goalId)?.title || t('独立任务', 'Independent task')
-          const detail = `${task.title}\n${owner} · ${business} · ${task.executor === 'human' ? t('人工任务', 'Human task') : `${task.members.length} Agent`}${task.priority === 'high' ? ` · ${t('高优先级', 'High priority')}` : ''}${status === 'running' ? ` · ${t('执行中', 'Running')}` : status === 'failed' ? ` · ${t('执行失败', 'Run failed')}` : ''}`
+          const detail = `${task.title}\n${owner} · ${business} · ${task.executor === 'human' ? t('人工任务', 'Human task') : `${task.members.length} Agent`}${task.priority === 'high' ? ` · ${t('高优先级', 'High priority')}` : ''}${task.deadline ? ` · DDL ${task.deadline}` : ''}${status === 'running' ? ` · ${t('执行中', 'Running')}` : status === 'failed' ? ` · ${t('执行失败', 'Run failed')}` : ''}`
           return <Tooltip key={task.id}><TooltipTrigger asChild><Button variant="ghost" className="task-picker-item" aria-label={`${t('打开任务：', 'Open task: ')}${task.title}`} aria-pressed={task.id === selectedTaskId} onClick={() => onTask(task.id)}>
-            <span className={`task-picker-dot task-picker-dot-${status}`} aria-hidden="true" /><span className="task-picker-title">{task.parentTaskId && '↳ '}{task.title}</span><small>{business}</small>
+            <span className={`task-picker-dot task-picker-dot-${status}`} aria-hidden="true" /><span className="task-picker-title">{task.parentTaskId && '↳ '}{task.title}</span><small>{business}{task.deadline && <time>{task.deadline}</time>}</small>
           </Button></TooltipTrigger><TooltipContent side="right" className="max-w-80 whitespace-pre-wrap break-words">{detail}</TooltipContent></Tooltip>
         })}
-        {!tasks.length && <div className="task-picker-empty"><h2>{state.tasks.length ? t('没有匹配的任务', 'No matching tasks') : t('还没有任务', 'No tasks yet')}</h2>{filtered ? <Button variant="ghost" size="sm" onClick={clear}>{t('清除筛选', 'Clear filters')}</Button> : <p>{t('点击上方 + 创建任务', 'Click + above to create a task')}</p>}</div>}
+        {!tasks.length && <div className="task-picker-empty"><h2>{workTasks.length ? t('没有匹配的任务', 'No matching tasks') : t('还没有任务', 'No tasks yet')}</h2>{filtered ? <Button variant="ghost" size="sm" onClick={clear}>{t('清除筛选', 'Clear filters')}</Button> : <p>{t('点击上方 + 创建任务', 'Click + above to create a task')}</p>}</div>}
       </div>
-      <footer className="task-picker-footer"><span>{tasks.length} / {state.tasks.length} {t('个任务', 'tasks')}</span>{filtered && <Button variant="ghost" size="sm" onClick={clear}>{t('清除筛选', 'Clear filters')}</Button>}</footer>
+      <footer className="task-picker-footer"><span>{tasks.length} / {workTasks.length} {t('个任务', 'tasks')}</span>{filtered && <Button variant="ghost" size="sm" onClick={clear}>{t('清除筛选', 'Clear filters')}</Button>}</footer>
     </aside>}>
       {children}
     </GoalListLayout>

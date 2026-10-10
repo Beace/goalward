@@ -3,6 +3,7 @@ mod artifacts;
 mod attachments;
 mod discovery;
 mod fonts;
+mod goal_assistant;
 mod local_discovery;
 mod permission;
 mod pi_query;
@@ -107,6 +108,17 @@ async fn storage_info(services: State<'_, AppServices>) -> Result<StorageInfo, S
     tauri::async_runtime::spawn_blocking(move || storage.info())
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn ensure_goal_assistant_directory(
+    goal_id: String,
+    services: State<'_, AppServices>,
+) -> Result<String, String> {
+    let storage = services.storage.clone();
+    tauri::async_runtime::spawn_blocking(move || goal_assistant::directory(&storage, &goal_id))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -277,6 +289,7 @@ pub fn run() {
             probe_runtime,
             discover_local_environment,
             storage_info,
+            ensure_goal_assistant_directory,
             start_run,
             stop_run,
             respond_runtime_permission,

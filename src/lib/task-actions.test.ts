@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialState } from './domain'
 import { createGoal, createStateEntry, proposeGoalState, saveGoalReview, updateGoalState } from './goals'
-import { captureRunContext, createWorkspaceTask, deleteWorkspaceTask, editWorkspaceTask, getTaskDeletionBlockers, linkTaskToGoal, rollbackControlChange, taskMutationLockReason } from './workspace'
+import { captureRunContext, createWorkspaceTask, deleteWorkspaceTask, editWorkspaceTask, getTaskDeletionBlockers, linkTaskToGoal, rollbackControlChange, taskMutationLockReason, submitResult, reviewResult, setBusinessStatus } from './workspace'
 import type { TaskEditValues } from './workspace'
 import type { AppState, Task } from './types'
 
@@ -36,7 +36,7 @@ describe('editing tasks against current workspace state', () => {
     completed.results = [{ id: 'result', summary: '结果', evidence: '记录', createdAt: task.createdAt, verdict: 'accepted' }]
     const before = { ...state, tasks: [completed, state.tasks[1]] }
     const next = editWorkspaceTask(before, task.id, values(task, { title: ' 新名称 ', acceptance: ' 新验收 ', directory: ' /new ', priority: 'high' }))
-    expect(next.tasks[0]).toMatchObject({ title: '新名称', acceptance: '新验收', directory: '/new', priority: 'high', businessStatus: 'done' })
+    expect(next.tasks[0]).toMatchObject({ title: '新名称', acceptance: '新验收', directory: '/new', priority: 'high', businessStatus: 'review', requirementsVersion: 1 })
     for (const field of ['runs', 'messages', 'members', 'events', 'results', 'plan'] as const) expect(next.tasks[0][field]).toBe(completed[field])
     expect(next.tasks[0].runs[0].context?.task.title).toBe('待修改任务')
     expect(next.tasks[0].runs[0].directory).toBe('/old')
@@ -44,6 +44,33 @@ describe('editing tasks against current workspace state', () => {
     expect(next.agents).toBe(before.agents)
     expect(next.tasks[1]).toBe(before.tasks[1])
     expect(completed.title).toBe('待修改任务')
+  })
+
+  it('requires a fresh result when acceptance changes and preserves accepted history', () => {
+    const { state, task } = fixture()
+    const submitted = submitResult(task, { summary: '交付结果', evidence: '/evidence.md' })
+    const accepted = reviewResult(submitted, submitted.results![0].id, true, '已核对')
+    const before = { ...state, tasks: [accepted] }
+    const renamed = editWorkspaceTask(before, task.id, values(accepted, { title: '重命名', deadline: '2026-10-14' })).tasks[0]
+    expect(renamed.businessStatus).toBe('done')
+    expect(renamed.requirementsVersion ?? 0).toBe(0)
+    const revised = editWorkspaceTask(before, task.id, values(accepted, { delivery: '新增产物' })).tasks[0]
+    expect(revised.businessStatus).toBe('review')
+    expect(revised.results).toBe(accepted.results)
+    expect(() => setBusinessStatus(revised, 'done')).toThrow('当前要求')
+    expect(reviewResult(revised, accepted.results![0].id, true, '再次核对')).toBe(revised)
+    const staleSubmission = editWorkspaceTask({ ...state, tasks: [submitted] }, task.id, values(submitted, { acceptance: '新的要求' })).tasks[0]
+    expect(() => reviewResult(staleSubmission, submitted.results![0].id, true, '核对')).toThrow('要求已修改')
+    const fresh = submitResult(revised, { summary: '补齐新产物', evidence: '/new-evidence.md' })
+    expect(reviewResult(fresh, fresh.results!.at(-1)!.id, true, '通过').businessStatus).toBe('done')
+  })
+
+  it('validates task deadlines against real dates, goal and dependency deadlines', () => {
+    const { state, task, other, goal } = fixture()
+    const before = { ...state, goals: [{ ...goal, deadline: '2026-10-16' }], tasks: [task, { ...other, deadline: '2026-10-15' }] }
+    expect(() => editWorkspaceTask(before, task.id, values(task, { deadline: '2026-02-30' }))).toThrow('截止日期')
+    expect(() => editWorkspaceTask(before, task.id, values(task, { deadline: '2026-10-17' }))).toThrow('目标 DDL')
+    expect(() => editWorkspaceTask(before, task.id, values(task, { deadline: '2026-10-14', dependencies: [other.id] }))).toThrow('前置任务')
   })
 
   it('allows an independent task without a runtime, directory or goal', () => {

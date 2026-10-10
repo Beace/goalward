@@ -55,6 +55,11 @@ export interface Message { id: string; role: 'user' | 'assistant' | 'system'; te
 export interface RunMember extends Member { runtime: RuntimeConfig; model: string; status: RunStatus; effectiveReasoningEffort?: ReasoningEffort; sessionId?: string }
 export interface Run { context?: RunContext; stepId?: string; id: string; createdAt: string; prompt: string; members: RunMember[]; directory: string }
 export interface Task {
+  /** Internal goal conversations reuse the same durable Runtime protocol. */
+  kind?: 'goal_assistant'
+  deadline?: string
+  delivery?: string
+  requirementsVersion?: number
   /** Renderer-only: raw history has not been loaded/recovered yet. Never persisted. */
   historyPending?: boolean
   /** Explicitly saved document references; automatic entries derive from retained messages/trace. */
@@ -65,7 +70,7 @@ export interface Task {
   id: string; title: string; directory: string; mode: 'solo' | 'team'; members: Member[]
   messages: Message[]; runs: Run[]; events: RuntimeEvent[]; createdAt: string; demo?: boolean
 }
-export interface AppState { version: 1 | 2; goals: Goal[]; agents: AgentProfile[]; activeGoalId?: string; settings: Settings; tasks: Task[]; activeTaskId: string; onboarding?: OnboardingState }
+export interface AppState { version: 1 | 2; goals: Goal[]; agents: AgentProfile[]; activeGoalId?: string; goalExplorationInput?: string; settings: Settings; tasks: Task[]; activeTaskId: string; onboarding?: OnboardingState }
 export interface RuntimeEvent {
   id: string; taskId: string; runId: string; memberId: string; timestamp: string
   kind: 'started' | 'stdout' | 'stderr' | 'completed' | 'failed' | 'stopped'

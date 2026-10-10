@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { ArrowDown, ArrowRight, ArrowUp, Brain, Check, ChevronDown, Folder, GitBranch, History, Layers, LoaderCircle, Plus, Settings2, Square, Terminal, Trash2, Users, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, Brain, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, Folder, GitBranch, History, Layers, LoaderCircle, Plus, Settings2, Square, Terminal, Trash2, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -30,6 +30,7 @@ import { getTaskStatus } from '@/lib/domain'
 import { groupConversationMessages } from '@/lib/conversation'
 import { formatTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
+import { isAcceptedTaskDone } from '@/lib/goal-progress'
 import type { Member, Message, Settings, Task } from '@/lib/types'
 
 interface Props {
@@ -40,6 +41,7 @@ interface Props {
   artifacts?: Artifact[]; onOpenArtifact?: (artifact: Artifact) => void
   taskActions?: ReactNode
   operations?: ReactNode; agentActions?:(memberId:string)=>ReactNode; goalTitle?:string; onGoal?:()=>void
+  onGoalProgress?:()=>void; goalProgressLabel?:string
 }
 function ReasoningPart({ part }: { part: Message }) {
   const { t } = useI18n()
@@ -53,7 +55,7 @@ function ReasoningPart({ part }: { part: Message }) {
     <CollapsibleContent><pre className="reasoning-content" tabIndex={0} aria-label={t('思考过程', 'Reasoning')}>{part.text}</pre></CollapsibleContent>
   </Collapsible>
 }
-export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange, onSend, onStop, onSettings, onInspector, onToggleInspector, inspectorOpen, onDuplicate, artifacts: suppliedArtifacts, onOpenArtifact, taskActions, operations, agentActions, goalTitle, onGoal }: Props) {
+export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange, onSend, onStop, onSettings, onInspector, onToggleInspector, inspectorOpen, onDuplicate, artifacts: suppliedArtifacts, onOpenArtifact, taskActions, operations, agentActions, goalTitle, onGoal, onGoalProgress, goalProgressLabel }: Props) {
   const { t } = useI18n()
   const artifacts = useMemo(() => suppliedArtifacts ?? getTaskArtifacts(task), [suppliedArtifacts, task.messages, task.events, task.runs, task.directory, task.id, task.artifacts])
   const [tab, setTab] = useState('conversation')
@@ -153,13 +155,14 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
     <header className="task-heading">
       <div className="task-title-row">
         <TooltipProvider><Tooltip><TooltipTrigger asChild><h1 data-task-heading tabIndex={0}>{task.title}</h1></TooltipTrigger><TooltipContent>{task.title}</TooltipContent></Tooltip></TooltipProvider>
-        <Status status={getTaskStatus(historic && selectedRun ? { ...task, runs: [selectedRun] } : task)} />
+        <Status status={!historic && isAcceptedTaskDone(task) ? 'completed' : getTaskStatus(historic && selectedRun ? { ...task, runs: [selectedRun] } : task)} label={!task.demo && !historic && isAcceptedTaskDone(task) ? t('任务已验收', 'Task accepted') : !task.demo && !historic && task.businessStatus === 'review' ? t('待验收', 'Awaiting acceptance') : !task.demo && !historic && getTaskStatus(task) === 'completed' ? t('执行结束 · 待验收', 'Run finished · Awaiting acceptance') : undefined} />
         {task.demo && <Badge variant="outline">{t('示例任务', 'Demo task')}</Badge>}
         <div className="task-heading-actions">{taskActions}<Button variant="ghost" size="icon-sm" title={t('打开执行检查器', 'Open execution inspector')} aria-label={t('打开执行检查器', 'Open execution inspector')} data-inspector-toggle aria-controls="execution-inspector" aria-expanded={inspectorOpen} onClick={onToggleInspector ?? onInspector} aria-pressed={inspectorOpen}><Layers /></Button></div>
       </div>
       <div className="task-toolbar">
         <div className="task-context">
-          {goalTitle && <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon-sm" className="task-goal-link" onClick={onGoal} aria-label={t(`所属目标：${goalTitle}`, `Goal: ${goalTitle}`)}><GitBranch size={14} /></Button></TooltipTrigger><TooltipContent>{t(`所属目标：${goalTitle}`, `Goal: ${goalTitle}`)}</TooltipContent></Tooltip></TooltipProvider>}
+          {goalTitle && <><TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" className="task-goal-link task-owner-link" onClick={onGoal} aria-label={t(`所属目标：${goalTitle}`, `Goal: ${goalTitle}`)}><GitBranch size={14} /><span>{goalTitle}</span></Button></TooltipTrigger><TooltipContent>{t(`所属目标：${goalTitle}`, `Goal: ${goalTitle}`)}</TooltipContent></Tooltip></TooltipProvider>{onGoalProgress && <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon-sm" className="task-progress-link" onClick={onGoalProgress} aria-label={t(`查看目标进度：${goalTitle}`, `View goal progress: ${goalTitle}`)}><ChartNoAxesCombined size={14} /></Button></TooltipTrigger><TooltipContent>{goalProgressLabel ?? t('查看目标进度', 'View goal progress')}</TooltipContent></Tooltip>}</>}
+          {task.deadline && <span className="task-deadline" title={t(`任务 DDL：${task.deadline}`, `Task deadline: ${task.deadline}`)}><CalendarDays size={12} /><time dateTime={task.deadline}>{task.deadline}</time></span>}
           <TooltipProvider><Tooltip><TooltipTrigger asChild><span className="task-directory" tabIndex={0}><Folder size={12} /><span>{task.directory || t('新任务需要选择工作目录', 'Choose a working directory for this task')}</span></span></TooltipTrigger><TooltipContent>{task.directory || t('新任务需要选择工作目录', 'Choose a working directory for this task')}</TooltipContent></Tooltip></TooltipProvider>
         </div>
       <div className="task-actions"><div className="mode-switch" aria-label={t('执行模式', 'Execution mode')} {...hoverFeedbackHandlers<HTMLDivElement>({})}>{(['solo', 'team'] as const).map(mode => <Button key={mode} variant="ghost" size="sm" disabled={running || historic} aria-pressed={task.mode === mode} onClick={() => changeMode(mode)}>{task.mode === mode && <motion.span className="mode-indicator" layoutId={`mode-${task.id}`} transition={reduced ? { duration: 0 } : quietSpring} />}<span className="relative flex items-center gap-1.5">{mode === 'solo' ? <Terminal size={13} /> : <Users size={13} />}{mode === 'solo' ? t('单 Agent', 'Single agent') : t('协作', 'Collaboration')}</span></Button>)}</div>
