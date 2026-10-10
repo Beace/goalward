@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { Select as SelectPrimitive } from "radix-ui"
 
-import { clearDialogMotion, DialogMotionContext, useDialogSurfaceFade, type DialogMotionState } from './dialog-motion'
+import { captureDialogPresentation, clearDialogMotion, DialogMotionContext, useDialogSurfaceFade, type DialogMotionState } from './dialog-motion'
 
 function Select({ open: controlledOpen, defaultOpen = false, onOpenChange, motion = false, ...props }: React.ComponentProps<typeof SelectPrimitive.Root> & { motion?: boolean }) {
   const [localOpen, setLocalOpen] = React.useState(defaultOpen)
@@ -21,6 +21,7 @@ function Select({ open: controlledOpen, defaultOpen = false, onOpenChange, motio
     return () => { media?.removeEventListener('change', settle); clearDialogMotion(current) }
   }, [])
   return <DialogMotionContext.Provider value={state.current}><SelectPrimitive.Root data-slot="select" {...props} open={open} onOpenChange={next => {
+    if (!next) captureDialogPresentation(state.current)
     if (controlledOpen === undefined) setLocalOpen(next)
     onOpenChange?.(next)
   }} /></DialogMotionContext.Provider>

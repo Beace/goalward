@@ -45,6 +45,46 @@ try {
         await appearance()
         await expect(picker).toContainText('跟随系统')
         await expect(page.getByRole('button', { name: '保存更改', exact: true })).toBeDisabled()
+        await page.evaluate(() => {
+          window.themeMenuExits = []
+          window.themeMenuObserver = new MutationObserver(records => {
+            for (const record of records) for (const node of record.addedNodes) {
+              if (node instanceof HTMLElement && node.matches('[data-dialog-exit=popover]')) {
+                window.themeMenuExits.push({ inert: node.inert, hidden: node.getAttribute('aria-hidden'), animations: node.getAnimations().map(animation => animation.effect.getKeyframes()) })
+              }
+            }
+          })
+          window.themeMenuObserver.observe(document.body, { childList: true })
+        })
+        await picker.click()
+        const menuEntrance = await page.getByRole('listbox').evaluate(el => el.getAnimations().map(animation => animation.effect.getKeyframes()))
+        await expect(page.getByRole('option', { name: '跟随系统', exact: true })).toBeFocused()
+        await expect(page.getByRole('listbox')).toHaveCSS('opacity', '1')
+        await page.keyboard.press('Escape')
+        await expect(picker).toBeFocused()
+        const menuExit = await page.evaluate(() => { window.themeMenuObserver.disconnect(); return window.themeMenuExits })
+        if (reducedMotion === 'no-preference') {
+          expect(menuEntrance.length).toBeGreaterThan(0)
+          expect(menuExit.length).toBe(1)
+          expect(menuExit[0].inert).toBe(true)
+          expect(menuExit[0].hidden).toBe('true')
+          expect(menuExit[0].animations.length).toBeGreaterThan(0)
+        } else {
+          expect(menuEntrance).toEqual([])
+          expect(menuExit).toEqual([])
+        }
+        await picker.press('Space')
+        await expect(page.getByRole('option', { name: '跟随系统', exact: true })).toBeFocused()
+        await expect(page.getByRole('listbox')).toHaveCSS('opacity', '1')
+        await page.keyboard.press('Escape')
+        await picker.press('Space')
+        const menuReopen = await page.getByRole('listbox').evaluate(el => el.getAnimations().map(animation => animation.effect.getKeyframes()))
+        if (reducedMotion === 'no-preference') {
+          expect(menuReopen.length).toBeGreaterThan(0)
+          expect(Number(menuReopen[0][0].opacity)).toBeGreaterThan(0)
+        } else expect(menuReopen).toEqual([])
+        await page.keyboard.press('Escape')
+        await expect(picker).toBeFocused()
         await pick('浅色')
         await expect(root).toHaveAttribute('data-theme', initialSystem)
         await page.getByRole('button', { name: '还原', exact: true }).click()
@@ -161,7 +201,7 @@ try {
         await page.getByRole('button', { name: '还原', exact: true }).click()
         await expect(picker).toContainText('跟随系统')
         expect(errors).toEqual([])
-        results.push({ width, height, reducedMotion, initialSystem, savedAndReloaded: true, followsSystemLive: true, explicitOverride: true, restored: true, saveFailureRollback: true, keyboardFocus: true, surfaces, reversalSamples: samples, errors })
+        results.push({ width, height, reducedMotion, initialSystem, savedAndReloaded: true, followsSystemLive: true, explicitOverride: true, restored: true, saveFailureRollback: true, keyboardFocus: true, menuEntrance, menuExit, menuReopen, surfaces, reversalSamples: samples, errors })
         console.log(`PASS theme ${width}x${height} ${reducedMotion} OS ${initialSystem}`)
         await context.close()
       }
