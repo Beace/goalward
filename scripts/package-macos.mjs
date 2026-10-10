@@ -4,7 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from '
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createUpdaterManifest, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterSignature } from './updater-artifacts.mjs'
+import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterSignature } from './updater-artifacts.mjs'
 
 // Build a self-contained, ad-hoc-signed macOS trial release. No UI scripting or
 // Gatekeeper changes are needed to create these containers.
@@ -43,11 +43,7 @@ releaseEnv.APPLE_SIGNING_IDENTITY = '-'
 if (updater) {
   // Tauri build accepts either key content or a path; signer sign accepts only
   // content. Normalize privately in the child environment, never in arguments.
-  const signingKey = releaseEnv.TAURI_SIGNING_PRIVATE_KEY.trim()
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signingKey)) {
-    try { releaseEnv.TAURI_SIGNING_PRIVATE_KEY = (await readFile(signingKey, 'utf8')).trim() }
-    catch { throw new Error('Cannot read the configured updater private key') }
-  }
+  releaseEnv.TAURI_SIGNING_PRIVATE_KEY = await resolveUpdaterPrivateKey(releaseEnv.TAURI_SIGNING_PRIVATE_KEY)
   releaseEnv.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= ''
 }
 const run = (command, args, options = {}) => execFileSync(command, args, { cwd: root, env: releaseEnv, stdio: 'inherit', ...options })

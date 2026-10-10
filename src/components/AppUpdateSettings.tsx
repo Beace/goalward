@@ -24,7 +24,7 @@ export function AppUpdateSettings({ update, activeCount, unsaved, tasksBusy = fa
     installing: t('正在安装更新…', 'Installing update…'), installed: t('更新已安装，重启后生效', 'Update installed; restart to use it'),
     restarting: t('正在重启…', 'Restarting…'),
   }[update.phase]
-  const checkable = ['idle', 'current', 'available'].includes(update.phase) && (!update.error || update.error.stage === 'check')
+  const checkable = ['idle', 'current', 'available'].includes(update.phase)
   return <section className="space-y-5" aria-label={t('应用更新', 'App updates')}>
     <div className="flex min-h-8 flex-wrap items-center justify-between gap-3 border-b border-border pb-2">
       <h1 className="text-[13px] font-semibold">{t('应用更新', 'App updates')}</h1>

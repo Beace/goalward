@@ -4,13 +4,32 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { createUpdaterManifest, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
+import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
 
 const wrap = text => Buffer.from(text).toString('base64')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const version = '0.3.0'
 const repo = 'Beace/goalward'
 const publishedAt = '2026-10-10T06:00:00.000Z'
+
+test('resolves an existing no-extension private-key path even when every path character is valid base64', async context => {
+  // /tmp/key has the same ambiguity; use a unique portable fixture path.
+  const directory = await mkdtemp(join(tmpdir(), 'GoalwardUpdaterKey'))
+  context.after(() => rm(directory, { recursive: true, force: true }))
+  const path = join(directory, 'key')
+  assert.match(path, /^[A-Za-z0-9+/]+$/)
+  const content = wrap('untrusted comment: test private key\nRWQBAgME\n')
+  await writeFile(path, `${content}\n`, { mode: 0o600 })
+  assert.equal(await resolveUpdaterPrivateKey(path), content)
+  assert.equal(await resolveUpdaterPrivateKey(content), content)
+})
+
+test('rejects a missing key path or malformed inline key without exposing supplied values', async () => {
+  const input = '/path/with/key/that/does/not/exist'
+  await assert.rejects(resolveUpdaterPrivateKey(input), error => !error.message.includes(input))
+  await assert.rejects(resolveUpdaterPrivateKey(''), /TAURI_SIGNING_PRIVATE_KEY is required/)
+  await assert.rejects(resolveUpdaterPrivateKey(wrap('private secret fixture')), error => !error.message.includes('private secret fixture'))
+})
 
 function signer() {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')

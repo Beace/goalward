@@ -15,6 +15,24 @@ function base64(value, label) {
   return bytes
 }
 
+export async function resolveUpdaterPrivateKey(value) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error('TAURI_SIGNING_PRIVATE_KEY is required for a release with automatic updates')
+  const input = value.trim()
+  let content
+  try {
+    // Paths may consist entirely of base64 characters, especially key files
+    // without an extension. Prefer an existing readable file over key content.
+    content = (await readFile(input, 'utf8')).trim()
+  } catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'].includes(error.code)) throw new Error('Cannot read the configured updater private key')
+    content = input
+  }
+  const lines = base64(content, 'updater private key').toString('utf8').trimEnd().split('\n')
+  if (lines.length !== 2 || !lines[0].startsWith('untrusted comment: ')) throw new Error('Invalid updater private key content or path')
+  base64(lines[1], 'minisign private key')
+  return content
+}
+
 function publicKeyBytes(encodedKey) {
   const lines = base64(encodedKey?.trim(), 'updater public key').toString('utf8').trimEnd().split('\n')
   if (lines.length !== 2 || !lines[0].startsWith('untrusted comment: ')) throw new Error('Invalid updater public key')

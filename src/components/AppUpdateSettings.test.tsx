@@ -35,6 +35,15 @@ describe('app update settings', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试重启' }))
     expect(update.restart).toHaveBeenCalledOnce()
   })
+  it('allows rechecking when a download fails while retaining its retry action', () => {
+    const update = controller({ phase: 'available', info: { currentVersion: '0.2.0', version: '0.3.0' }, error: { stage: 'download', message: 'Release disappeared' } })
+    render(<AppUpdateSettings update={update} activeCount={0} unsaved={false} />)
+    const check = screen.getByRole('button', { name: '检查更新' }) as HTMLButtonElement
+    expect(check.disabled).toBe(false)
+    fireEvent.click(check)
+    expect(update.check).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: '重试下载' })).toBeTruthy()
+  })
   it('keeps installation disabled for active runtimes, orchestration and settings drafts', () => {
     const update = controller({ phase: 'downloaded' })
     const view = render(<AppUpdateSettings update={update} activeCount={2} unsaved={false} />)

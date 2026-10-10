@@ -40,8 +40,8 @@ export function useAppUpdate(options: AppUpdateOptions) {
 
   const check = useCallback(async () => {
     if (!isDesktop || !latestOptions.current.ready || busy.current || !['idle', 'current', 'available'].includes(current.current.phase)) return
-    // Download/install retries retain the native verified package and their stage.
-    if (current.current.error && current.current.error.stage !== 'check') return
+    // A failed download has no verified package; a recheck can find a repaired
+    // or newer release. Downloaded/installed stages retain their package instead.
     busy.current = true
     const previous = current.current
     change({ ...previous, phase: 'checking', error: undefined })

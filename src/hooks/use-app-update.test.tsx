@@ -103,20 +103,60 @@ describe('application updates', () => {
     expect(hook.result.current.downloadedBytes).toBe(100)
   })
 
-  it('resets failed download progress on retry and does not replace its error stage with a check', async () => {
+  it('resets failed download progress on retry', async () => {
     const hook = mount()
     await settle()
     api.downloadAppUpdate.mockImplementation(async (receive: (event: AppUpdateDownloadEvent) => void) => { receive({ event: 'Progress', data: { chunkLength: 100 } }); throw new Error('Invalid signature') })
     await download(hook)
     expect(hook.result.current.phase).toBe('available')
     expect(hook.result.current.error?.stage).toBe('download')
-    await act(async () => { await hook.result.current.check() })
-    expect(api.checkAppUpdate).toHaveBeenCalledOnce()
     api.downloadAppUpdate.mockImplementation(async (receive: (event: AppUpdateDownloadEvent) => void) => { receive({ event: 'Progress', data: { chunkLength: 25 } }) })
     await download(hook)
     expect(hook.result.current.downloadedBytes).toBe(25)
     expect(hook.result.current.phase).toBe('downloaded')
     expect(hook.result.current.error).toBeUndefined()
+  })
+
+  it('allows a manual recheck after a failed download and downloads the newly selected release', async () => {
+    let selectedNativeVersion = release.version
+    const downloadedVersions: string[] = []
+    api.checkAppUpdate.mockImplementation(async () => ({ ...release, version: selectedNativeVersion }))
+    api.downloadAppUpdate.mockImplementation(async () => {
+      downloadedVersions.push(selectedNativeVersion)
+      if (selectedNativeVersion === release.version) throw new Error('Selected release is no longer available')
+    })
+    const hook = mount()
+    await settle()
+    await download(hook)
+    expect(hook.result.current.phase).toBe('available')
+    expect(hook.result.current.error?.stage).toBe('download')
+    selectedNativeVersion = '0.4.0'
+    await act(async () => { await hook.result.current.check() })
+    expect(hook.result.current.info.version).toBe('0.4.0')
+    expect(hook.result.current.error).toBeUndefined()
+    expect(hook.result.current.downloadedBytes).toBe(0)
+    await download(hook)
+    expect(downloadedVersions).toEqual(['0.3.0', '0.4.0'])
+    expect(hook.result.current.phase).toBe('downloaded')
+    expect(hook.result.current.info.version).toBe('0.4.0')
+  })
+
+  it('rechecks a failed download every six hours without replacing a verified download', async () => {
+    vi.useFakeTimers()
+    const hook = mount()
+    await settle()
+    api.downloadAppUpdate.mockRejectedValueOnce(new Error('Release disappeared'))
+    await download(hook)
+    api.checkAppUpdate.mockResolvedValue({ ...release, version: '0.4.0' })
+    await act(async () => { vi.advanceTimersByTime(APP_UPDATE_CHECK_INTERVAL) })
+    expect(api.checkAppUpdate).toHaveBeenCalledTimes(2)
+    expect(hook.result.current.info.version).toBe('0.4.0')
+    expect(hook.result.current.error).toBeUndefined()
+    await download(hook)
+    expect(hook.result.current.phase).toBe('downloaded')
+    await act(async () => { vi.advanceTimersByTime(APP_UPDATE_CHECK_INTERVAL) })
+    expect(api.checkAppUpdate).toHaveBeenCalledTimes(2)
+    expect(hook.result.current.info.version).toBe('0.4.0')
   })
 
   it('rechecks task and settings guards at click time, retries install/restart in place and never auto restarts', async () => {
