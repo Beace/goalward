@@ -15,6 +15,8 @@ import { Collapsible, CollapsibleContent, CollapsibleIndicator, CollapsibleTrigg
 import { Separator } from '@/components/ui/separator'
 import { AppearanceSettings } from './AppearanceSettings'
 import { useI18n } from '@/i18n'
+import { normalizeThemePreference } from '@/lib/theme'
+import { appearancePreferences, configurationSettings, type AppearancePatch } from '@/lib/appearance'
 import { RuntimeLogo } from './RuntimeLogo'
 import { ReasoningEffortSelect } from './ReasoningEffortSelect'
 import { RuntimePermissions, claudePermissionsFor, codexPermissionsFor, parsePermissionArgs, permissionTextFor, permissionTextsFor, type PermissionTextDraft } from './RuntimePermissions'
@@ -29,6 +31,8 @@ import type { Adapter, LocalDiscoveryReport, ModelConfig, ProbeResult, ProviderC
 export interface SettingsPageProps {
   settings: Settings
   onSave: (settings: Settings) => Promise<void>
+  onAppearanceChange: (patch: AppearancePatch) => Promise<void>
+  appearanceSaving?: boolean
   onBack: () => void
   onExport: () => void
   activeCount: number
@@ -97,7 +101,7 @@ function EmptyState({ title, description, action }: { title: string; description
   return <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border px-6 py-10 text-center"><Database className="size-6 text-muted-foreground" /><div><p className="text-sm font-medium">{title}</p><p className="mt-1 max-w-md text-xs leading-5 text-muted-foreground">{description}</p></div>{action}</div>
 }
 
-export function SettingsPage({ settings, onSave, onBack, onExport, activeCount, initialCategory = 'runtimes', initialRuntimeId, setupHint, onDiscover, discoveryReport }: SettingsPageProps) {
+export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceSaving = false, onBack, onExport, activeCount, initialCategory = 'runtimes', initialRuntimeId, setupHint, onDiscover, discoveryReport }: SettingsPageProps) {
   const { language, t } = useI18n()
   const adapterOptions = adapters.map(item => item.value === 'generic' ? { ...item, label: t('通用 CLI / Harness', 'Generic CLI / Harness') } : item)
   const [draft, setDraft] = useState(() => copy(settings))
@@ -112,6 +116,8 @@ export function SettingsPage({ settings, onSave, onBack, onExport, activeCount, 
   const [modelTab, setModelTab] = useState('catalog')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [saving, setSaving] = useState(false)
+  const [appearanceFailure, setAppearanceFailure] = useState<{ patch: AppearancePatch; message: string } | null>(null)
+  const appearanceRequest = useRef(0)
   const [discardTarget, setDiscardTarget] = useState<'back' | 'discover' | null>(null)
   const [newRuntime, setNewRuntime] = useState<RuntimeConfig | null>(null)
   const [modelEditor, setModelEditor] = useState<ModelConfig | null>(null)
@@ -137,7 +143,7 @@ export function SettingsPage({ settings, onSave, onBack, onExport, activeCount, 
     const error = rawError ?? validateRuntimePermissions(runtime)
     return error ? [{ id: runtime.id, name: runtime.name, error }] : []
   }), [permissionTexts, draft.runtimes])
-  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline) || argErrors.length > 0 || permissionErrors.length > 0
+  const dirty = JSON.stringify(configurationSettings(draft)) !== JSON.stringify(configurationSettings(baseline)) || argErrors.length > 0 || permissionErrors.length > 0
   dirtyRef.current = dirty
   savingRef.current = saving
   const runtime = draft.runtimes.find(item => item.id === selectedRuntimeId) ?? draft.runtimes[0]
@@ -166,6 +172,14 @@ export function SettingsPage({ settings, onSave, onBack, onExport, activeCount, 
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
   useEffect(() => { if (category === 'storage') void refreshStorage() }, [category])
+
+  function changeAppearance(patch: AppearancePatch) {
+    const request = ++appearanceRequest.current
+    setAppearanceFailure(null)
+    void onAppearanceChange(patch).catch(error => {
+      if (live.current && request === appearanceRequest.current) setAppearanceFailure({ patch, message: errorText(error) })
+    })
+  }
 
   function updateRuntime(id: string, patch: Partial<RuntimeConfig>) {
     setDraft(current => ({ ...current, runtimes: current.runtimes.map(item => item.id === id ? { ...item, ...patch } : item) }))
@@ -290,11 +304,11 @@ export function SettingsPage({ settings, onSave, onBack, onExport, activeCount, 
     if (saving) return
     const invalid = validate()
     if (invalid) { setNotice({ text: invalid, error: true }); return }
-    const snapshot = copy(draft)
+    const snapshot = { ...copy(draft), ...appearancePreferences(settings) }
     setSaving(true); setNotice(null)
     try {
       await onSave(snapshot)
-      if (live.current) { setBaseline(snapshot); setNotice({ translation: ['配置已保存。外观立即生效；Runtime 配置用于下次执行，默认值用于新建成员。', 'Settings saved. Appearance changes apply now; runtime changes apply to the next run and defaults to new members.'] }) }
+      if (live.current) { setBaseline(snapshot); setNotice({ translation: ['配置已保存。Runtime 配置用于下次执行，默认值用于新建成员。', 'Settings saved. Runtime changes apply to the next run and defaults to new members.'] }) }
     } catch (error) { if (live.current) setNotice({ text: t('保存失败：', 'Save failed: ') + errorText(error) + t('。编辑内容已保留。', '. Your edits are retained.'), error: true }) }
     finally { if (live.current) setSaving(false) }
   }
@@ -364,14 +378,15 @@ export function SettingsPage({ settings, onSave, onBack, onExport, activeCount, 
             </TabsContent>
           </Tabs></div>}
 
-          {category === 'appearance' && <AppearanceSettings value={draft.fontFamily} languagePreference={draft.language} disabled={saving} onChange={fontFamily => { setDraft(current => ({ ...current, fontFamily })); setNotice(null) }} onLanguageChange={language => { setDraft(current => ({ ...current, language })); setNotice(null) }} />}
+          {category === 'appearance' && <AppearanceSettings value={settings.fontFamily} themeValue={normalizeThemePreference(settings.theme)} languagePreference={settings.language} disabled={false} onChange={fontFamily => changeAppearance({ fontFamily })} onThemeChange={theme => changeAppearance({ theme })} onLanguageChange={language => changeAppearance({ language })} />}
           {category === 'execution' && <div className="space-y-7"><div><h1 className="text-xl font-semibold">{t('执行默认值', 'Execution defaults')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('新建任务和成员的起点；任务中的独立配置与历史 Run 保持原样。', 'Starting values for new tasks and members; task overrides and historical runs stay unchanged.')}</p></div><Section title={t('新任务默认配置', 'New task defaults')}><Field id="default-mode" label={t('执行模式', 'Execution mode')}><Picker id="default-mode" label={t('新任务默认执行模式', 'Default execution mode for new tasks')} value={draft.defaultMode} onChange={value => { setDraft(current => ({ ...current, defaultMode: value as 'solo' | 'team' })); setNotice(null) }} options={[{ value: 'solo', label: t('单 Agent', 'Single agent') }, { value: 'team', label: t('多 Agent 协作', 'Multi-agent collaboration') }]} /></Field><Field id="default-runtime" label={t('默认 Runtime', 'Default runtime')} hint={t('成员的默认模型来自此 Runtime 的配置。', 'A member’s default model comes from this runtime’s configuration.')}><Picker id="default-runtime" label={t('新任务默认 Runtime', 'Default runtime for new tasks')} value={draft.defaultRuntime || '__none__'} onChange={value => { setDraft(current => ({ ...current, defaultRuntime: value === '__none__' ? '' : value })); setNotice(null) }} options={[{ value: '__none__', label: t('创建时选择', 'Choose when creating') }, ...draft.runtimes.map(item => ({ value: item.id, label: item.name + (item.enabled ? '' : t('（已停用）', ' (disabled)')), disabled: !item.enabled, runtime: item }))]} /></Field><Field id="max-parallel" label={t('最大并行成员', 'Maximum parallel members')} hint={t('1–8 位。限制同时执行的成员数量，不会改变已运行的批次。', '1–8 members. Limits concurrent execution without changing active runs.')}><Input id="max-parallel" type="number" min={1} max={8} step={1} className="max-w-36" value={draft.maxParallel || ''} onChange={event => { setDraft(current => ({ ...current, maxParallel: Number(event.target.value) })); setNotice(null) }} /></Field><Field id="default-directory" label={t('默认工作目录', 'Default working directory')} hint={t('留空时在任务中选择；任务自身的工作目录优先。', 'If blank, choose in each task. A task’s own directory takes precedence.')}><div className="flex gap-2"><Input id="default-directory" className="min-w-0 font-mono" placeholder={t('未指定默认目录', 'No default directory')} value={draft.defaultDirectory} onChange={event => { setDraft(current => ({ ...current, defaultDirectory: event.target.value })); setNotice(null) }} /><Button variant="outline" size="sm" onClick={() => void pickDirectory()}><FolderOpen className="size-3.5" />{t('选择目录', 'Choose directory')}</Button></div></Field></Section><Section title={t('配置何时生效', 'When changes take effect')}><div className="space-y-3 text-xs leading-6 text-muted-foreground"><p>{t('新建成员使用当前默认的 Runtime 和模型；已有成员保留各自选择。Runtime 的访问权限与启动配置会用于所有关联成员的下一次执行。', 'New members use the current default runtime and model; existing members keep their selections. Runtime permissions and startup settings apply to the next run of related members.')}</p><p>{t(`保存设置不会重启 ${activeCount > 0 ? '当前 ' + activeCount + ' 个执行实例' : '执行实例'}，也不会改写历史聊天与执行记录。`, `Saving settings does not restart ${activeCount > 0 ? `${activeCount} active instances` : 'active instances'} or rewrite historical chats and runs.`)}</p></div></Section></div>}
+
 
           {category === 'storage' && <div className="space-y-7"><div><h1 className="text-xl font-semibold">{t('记录与存储', 'Records & storage')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('聊天、配置与 Runtime 公开事件存储在本机，可导出当前任务的记录。', 'Chats, settings and runtime public events are stored locally. You can export the current task.')}</p></div><Section title={t('本地数据', 'Local data')} action={<Button variant="ghost" size="sm" disabled={storageLoading} onClick={() => void refreshStorage()}><RefreshCw className={'size-3.5 ' + (storageLoading ? 'animate-spin motion-reduce:animate-none' : '')} />{t('刷新', 'Refresh')}</Button>}><Field label={t('存储位置', 'Storage location')}><p className="min-h-8 break-all rounded-md border border-border bg-card/40 px-3 py-2 font-mono text-xs">{storage?.path || (storageLoading ? t('正在读取…', 'Loading…') : t('尚未获取', 'Not loaded'))}</p></Field><Field label={t('存储占用', 'Storage used')}><p className="py-2 text-xs">{storage ? <span title={storage.bytes + ' bytes'}>{formatBytes(storage.bytes)} <span className="ml-2 text-[11px] text-muted-foreground">{storage.bytes.toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')} {t('字节', 'bytes')}</span></span> : t('未读取', 'Not loaded')}</p></Field>{storageError && <p role="alert" className="text-xs text-destructive">{storageError}</p>}<p className="text-[11px] leading-5 text-muted-foreground">{isDesktop ? t('这是桌面应用当前实际使用的数据位置。', 'This is the desktop app’s actual data location.') : t('当前为浏览器预览存储；桌面应用使用独立的本地数据文件。', 'This browser preview uses separate storage from the desktop app.')}{t('现有记录不会自动过期。', 'Existing records do not expire automatically.')}</p></Section><Section title={t('执行输出保留', 'Execution output retention')}><p className="text-xs leading-5 text-muted-foreground">{t('完整保留每次执行的公开输出与 Trace，不再按累计字节数或记录条数截断。旧版本已丢弃的输出无法恢复。', 'Public output and traces for each run are retained in full, without a cumulative size or record limit. Output discarded by older versions cannot be recovered.')}</p></Section><Section title={t('导出当前任务', 'Export current task')}><div className="flex items-center justify-between gap-6 rounded-md border border-border p-4"><div><p className="text-xs font-medium">{t('聊天与执行记录', 'Chat and execution records')}</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{t('导出当前任务的聊天、成员配置与公开执行事件。', 'Export this task’s chats, member settings and public execution events.')}</p></div><Button variant="outline" size="sm" onClick={onExport}><Download className="size-3.5" />{t('导出任务', 'Export task')}</Button></div><p className="text-[11px] leading-5 text-muted-foreground">{t('执行事件只包含 Runtime 公开的数据，不代表模型不可访问的内部思考。', 'Execution events contain only data exposed by the runtime, not private model reasoning.')}</p></Section></div>}
         </div></ScrollArea>
         <footer className="flex min-h-[76px] shrink-0 items-center justify-between gap-4 border-t border-border bg-sidebar px-6 py-3">
-          <div className="min-w-0 space-y-1"><p className={'flex items-center gap-1.5 text-xs ' + (dirty ? 'text-accent-foreground' : 'text-muted-foreground')}><span className={'size-1.5 rounded-full ' + (dirty ? 'bg-accent-foreground' : 'bg-border')} />{saving ? t('正在保存配置…', 'Saving settings…') : dirty ? t('有未保存的更改 · 切换分类会保留编辑', 'Unsaved changes · Switching categories keeps edits') : t('所有更改已保存', 'All changes saved')}</p><p role={notice?.error ? 'alert' : 'status'} aria-live="polite" className={'max-w-[620px] text-[11px] leading-4 ' + (notice?.error ? 'text-destructive' : 'text-muted-foreground')}>{notice?.translation ? t(...notice.translation) : notice?.text || t('外观保存后立即生效；Runtime 配置用于下次执行。', 'Appearance changes apply after saving; runtime settings apply to the next run.')}</p></div>
-          <div className="flex shrink-0 items-center gap-2"><Button variant="ghost" size="sm" disabled={!dirty || saving} onClick={reset}><RotateCcw className="size-3.5" />{t('还原', 'Restore')}</Button><Button size="sm" disabled={!dirty || saving} onClick={() => void saveChanges()}>{saving ? <RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Save className="size-3.5" />}{saving ? t('保存中…', 'Saving…') : t('保存更改', 'Save changes')}</Button></div>
+          <div className="min-w-0 space-y-1">{category === 'appearance' ? <><p role="status" className={'flex items-center gap-1.5 text-xs ' + (appearanceFailure ? 'text-destructive' : 'text-muted-foreground')}><span className={'size-1.5 rounded-full ' + (appearanceFailure ? 'bg-destructive' : 'bg-border')} />{appearanceFailure ? t('外观未能保存', 'Appearance could not be saved') : appearanceSaving ? t('正在自动保存外观…', 'Saving appearance automatically…') : dirty ? t('外观已自动保存 · 其他设置有未保存的更改', 'Appearance saved automatically · Other settings have unsaved changes') : t('外观已自动保存', 'Appearance saved automatically')}</p><p role={appearanceFailure ? 'alert' : 'status'} aria-live="polite" className={'max-w-[620px] text-[11px] leading-4 ' + (appearanceFailure ? 'text-destructive' : 'text-muted-foreground')}>{appearanceFailure ? t('自动保存失败：', 'Automatic save failed: ') + appearanceFailure.message + t('。已恢复上次保存的外观，可重试。', '. The last saved appearance has been restored. You can retry.') : t('主题、字体和语言修改后立即生效，并自动保存。', 'Theme, font and language changes apply immediately and save automatically.')}</p></> : <><p className={'flex items-center gap-1.5 text-xs ' + (dirty ? 'text-accent-foreground' : 'text-muted-foreground')}><span className={'size-1.5 rounded-full ' + (dirty ? 'bg-accent-foreground' : 'bg-border')} />{saving ? t('正在保存配置…', 'Saving settings…') : dirty ? t('有未保存的更改 · 切换分类会保留编辑', 'Unsaved changes · Switching categories keeps edits') : t('所有更改已保存', 'All changes saved')}</p><p role={notice?.error ? 'alert' : 'status'} aria-live="polite" className={'max-w-[620px] text-[11px] leading-4 ' + (notice?.error ? 'text-destructive' : 'text-muted-foreground')}>{notice?.translation ? t(...notice.translation) : notice?.text || t('外观自动保存；Runtime 配置用于下次执行。', 'Appearance saves automatically; runtime settings apply to the next run.')}</p></>}</div>
+          {category === 'appearance' ? appearanceFailure && <Button variant="outline" size="sm" onClick={() => changeAppearance(appearanceFailure.patch)}><RefreshCw className="size-3.5" />{t('重试', 'Retry')}</Button> : <div className="flex shrink-0 items-center gap-2"><Button variant="ghost" size="sm" disabled={!dirty || saving} onClick={reset}><RotateCcw className="size-3.5" />{t('还原', 'Restore')}</Button><Button size="sm" disabled={!dirty || saving} onClick={() => void saveChanges()}>{saving ? <RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Save className="size-3.5" />}{saving ? t('保存中…', 'Saving…') : t('保存更改', 'Save changes')}</Button></div>}
         </footer>
       </main>
     </div>

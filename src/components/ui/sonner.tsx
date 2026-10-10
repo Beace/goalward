@@ -37,7 +37,7 @@ export const notify = {
   error: (message: string, options?: NoticeOptions) => show('error', message, options),
 }
 
-export function Toaster() {
+export function Toaster({ theme = 'system' }: { theme?: 'dark' | 'light' | 'system' }) {
   const { t } = useI18n()
   const returnFocus = useRef<HTMLElement | null>(null)
   useEffect(() => () => { current = undefined; toast.dismiss() }, [])
@@ -70,7 +70,7 @@ export function Toaster() {
       if (current) { const id = current.id; current = undefined; toast.dismiss(id) }
     }}
   ><Sonner
-    theme="dark"
+    theme={theme}
     className="app-toaster"
     position="top-center"
     offset={{ top: 56 }}
