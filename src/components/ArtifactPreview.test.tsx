@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { ArtifactPreview } from './ArtifactPreview'
+import { ArtifactPreview, ArtifactPreviewEmpty } from './ArtifactPreview'
 import type { Artifact } from '@/lib/artifacts'
 const bridge = vi.hoisted(() => ({ readArtifact: vi.fn(), openArtifact: vi.fn(), saveArtifact: vi.fn() }))
 vi.mock('@/lib/bridge', async original => ({ ...await original<typeof import('@/lib/bridge')>(), ...bridge }))
@@ -119,4 +119,73 @@ it('supports following links inside a local Markdown preview', async () => {
   render(<ArtifactPreview artifact={artifact} onOpenLink={onOpenLink}/>)
   fireEvent.click(await screen.findByRole('link', { name: '详情' }))
   expect(onOpenLink).toHaveBeenCalledWith('nested/report.html')
+})
+
+it('requires an explicit override above 500 MB and never carries it to another file', async () => {
+  bridge.readArtifact.mockResolvedValueOnce({ content: '', bytes: 501 * 1024 * 1024, tooLarge: true })
+    .mockResolvedValueOnce({ content: '# Large document', bytes: 501 * 1024 * 1024 })
+    .mockResolvedValueOnce({ content: '', bytes: 502 * 1024 * 1024, tooLarge: true })
+  const view = render(<ArtifactPreview artifact={artifact}/>)
+  expect((await screen.findByRole('alert')).textContent).toContain('500 MB')
+  expect(bridge.readArtifact).toHaveBeenLastCalledWith('/workspace', 'report.md')
+  fireEvent.click(screen.getByRole('button', { name: '仍要打开' }))
+  await screen.findByRole('heading', { name: 'Large document' })
+  expect(bridge.readArtifact).toHaveBeenLastCalledWith('/workspace', 'report.md', true)
+  expect(screen.queryByRole('button', { name: '仍要打开' })).toBeNull()
+  view.rerender(<ArtifactPreview artifact={{ ...artifact, id: 'other-large', path: 'other.md' }}/>)
+  await screen.findByRole('button', { name: '仍要打开' })
+  expect(bridge.readArtifact).toHaveBeenLastCalledWith('/workspace', 'other.md')
+  expect(screen.queryByRole('heading', { name: 'Large document' })).toBeNull()
+})
+
+it('keeps the large-file override for retries but still shows read errors', async () => {
+  bridge.readArtifact.mockResolvedValueOnce({ content: '', bytes: 501 * 1024 * 1024, tooLarge: true })
+    .mockRejectedValueOnce(new Error('读取文件失败'))
+    .mockResolvedValueOnce({ content: '# Recovered large document' })
+  render(<ArtifactPreview artifact={artifact}/>)
+  fireEvent.click(await screen.findByRole('button', { name: '仍要打开' }))
+  await screen.findByText('读取文件失败')
+  fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
+  await screen.findByRole('heading', { name: 'Recovered large document' })
+  expect(bridge.readArtifact).toHaveBeenLastCalledWith('/workspace', 'report.md', true)
+})
+
+it('clears an old preview when a refreshed file has grown beyond the automatic limit', async () => {
+  bridge.readArtifact.mockResolvedValueOnce({ content: '# Original small document', bytes: 32 })
+    .mockResolvedValueOnce({ content: '', bytes: 501 * 1024 * 1024, tooLarge: true })
+    .mockResolvedValueOnce({ content: '# Approved large document', bytes: 501 * 1024 * 1024 })
+  render(<ArtifactPreview artifact={artifact}/>)
+  await screen.findByRole('heading', { name: 'Original small document' })
+  fireEvent.click(screen.getByRole('button', { name: '刷新文件' }))
+  await screen.findByRole('button', { name: '仍要打开' })
+  expect(screen.queryByRole('heading', { name: 'Original small document' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '仍要打开' }))
+  await screen.findByRole('heading', { name: 'Approved large document' })
+})
+
+it('opens validated web addresses from an empty preview and rejects other schemes inline', () => {
+  const onOpenUrl = vi.fn()
+  render(<ArtifactPreviewEmpty onOpenUrl={onOpenUrl}/>)
+  const input = screen.getByRole('textbox', { name: '输入网页 URL' })
+  expect(screen.getByRole('button', { name: '打开网页预览' }).hasAttribute('disabled')).toBe(true)
+  for (const url of ['javascript:alert(1)', 'file:///workspace/report.html', 'https://user:secret@example.com']) {
+    fireEvent.change(input, { target: { value: url } })
+    fireEvent.submit(input.closest('form')!)
+    expect(screen.getByRole('alert').textContent).toContain('HTTP 或 HTTPS')
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+  }
+  expect(onOpenUrl).not.toHaveBeenCalled()
+  fireEvent.change(input, { target: { value: '  https://example.com/报告  ' } })
+  fireEvent.submit(input.closest('form')!)
+  expect(onOpenUrl).toHaveBeenCalledWith('https://example.com/%E6%8A%A5%E5%91%8A')
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(bridge.readArtifact).not.toHaveBeenCalled()
+})
+
+it('reflects the current web URL in the address bar and resets it on file selection', () => {
+  const onOpenUrl = vi.fn()
+  const view = render(<ArtifactPreview artifact={{ ...artifact, path: undefined, url: 'https://example.com/report', kind: 'web' }} onOpenUrl={onOpenUrl}/>)
+  expect((screen.getByRole('textbox', { name: '输入网页 URL' }) as HTMLInputElement).value).toBe('https://example.com/report')
+  view.rerender(<ArtifactPreview artifact={{ ...artifact, path: undefined, content: '# Local document' }} onOpenUrl={onOpenUrl}/>)
+  expect((screen.getByRole('textbox', { name: '输入网页 URL' }) as HTMLInputElement).value).toBe('')
 })

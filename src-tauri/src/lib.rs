@@ -303,6 +303,7 @@ pub fn run() {
             attachments::save_clipboard_file,
             attachments::read_attachment_image,
             artifacts::read_artifact,
+            artifacts::read_artifact_pdf_chunk,
             artifacts::open_artifact,
             artifacts::save_artifact
         ])

@@ -21,7 +21,7 @@ import { InspectorTabs } from '@/components/InspectorTabs'
 import { InspectorLayout } from '@/components/InspectorLayout'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Workbench } from '@/components/Workbench'
-import { ArtifactPreview } from '@/components/ArtifactPreview'
+import { ArtifactPreview, ArtifactPreviewEmpty } from '@/components/ArtifactPreview'
 import { artifactFromLink, getTaskArtifacts, type Artifact } from '@/lib/artifacts'
 import { Status } from '@/components/Status'
 import { RuntimeLogo } from '@/components/RuntimeLogo'
@@ -124,6 +124,11 @@ export default function App() {
   const artifacts = useMemo(() => (page === 'workbench' || page === 'tasks') && task ? getTaskArtifacts(task) : [], [page, task?.id, task?.messages, task?.events, task?.runs, task?.directory, task?.artifacts, language])
   const previewArtifact = previewSelection?.taskId === task?.id ? (artifacts.find(item => item.id === previewSelection?.artifact.id) ?? previewSelection?.artifact) : undefined
   const openArtifactPreview = (artifact: Artifact) => { if (task) setPreviewSelection({ taskId: task.id, artifact }); activateInspectorTab('preview'); setInspectorOpen(true) }
+  const openWebPreview = (url: string) => {
+    if (!task) return
+    const artifact = artifactFromLink(url, { directory: task.directory, sourceId: 'url-preview', createdAt: new Date().toISOString() }, task.id)
+    if (artifact) openArtifactPreview(artifact)
+  }
   async function recordSavedArtifact(artifact: Artifact, path: string) {
     const taskId = task?.id
     if (!taskId) throw new Error(t('任务不存在', 'Task not found'))
@@ -456,12 +461,12 @@ export default function App() {
         { id: 'trace', label: t('执行过程', 'Execution trace'), icon: <Activity size={14}/>, actions: <Button variant="ghost" size="icon-sm" title={t('导出聊天与执行过程', 'Export chat and execution trace')} aria-label={t('导出聊天与执行过程', 'Export chat and execution trace')} onClick={doExport}><Download/></Button>, content: task.historyPending ? (historyErrors[task.id]
           ? <div className="flex min-h-10 items-center gap-2 px-3 py-2 text-xs text-muted-foreground" role="alert"><span className="min-w-0 flex-1 break-words">{t(`历史记录加载失败：${historyErrors[task.id]}`, `Could not load history: ${historyErrors[task.id]}`)}</span><Button variant="outline" size="sm" onClick={() => { void ensureTaskReady(task.id).catch(() => {}) }}>{t('重试', 'Retry')}</Button></div>
           : <div className="flex h-full min-h-32 flex-col items-center justify-center gap-3 p-6 text-xs text-muted-foreground" role="status"><Spinner className="size-5" aria-hidden="true"/><span>{t('加载执行记录', 'Loading execution history')}</span></div>) : inspectorOpen && inspectorTab === 'trace' ? <Suspense fallback={<div className="inspector-tab-empty" role="status">{t('加载执行过程…', 'Loading execution trace…')}</div>}><TracePanel key={task.id + (chosenRun?.id ?? '')}  embedded task={task} run={chosenRun} initialMemberId={traceMemberId} onClose={() => setInspectorOpen(false)} onExport={doExport}/></Suspense> : null },
-        { id: 'preview', label: t('产物预览', 'Artifact preview'), icon: <FileText size={14}/>, content: previewArtifact ? <ArtifactPreview key={previewArtifact.id} artifact={previewArtifact} onOpenLink={href => {
+        { id: 'preview', label: t('产物预览', 'Artifact preview'), icon: <FileText size={14}/>, content: previewArtifact ? <ArtifactPreview key={previewArtifact.id} artifact={previewArtifact} onOpenUrl={openWebPreview} onOpenLink={href => {
           const base = previewArtifact.path?.includes('/') ? previewArtifact.path.slice(0, previewArtifact.path.lastIndexOf('/')) : ''
           const directory = base.startsWith('/') ? base : base ? `${previewArtifact.directory}/${base}` : previewArtifact.directory
           const linked = artifactFromLink(href, { ...previewArtifact, directory }, task.id)
           if (linked) openArtifactPreview({ ...linked, directory: previewArtifact.directory })
-        }} onSaved={recordSavedArtifact}/> : <div className="inspector-tab-empty"><FileText size={24}/><p>{t('选择产物以预览', 'Select an artifact to preview')}</p><span>{t('点击“产物”中的文件，或对话中的文件按钮。', 'Click a file in Artifacts or a file button in the conversation.')}</span></div> },
+        }} onSaved={recordSavedArtifact}/> : <ArtifactPreviewEmpty onOpenUrl={openWebPreview}/> },
       ].filter(tab => inspectorTabs.includes(tab.id))}/>}><Workbench key={task.id} task={task} settings={state.settings} artifacts={artifacts} onOpenArtifact={openArtifactPreview} selectedRunId={runId} onSelectRun={id => { setRunId(id); setPreviewSelection(undefined); activateInspectorTab('trace') }} onChange={changeTask} onSend={send} onStop={stop} onSettings={() => openSettings()} onInspector={() => { activateInspectorTab('trace'); setInspectorOpen(true) }} onToggleInspector={() => { if (!inspectorTabs.length) activateInspectorTab('trace'); setInspectorOpen(o => !o) }} inspectorOpen={inspectorOpen} onDuplicate={duplicate} taskActions={<TaskActionButtons compact task={task} onAction={openTaskAction}/>} goalTitle={state.goals.find(g=>g.id===task.goalId)?.title} onGoal={returnToTaskGoal} onGoalProgress={() => task.goalId && showGoalView(task.goalId, 'overview', true)} goalProgressLabel={goalProgressLabel} agentActions={memberId=><AgentMemberActions task={task} state={state} memberId={memberId} onChange={update} onOpenAgent={openAgent}/>} operations={!task.demo?<TaskOperations key={task.id} task={task} state={state} onChange={changeControl} onEdit={trigger=>openTaskAction('edit',task,trigger)} onGoal={openGoal} onSubtask={newSubtask} onTask={selectTask} onRunStep={step=>runStep(task,step)} onOrchestrate={start=>orchestrate(task,start)}/>:undefined} /></InspectorLayout> : <div className="app-loading"><h1>{t('创建第一项任务', 'Create your first task')}</h1><Button onClick={openNew}><Plus />{t('新建任务', 'New task')}</Button></div>}</TasksPage>}
     </WorkspaceLayout></>}
     <footer className="statusbar"><span><span className={`status-dot ${!isDesktop ? 'preview-dot' : ''}`} />{isDesktop ? t('本地桌面应用', 'Local desktop app') : t('浏览器预览', 'Browser preview')}</span><span>{state ? (activeCount ? t(`${activeCount} 个成员运行中`, `${activeCount} members running`) : t('无运行中的进程', 'No running processes')) : t('运行状态待读取', 'Waiting for run status')}</span><span className="ml-auto">{!state ? (storageError ? t('读取失败', 'Load failed') : t('正在读取本地数据…', 'Loading local data…')) : saved ? t('已保存到本地', 'Saved locally') : t('正在保存…', 'Saving…')}</span><span>v{appVersion}</span></footer>

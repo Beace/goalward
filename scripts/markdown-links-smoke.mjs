@@ -62,6 +62,16 @@ try {
     expect(await page.evaluate(() => window.__artifactEscaped)).toBeUndefined()
     await expect(preview.getByRole('button', { name: '系统浏览器打开' })).toBeVisible()
     await page.screenshot({ path: `${output}/remote-${width}-${reducedMotion}.png` })
+    const urlInput = preview.getByRole('textbox', { name: '输入网页 URL' })
+    await expect(urlInput).toHaveValue('https://artifact-preview.test/report')
+    const remoteLoadsBeforeUrl = remoteLoads
+    await urlInput.fill('https://artifact-preview.test/from-url')
+    await urlInput.press('Enter')
+    await expect(preview.locator('iframe')).toHaveAttribute('src', 'https://artifact-preview.test/from-url')
+    await expect(urlInput).toHaveValue('https://artifact-preview.test/from-url')
+    await expect(preview.getByRole('heading', { name: 'artifact-preview.test', exact: true })).toBeFocused()
+    await expect(page.frameLocator('iframe[title="artifact-preview.test 网页预览"]').getByRole('heading', { name: '远程产物页面' })).toBeVisible()
+    expect(remoteLoads).toBeGreaterThan(remoteLoadsBeforeUrl)
     await preview.getByRole('button', { name: '刷新网页' }).click()
     await expect(page.frameLocator('iframe').getByRole('heading', { name: '远程产物页面' })).toBeVisible()
     for (let i = 0; i < 2; i++) {
@@ -75,7 +85,7 @@ try {
     await expect(preview.getByRole('alert')).toContainText('本地文件请在桌面应用中预览')
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
     expect(errors).toEqual([])
-    results.push({ width, reducedMotion, filenameMentionInert: true, noInventedArtifact: true, inlinePath: true, keyboard: true, historicDirectory: true, nestedRelativeLink: true, parentRelativeLink: true, remoteOnClick: true, isolatedFrame: true, refresh: true, rapidSwitch: true, focus: true, error: true, overflow: false, errors })
+    results.push({ width, reducedMotion, filenameMentionInert: true, noInventedArtifact: true, inlinePath: true, keyboard: true, historicDirectory: true, nestedRelativeLink: true, parentRelativeLink: true, remoteOnClick: true, appUrlInput: true, urlSubmitFocus: true, isolatedFrame: true, refresh: true, rapidSwitch: true, focus: true, error: true, overflow: false, errors })
     await page.close()
   }
   await writeFile(`${output}/results.json`, JSON.stringify(results, null, 2))
