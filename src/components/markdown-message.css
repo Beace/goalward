@@ -1,4 +1,4 @@
-/* Conversation typography stays in the existing compact, dark workbench theme. */
+/* Conversation typography follows the shared compact workbench theme. */
 .markdown-body { white-space: normal; overflow-wrap: anywhere; min-width: 0; line-height: 1.75; }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
@@ -24,7 +24,7 @@
 .markdown-body hr { border: 0; border-top: 1px solid var(--color-border); margin: 18px 0; }
 .markdown-body code { font-family: var(--font-mono); font-size: 12px; }
 .markdown-body :not(pre) > code { padding: 2px 5px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-muted); color: var(--foreground); white-space: break-spaces; }
-.markdown-code-block { margin: 12px 0; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; background: #151717; }
+.markdown-code-block { margin: 12px 0; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; background: var(--surface-inset); }
 .markdown-code-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 3px 8px 3px 12px; border-bottom: 1px solid var(--color-border); color: var(--color-muted-foreground); font-family: var(--font-mono); font-size: 10px; }
 .markdown-code-toolbar button { height: 28px; font-family: var(--font-sans); font-size: 11px; }
 .markdown-body pre { white-space: pre; overflow-x: auto; padding: 12px; margin: 0; line-height: 1.65; tab-size: 2; }

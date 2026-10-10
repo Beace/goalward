@@ -25,8 +25,8 @@
 .setup-runtime-title svg { color: var(--color-sidebar-foreground); }
 .setup-runtime-state { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 400; }
 .setup-status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.setup-status-found { color: #89b99a; }
-.setup-status-attention { color: #d7b778; }
+.setup-status-found { color: var(--status-success); }
+.setup-status-attention { color: var(--status-warning); }
 .setup-status-muted { color: var(--color-muted-foreground); }
 .setup-runtime-count { margin-left: auto; font-size: 10px; color: var(--color-muted-foreground); }
 .setup-runtime-path { font: 10px/16px var(--font-mono); color: var(--color-muted-foreground); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -48,7 +48,7 @@
 .setup-runtime-facts dt { font-size: 12px; color: var(--color-muted-foreground); }
 .setup-runtime-facts dd { font-size: 12px; margin: 0; color: var(--color-sidebar-foreground); overflow-wrap: anywhere; }
 .setup-code, .setup-source-section code { font-family: var(--font-mono); font-size: 11px !important; }
-.setup-attention { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; color: #d7b778; margin: 16px 0; }
+.setup-attention { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; color: var(--status-warning); margin: 16px 0; }
 .setup-attention > svg { margin-top: 2px; }
 .setup-attention p { margin: 4px 0 0; font-size: 11px; color: var(--color-sidebar-foreground); overflow-wrap: anywhere; }
 .setup-attention strong { font-weight: 500; }

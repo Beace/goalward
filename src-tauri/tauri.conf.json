@@ -18,9 +18,7 @@
       "minWidth": 1100,
       "minHeight": 700,
       "titleBarStyle": "Overlay",
-      "hiddenTitle": true,
-      "backgroundColor": "#191A1A",
-      "theme": "Dark"
+      "hiddenTitle": true
     }],
     "security": {
       "csp": "default-src 'self'; frame-src 'self' about: https: http:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:; connect-src ipc: http://ipc.localhost",
