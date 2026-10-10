@@ -1,15 +1,12 @@
 name: Publish macOS universal prerelease
 
 on:
-  # GitHub evaluates cron in UTC: 03:17 UTC is 11:17 Asia/Shanghai.
-  schedule:
-    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Serialize scheduled and manual releases. A later pending run may replace an
+# Serialize automation-triggered and manual releases. A later pending run may replace an
 # earlier one; each run plans the complete unpublished main history.
 concurrency:
   group: goalward-macos-release-main
