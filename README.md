@@ -33,6 +33,8 @@ Open the DMG, drag **Goalward.app** into **Applications**, and launch it. If you
 
 A finished agent process does not automatically mean a task is accepted. You can also create goals and tasks for work you will do manually.
 
+Choose **System**, **Dark**, or **Light** in **Settings → Appearance → Theme**, then save the settings. System is the default and follows changes to your operating system's appearance while Goalward is open. A saved Dark or Light choice remains fixed until you change it. Appearance settings persist across restarts and apply to the workbench, settings, and shared menus and dialogs.
+
 ## Data
 
 Goalward stores workspace data locally in `~/Library/Application Support/dev.goalward.desktop/`. Quit the previous app before the first launch. Goalward preserves its data directory and attempts a non-destructive migration; do not remove the old directory while existing attachments may still refer to it.

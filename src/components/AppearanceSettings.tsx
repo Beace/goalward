@@ -3,11 +3,13 @@ import { Check, ChevronsUpDown, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { isDesktop, listSystemFonts } from '@/lib/bridge'
 import { normalizeFontFamily, uiFontStack } from '@/lib/fonts'
+import type { ThemePreference } from '@/lib/types'
 
-export function AppearanceSettings({ value, onChange, disabled }: { value?: string; onChange: (family: string) => void; disabled: boolean }) {
+export function AppearanceSettings({ value, onChange, themeValue = 'system', onThemeChange, disabled }: { value?: string; onChange: (family: string) => void; themeValue?: ThemePreference; onThemeChange: (theme: ThemePreference) => void; disabled: boolean }) {
   const [open, setOpen] = useState(false)
   const [families, setFamilies] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,7 +29,24 @@ export function AppearanceSettings({ value, onChange, disabled }: { value?: stri
   const options = selected && !families.includes(selected) ? [selected, ...families] : families
   function select(family: string) { onChange(family); setOpen(false) }
   return <div className="space-y-7">
-    <div><h1 className="text-xl font-semibold">外观</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">调整整个应用的界面字体。</p></div>
+    <div><h1 className="text-xl font-semibold">外观</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">调整整个应用的主题和界面字体。</p></div>
+    <section className="space-y-4">
+      <h3 className="border-b border-border pb-2 text-[13px] font-semibold">主题</h3>
+      <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">
+        <Label htmlFor="app-theme" className="pt-2 text-xs text-muted-foreground">界面主题</Label>
+        <div className="min-w-0 space-y-2">
+          <Select value={themeValue} onValueChange={theme => onThemeChange(theme as ThemePreference)} disabled={disabled} motion>
+            <SelectTrigger id="app-theme" aria-label="界面主题" aria-describedby="app-theme-help" className="w-full min-w-0"><SelectValue /></SelectTrigger>
+            <SelectContent position="popper">
+              <SelectItem value="system">跟随系统</SelectItem>
+              <SelectItem value="dark">深色</SelectItem>
+              <SelectItem value="light">浅色</SelectItem>
+            </SelectContent>
+          </Select>
+          <p id="app-theme-help" className="text-[11px] leading-5 text-muted-foreground">点击「保存更改」后应用于整个应用，下次启动继续使用。「跟随系统」会随操作系统的深浅色设置自动切换。</p>
+        </div>
+      </div>
+    </section>
     <section className="space-y-4">
       <h3 className="border-b border-border pb-2 text-[13px] font-semibold">字体</h3>
       <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">

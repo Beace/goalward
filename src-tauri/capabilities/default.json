@@ -3,5 +3,5 @@
   "identifier": "desktop",
   "description": "Main workbench: events, native window drag and directory picker",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-toggle-maximize", "dialog:allow-open", "dialog:allow-save", "notification:allow-is-permission-granted", "notification:allow-request-permission", "notification:allow-notify"]
+  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-toggle-maximize", "core:window:allow-set-theme", "dialog:allow-open", "dialog:allow-save", "notification:allow-is-permission-granted", "notification:allow-request-permission", "notification:allow-notify"]
 }

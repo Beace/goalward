@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage, type SettingsPageProps } from './SettingsPage'
-import type { LocalDiscoveryReport, Settings } from '@/lib/types'
+import type { LocalDiscoveryReport, Settings, ThemePreference } from '@/lib/types'
 
 const bridge = vi.hoisted(() => ({
   isDesktop: true,
@@ -274,6 +274,73 @@ describe('model reasoning defaults', () => {
 
 
 describe('SettingsPage appearance', () => {
+  it('displays unknown imported appearance preferences consistently with the system fallback', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    const callbacks = mount({ settings: { ...settings(), theme: 'unknown' as ThemePreference } })
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('跟随系统')
+    await screen.findByText('本机可用字体 · 1 款')
+    expect((screen.getByRole('button', { name: '保存更改' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(callbacks.onSave).not.toHaveBeenCalled()
+  })
+
+  it('defaults legacy settings to following the system without changing the saved configuration', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    const callbacks = mount()
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('跟随系统')
+    await screen.findByText('本机可用字体 · 1 款')
+    expect((screen.getByRole('button', { name: '保存更改' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(callbacks.onSave).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['dark', '浅色', 'light'],
+    ['light', '深色', 'dark'],
+    ['light', '跟随系统', 'system'],
+  ] as [ThemePreference, string, ThemePreference][])('saves a theme change from %s to %s only after explicit save', async (previous, option, theme) => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    const callbacks = mount({ settings: { ...settings(), theme: previous } })
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    await selectOption('界面主题', option)
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe(option)
+    expect(callbacks.onSave).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '保存更改' }))
+    await waitFor(() => expect(callbacks.onSave).toHaveBeenCalledOnce())
+    expect(callbacks.onSave.mock.calls[0][0].theme).toBe(theme)
+    await waitFor(() => expect((screen.getByRole('button', { name: '保存更改' }) as HTMLButtonElement).disabled).toBe(true))
+  })
+
+  it('keeps an unsaved theme across category changes and restores the saved system default', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    const callbacks = mount()
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    await selectOption('界面主题', '浅色')
+    fireEvent.click(screen.getByRole('button', { name: '执行默认值' }))
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('浅色')
+    fireEvent.click(screen.getByRole('button', { name: '还原' }))
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('跟随系统')
+    expect((screen.getByRole('button', { name: '保存更改' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(callbacks.onSave).not.toHaveBeenCalled()
+    await screen.findByText('本机可用字体 · 1 款')
+  })
+
+  it('keeps the theme draft after a save failure and restores the last saved preference', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    const onSave = vi.fn(async () => { throw new Error('Disk unavailable') })
+    mount({ settings: { ...settings(), theme: 'dark' }, onSave })
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    await selectOption('界面主题', '浅色')
+    fireEvent.click(screen.getByRole('button', { name: '保存更改' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('保存失败：Disk unavailable。编辑内容已保留。')
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('浅色')
+    expect((screen.getByRole('button', { name: '保存更改' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '还原' }))
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('深色')
+    expect(onSave).toHaveBeenCalledOnce()
+  })
+
   it('keeps a saved missing font and reports fallback without silently rewriting it', async () => {
     bridge.listSystemFonts.mockResolvedValue(['Menlo', 'PingFang SC'])
     const callbacks = mount({ settings: { ...settings(), fontFamily: 'Uninstalled Font' } })

@@ -36,12 +36,15 @@ export interface ModelConfig {
 export interface ProviderConfig {
   id: string; name: string; baseUrl: string; credentialEnv: string
 }
+export type ThemePreference = 'system' | 'dark' | 'light'
 export interface Settings {
   runtimes: RuntimeConfig[]; models: ModelConfig[]; providers: ProviderConfig[]
   defaultRuntime: string; defaultMode: 'solo' | 'team'; maxParallel: number
   defaultDirectory: string
   /** UI font family; empty or absent uses the application default. */
   fontFamily?: string
+  /** Empty/legacy settings follow the operating system appearance. */
+  theme?: ThemePreference
   /** Legacy persisted setting; ignored. Runtime output is retained without a quota. */
   outputLimit?: number
 }
