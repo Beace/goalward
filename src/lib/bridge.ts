@@ -138,10 +138,15 @@ export async function exportTask(task: Task): Promise<string> {
   return a.download
 }
 
-export interface ArtifactFile { path: string; content: string; imageDataUrl?: string; bytes: number }
-export async function readArtifact(directory: string, path: string): Promise<ArtifactFile> {
+export interface ArtifactFile { path: string; content: string; imageDataUrl?: string; pdf?: boolean; tooLarge?: boolean; bytes: number }
+export async function readArtifact(directory: string, path: string, allowLarge = false): Promise<ArtifactFile> {
   if (!isDesktop) throw new Error(translate('本地文件请在桌面应用中预览；回复内的文档可直接预览。', 'Preview local files in the desktop app. Documents in responses can be previewed here.'))
-  return invoke('read_artifact', { directory, path })
+  return invoke('read_artifact', { directory, path, allowLarge })
+}
+export async function readArtifactPdfChunk(directory: string, path: string, offset: number, length: number, allowLarge = false): Promise<Uint8Array> {
+  if (!isDesktop) throw new Error(translate('本地 PDF 请在桌面应用中预览。', 'Preview local PDFs in the desktop app.'))
+  const bytes = await invoke<ArrayBuffer | number[]>('read_artifact_pdf_chunk', { directory, path, offset, length, allowLarge })
+  return new Uint8Array(bytes)
 }
 export async function openArtifact(directory: string, path: string, reveal = false): Promise<void> {
   if (!isDesktop) throw new Error(translate('请在桌面应用中打开本地文件。', 'Open local files in the desktop app.'))

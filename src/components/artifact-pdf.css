@@ -1,0 +1,16 @@
+.artifact-pdf { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.artifact-pdf-toolbar { display: flex; align-items: center; gap: 2px; min-height: 40px; padding: 4px 6px; border-bottom: 1px solid var(--border); color: var(--muted-foreground); }
+.artifact-pdf-toolbar [data-slot=button] { flex-shrink: 0; }
+.artifact-pdf-toolbar [aria-pressed=true] { color: var(--accent-foreground); background: var(--accent); }
+.artifact-pdf-toolbar-spacer { flex: 1; min-width: 0; }
+.artifact-pdf-page-input[data-slot=input] { width: 40px; min-height: 28px; height: 28px; flex-shrink: 0; padding: 0 4px; font-size: 12px; text-align: center; }
+.artifact-pdf-page-count, .artifact-pdf-zoom { font-size: 11px; white-space: nowrap; }
+.artifact-pdf-page-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.artifact-pdf-zoom { min-width: 34px; text-align: center; }
+.artifact-pdf-viewport { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 12px; background: var(--surface-inset, var(--background)); }
+.artifact-pdf-viewport:focus-visible { outline: 1px solid var(--ring); outline-offset: -2px; }
+.artifact-pdf-status { position: absolute; inset: 12px 12px auto; margin: 0; font-size: 12px; color: var(--muted-foreground); }
+.artifact-pdf-canvas { width: max-content; min-width: 100%; }
+.artifact-pdf-canvas canvas { display: block; margin: 0 auto; opacity: 0; transition: opacity var(--motion-feedback-duration) var(--motion-feedback-ease); }
+.artifact-pdf-canvas[data-ready=true] canvas { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .artifact-pdf-canvas canvas { transition: none; } }

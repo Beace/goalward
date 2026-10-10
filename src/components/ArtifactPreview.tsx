@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Code2, Copy, ExternalLink, Eye, FolderOpen, RefreshCw, Save } from 'lucide-react'
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { ArrowRight, Check, Code2, Copy, ExternalLink, Eye, FolderOpen, Globe, RefreshCw, Save } from 'lucide-react'
 import { Button } from './ui/button'
+import { Input } from './ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { MarkdownMessage } from './MarkdownMessage'
 import { FileIcon } from './FileIcon'
@@ -9,10 +10,18 @@ import { isDesktop, openArtifact, readArtifact, saveArtifact, normalizeExternalH
 import './artifacts.css'
 import { useI18n } from '@/i18n'
 
-export function ArtifactPreview({ artifact, onSaved, onOpenLink }: { artifact: Artifact; onOpenLink?: (href: string) => void; onSaved?: (artifact: Artifact, path: string) => Promise<void> }) {
+const ArtifactPdf = lazy(() => import('./ArtifactPdf').then(module => ({ default: module.ArtifactPdf })))
+
+export function ArtifactPreview({ artifact, onSaved, onOpenLink, onOpenUrl }: { artifact: Artifact; onOpenUrl?: (url: string) => void; onOpenLink?: (href: string) => void; onSaved?: (artifact: Artifact, path: string) => Promise<void> }) {
   const { t, language } = useI18n()
   const remoteUrl = artifact.url && normalizeExternalHttpUrl(artifact.url)
   const imageFile = !artifact.url && /\.(png|jpe?g|gif|webp|bmp|ico|avif|tiff?|heic|heif)$/i.test(artifact.path ?? artifact.name)
+  const pdfFile = !artifact.url && /\.pdf$/i.test(artifact.path ?? artifact.name)
+  const identity = JSON.stringify([artifact.id, artifact.path, artifact.directory, remoteUrl])
+  const [approvedSource, setApprovedSource] = useState('')
+  const allowLarge = approvedSource === identity
+  const [oversizedBytes, setOversizedBytes] = useState<number>()
+  const [pdfBytes, setPdfBytes] = useState<number>()
   const [content, setContent] = useState<string>()
   const [imageDataUrl, setImageDataUrl] = useState<string>()
   const [error, setError] = useState('')
@@ -28,31 +37,35 @@ export function ArtifactPreview({ artifact, onSaved, onOpenLink }: { artifact: A
   useEffect(() => { heading.current?.focus({ preventScroll: true }) }, [artifact.id])
   useEffect(() => {
     let active = true
-    const identity = JSON.stringify([artifact.id, artifact.path, artifact.directory, remoteUrl])
     const changed = source.current !== identity
     source.current = identity
-    if (changed) { setContent(undefined); setImageDataUrl(undefined); setMode('preview') }
+    if (changed) { setContent(undefined); setImageDataUrl(undefined); setPdfBytes(undefined); setOversizedBytes(undefined); setApprovedSource(''); setMode('preview') }
     setError(''); setActionError(''); setNotice('')
     if (artifact.url) { setReading(false); if (!remoteUrl) setError(t('此网页链接无效。', 'This web link is invalid.')) }
     else if (artifact.content !== undefined) { setContent(artifact.content); setReading(false) }
     else if (artifact.path) {
       setReading(true)
-      void readArtifact(artifact.directory, artifact.path).then(file => {
+      const read = allowLarge ? readArtifact(artifact.directory, artifact.path, true) : readArtifact(artifact.directory, artifact.path)
+      void read.then(file => {
         if (!active) return
-        setContent(file.imageDataUrl ? undefined : file.content); setImageDataUrl(file.imageDataUrl); setRevision(n => n + 1)
+        setOversizedBytes(file.tooLarge ? file.bytes : undefined)
+        if (file.tooLarge) { setContent(undefined); setImageDataUrl(undefined); setPdfBytes(undefined); return }
+        setContent(file.imageDataUrl || file.pdf ? undefined : file.content); setImageDataUrl(file.imageDataUrl); setPdfBytes(file.pdf ? file.bytes : undefined); setRevision(n => n + 1)
         if (!changed) setNotice(t(`已刷新 · ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`, `Refreshed · ${new Date().toLocaleTimeString('en-US', { hour12: false })}`))
       }).catch(error => { if (active) setError(String(error).replace(/^Error: /, '')) })
         .finally(() => { if (active) setReading(false) })
     }
     return () => { active = false }
-  }, [artifact.id, artifact.content, artifact.path, artifact.directory, artifact.url, remoteUrl, refresh, language, t])
+  }, [artifact.id, artifact.content, artifact.path, artifact.directory, artifact.url, remoteUrl, identity, allowLarge, refresh, language, t])
   const html = useMemo(() => artifact.kind === 'html' && content !== undefined ? htmlPreviewDocument(content) : '', [artifact.kind, content])
   async function action(work: () => Promise<unknown>, success = '') {
     setBusy(true); setActionError(''); setNotice('')
     try { const result = await work(); if (result !== null) setNotice(success) } catch (error) { setActionError(String(error).replace(/^Error: /, '')) } finally { setBusy(false) }
   }
   const location = artifact.url ?? (artifact.path ? artifact.path.startsWith('/') ? artifact.path : `${artifact.directory}/${artifact.path}` : t('回复中的文件内容', 'File content in reply'))
+  const copyPath = imageFile || imageDataUrl || pdfFile || pdfBytes !== undefined
   return <aside className="artifact-preview" aria-label={t('产物预览', 'Artifact preview')}>
+    {onOpenUrl && <ArtifactUrlBar url={remoteUrl || ''} onOpen={onOpenUrl}/>}
     <Tabs value={mode} onValueChange={setMode} className="artifact-preview-tabs">
       <div className="artifact-toolbar" aria-label={t('产物操作', 'Artifact actions')}>
         <FileIcon name={artifact.name} kind={artifact.kind}/>
@@ -60,7 +73,7 @@ export function ArtifactPreview({ artifact, onSaved, onOpenLink }: { artifact: A
         <span className="artifact-toolbar-status" role="status" title={reading ? t('正在重新读取文件…', 'Reloading file…') : notice}>
           {notice && !reading && <Check size={12} aria-hidden="true"/>}<span className="sr-only">{reading ? t('正在重新读取文件…', 'Reloading file…') : notice}</span>
         </span>
-        {!remoteUrl && !imageFile && !imageDataUrl && <TabsList aria-label={t('文件查看方式', 'File view mode')} className="artifact-view-switch">
+        {!artifact.url && !copyPath && <TabsList aria-label={t('文件查看方式', 'File view mode')} className="artifact-view-switch">
           <TabsTrigger value="preview" aria-label={t('预览', 'Preview')} title={t('预览', 'Preview')} disabled={content === undefined}><Eye size={14}/></TabsTrigger>
           <TabsTrigger value="source" aria-label={t('源码', 'Source')} title={t('源码', 'Source')} disabled={content === undefined}><Code2 size={14}/></TabsTrigger>
         </TabsList>}
@@ -77,21 +90,49 @@ export function ArtifactPreview({ artifact, onSaved, onOpenLink }: { artifact: A
             if (path && isDesktop) { try { await onSaved?.(artifact, path) } catch { throw new Error(t(`文件已保存到 ${path}，但产物记录保存失败，请重试。`, `File saved to ${path}, but the artifact record could not be saved. Try again.`)) } }
             return path
           }, t('已保存文件', 'File saved'))}><Save/></Button>}
-          <Button size="icon-sm" variant="ghost" aria-label={remoteUrl ? t('复制链接', 'Copy link') : imageFile || imageDataUrl ? t('复制文件路径', 'Copy file path') : t('复制文件内容', 'Copy file content')} title={remoteUrl ? t('复制链接', 'Copy link') : imageFile || imageDataUrl ? t('复制文件路径', 'Copy file path') : t('复制文件内容', 'Copy file content')} disabled={(!remoteUrl && !imageFile && !imageDataUrl && content === undefined) || busy} onClick={() => void action(() => navigator.clipboard.writeText(remoteUrl || (imageFile || imageDataUrl ? location : content!)), t('已复制', 'Copied'))}><Copy/></Button>
+          <Button size="icon-sm" variant="ghost" aria-label={remoteUrl ? t('复制链接', 'Copy link') : copyPath ? t('复制文件路径', 'Copy file path') : t('复制文件内容', 'Copy file content')} title={remoteUrl ? t('复制链接', 'Copy link') : copyPath ? t('复制文件路径', 'Copy file path') : t('复制文件内容', 'Copy file content')} disabled={(!remoteUrl && !copyPath && content === undefined) || busy} onClick={() => void action(() => navigator.clipboard.writeText(remoteUrl || (copyPath ? location : content!)), t('已复制', 'Copied'))}><Copy/></Button>
         </div>
       </div>
       {actionError && <p className="artifact-error" role="alert">{actionError}</p>}
-      {error && <div className="artifact-load-state" role="alert"><p>{content !== undefined || imageDataUrl ? t(`刷新失败，仍显示上次读取的内容：${error}`, `Refresh failed; showing the previously loaded content: ${error}`) : error}</p><Button variant="outline" size="sm" disabled={reading} onClick={() => setRefresh(n => n + 1)}>{t('重新读取', 'Reload')}</Button></div>}
-      {imageFile && reading && !imageDataUrl && <div className="artifact-load-state" role="status">{t('正在读取图片…', 'Reading image…')}</div>}
+      {error && <div className="artifact-load-state" role="alert"><p>{content !== undefined || imageDataUrl || pdfBytes !== undefined ? t(`刷新失败，仍显示上次读取的内容：${error}`, `Refresh failed; showing the previously loaded content: ${error}`) : error}</p><Button variant="outline" size="sm" disabled={reading} onClick={() => setRefresh(n => n + 1)}>{t('重新读取', 'Reload')}</Button></div>}
+      {oversizedBytes !== undefined && <div className="artifact-load-state" role="alert"><p>{t(`文件大小为 ${(oversizedBytes / (1024 * 1024)).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} MB，超过 500 MB 默认预览上限。`, `This file is ${(oversizedBytes / (1024 * 1024)).toLocaleString('en-US', { maximumFractionDigits: 1 })} MB, above the 500 MB automatic preview limit.`)}</p><Button variant="outline" size="sm" disabled={reading} onClick={() => { setOversizedBytes(undefined); setApprovedSource(identity) }}>{t('仍要打开', 'Open anyway')}</Button></div>}
+      {reading && content === undefined && !imageDataUrl && pdfBytes === undefined && <div className="artifact-load-state" role="status">{imageFile ? t('正在读取图片…', 'Reading image…') : t('正在读取文件…', 'Reading file…')}</div>}
       {!remoteUrl && imageDataUrl && <ArtifactImage key={`${artifact.id}:${revision}`} src={imageDataUrl} name={artifact.name} onRetry={() => setRefresh(n => n + 1)} reading={reading}/>}
+      {!remoteUrl && pdfBytes !== undefined && artifact.path && <Suspense fallback={<div className="artifact-load-state" role="status">{t('正在加载 PDF 阅读器…', 'Loading PDF viewer…')}</div>}><ArtifactPdf key={`${identity}:${revision}`} directory={artifact.directory} path={artifact.path} bytes={pdfBytes} allowLarge={allowLarge} revision={revision}/></Suspense>}
       {remoteUrl && <div className="artifact-remote-content"><iframe key={`${remoteUrl}:${refresh}`} title={`${artifact.name} ${t('网页预览', 'web preview')}`} src={remoteUrl} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" onError={() => setError(t('网页未能加载，可刷新重试或使用系统浏览器打开。', 'Web page could not load. Refresh or open it in your system browser.'))}/></div>}
       {!remoteUrl && content !== undefined && <>
         <TabsContent value="preview" className="artifact-preview-content">{artifact.kind === 'html' ? <iframe key={revision} title={`${artifact.name} HTML ${t('预览', 'preview')}`} sandbox="" referrerPolicy="no-referrer" srcDoc={html}/> : artifact.kind === 'markdown' ? <div className="artifact-markdown"><MarkdownMessage text={content} onOpenLink={onOpenLink}/></div> : <pre tabIndex={0}>{content}</pre>}</TabsContent>
         <TabsContent value="source" className="artifact-preview-content"><pre tabIndex={0}>{content}</pre></TabsContent>
       </>}
     </Tabs>
-    <footer className="artifact-preview-footer">{remoteUrl ? t('远程网页 · 若页面空白、限制内嵌或需要登录，请用系统浏览器打开', 'Remote web page · If blank, blocked from embedding, or requiring sign-in, open it in your system browser') : artifact.kind === 'html' ? t('HTML 静态预览 · 系统打开可查看脚本与外部资源', 'Static HTML preview · Open with a system app to view scripts and external resources') : artifact.content !== undefined ? t('内容保存在任务回复中，可另存为本地文件', 'Content is saved in the task reply and can be saved as a local file') : t('本地文件 · 显示磁盘当前内容', 'Local file · Showing current content on disk')}</footer>
+    <footer className="artifact-preview-footer">{remoteUrl ? t('远程网页 · 若页面空白、限制内嵌或需要登录，请用系统浏览器打开', 'Remote web page · If blank, blocked from embedding, or requiring sign-in, open it in your system browser') : pdfFile ? t('PDF · 按需读取页面，支持翻页与缩放', 'PDF · Pages load on demand, with paging and zoom') : artifact.kind === 'html' ? t('HTML 静态预览 · 系统打开可查看脚本与外部资源', 'Static HTML preview · Open with a system app to view scripts and external resources') : artifact.content !== undefined ? t('内容保存在任务回复中，可另存为本地文件', 'Content is saved in the task reply and can be saved as a local file') : t('本地文件 · 显示磁盘当前内容', 'Local file · Showing current content on disk')}</footer>
   </aside>
+}
+
+export function ArtifactUrlBar({ url = '', onOpen }: { url?: string; onOpen: (url: string) => void }) {
+  const { t } = useI18n()
+  const errorId = useId()
+  const [draft, setDraft] = useState(url)
+  const [error, setError] = useState('')
+  useEffect(() => { setDraft(url); setError('') }, [url])
+  return <div className="artifact-url-entry">
+    <form className="artifact-url-bar" onSubmit={event => {
+      event.preventDefault()
+      const target = normalizeExternalHttpUrl(draft.trim())
+      if (!target) { setError(t('请输入有效的 HTTP 或 HTTPS 网页地址。', 'Enter a valid HTTP or HTTPS web address.')); return }
+      setError(''); setDraft(target); onOpen(target)
+    }}>
+      <Globe size={16} aria-hidden="true"/>
+      <Input aria-label={t('输入网页 URL', 'Enter web URL')} placeholder={t('输入网页 URL', 'Enter web URL')} value={draft} aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} onChange={event => { setDraft(event.target.value); setError('') }}/>
+      <Button type="submit" variant="ghost" size="icon-sm" aria-label={t('打开网页预览', 'Open web preview')} title={t('打开网页预览', 'Open web preview')} disabled={!draft.trim()}><ArrowRight/></Button>
+    </form>
+    {error && <p id={errorId} className="artifact-error" role="alert">{error}</p>}
+  </div>
+}
+
+export function ArtifactPreviewEmpty({ onOpenUrl }: { onOpenUrl: (url: string) => void }) {
+  const { t } = useI18n()
+  return <aside className="artifact-preview" aria-label={t('产物预览', 'Artifact preview')}><ArtifactUrlBar onOpen={onOpenUrl}/><div className="inspector-tab-empty"><Eye size={24}/><p>{t('选择产物或输入网页 URL 以预览', 'Select an artifact or enter a web URL to preview')}</p></div></aside>
 }
 
 function ArtifactImage({ src, name, onRetry, reading }: { src: string; name: string; onRetry: () => void; reading: boolean }) {

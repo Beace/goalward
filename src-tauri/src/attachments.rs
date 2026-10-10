@@ -10,6 +10,17 @@ use tauri::Manager;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
 
 pub(crate) fn image_preview(path: &str) -> Result<String, String> {
+    image_preview_with_limit(path, Some(MAX_BYTES as u64))
+}
+
+fn image_limit_error(max_bytes: u64) -> String {
+    format!("图片超过 {} MB 预览上限。", max_bytes / (1024 * 1024))
+}
+
+pub(crate) fn image_preview_with_limit(
+    path: &str,
+    max_bytes: Option<u64>,
+) -> Result<String, String> {
     if !Path::new(path).is_absolute() {
         return Err("图片缺少本地绝对路径。".into());
     }
@@ -18,15 +29,23 @@ pub(crate) fn image_preview(path: &str) -> Result<String, String> {
     if !metadata.is_file() {
         return Err("此路径不是图片文件。".into());
     }
-    if metadata.len() > MAX_BYTES as u64 {
-        return Err("图片超过 32 MB 预览上限。".into());
+    if max_bytes.is_some_and(|limit| metadata.len() > limit) {
+        return Err(image_limit_error(max_bytes.unwrap()));
     }
     let mut bytes = Vec::new();
-    file.take(MAX_BYTES as u64 + 1)
+    file.take(max_bytes.map_or(u64::MAX, |limit| limit.saturating_add(1)))
         .read_to_end(&mut bytes)
         .map_err(|_| "图片读取失败。")?;
-    if bytes.len() > MAX_BYTES {
-        return Err("图片超过 32 MB 预览上限。".into());
+    image_data_url(Path::new(path), bytes, max_bytes)
+}
+
+pub(crate) fn image_data_url(
+    path: &Path,
+    bytes: Vec<u8>,
+    max_bytes: Option<u64>,
+) -> Result<String, String> {
+    if max_bytes.is_some_and(|limit| bytes.len() as u64 > limit) {
+        return Err(image_limit_error(max_bytes.unwrap()));
     }
     // Inspect bytes rather than trusting extensions; never expose HTML/SVG as active content.
     let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
@@ -48,13 +67,13 @@ pub(crate) fn image_preview(path: &str) -> Result<String, String> {
     } else {
         #[cfg(target_os = "macos")]
         {
-            let extension = Path::new(path)
+            let extension = path
                 .extension()
                 .and_then(|value| value.to_str())
                 .unwrap_or("")
                 .to_lowercase();
             if matches!(extension.as_str(), "tif" | "tiff" | "heic" | "heif") {
-                return native_image_png(&bytes)
+                return native_image_png(&bytes, max_bytes)
                     .map(|png| format!("data:image/png;base64,{}", STANDARD.encode(png)));
             }
         }
@@ -64,7 +83,7 @@ pub(crate) fn image_preview(path: &str) -> Result<String, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn native_image_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
+fn native_image_png(bytes: &[u8], max_bytes: Option<u64>) -> Result<Vec<u8>, String> {
     use objc2::AllocAnyThread;
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
     use objc2_foundation::{NSData, NSDictionary};
@@ -79,8 +98,8 @@ fn native_image_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
             )
         }
         .ok_or("图片转换失败。")?;
-        if data.length() > MAX_BYTES {
-            return Err("转换后的图片超过 32 MB 预览上限。".into());
+        if max_bytes.is_some_and(|limit| data.length() as u64 > limit) {
+            return Err(format!("转换后的{}", image_limit_error(max_bytes.unwrap())));
         }
         Ok(data.to_vec())
     })
@@ -289,8 +308,17 @@ mod tests {
             image_preview(path.to_str().unwrap()).unwrap(),
             format!("data:image/png;base64,{}", STANDARD.encode(&png))
         );
+        assert!(image_preview_with_limit(path.to_str().unwrap(), Some(png.len() as u64)).is_ok());
+        assert!(
+            image_preview_with_limit(path.to_str().unwrap(), Some(png.len() as u64 - 1)).is_err()
+        );
+        assert_eq!(
+            image_preview_with_limit(path.to_str().unwrap(), None).unwrap(),
+            format!("data:image/png;base64,{}", STANDARD.encode(&png))
+        );
         fs::write(&path, b"<svg onload='doNotExecute()'/>").unwrap();
         assert!(image_preview(path.to_str().unwrap()).is_err());
+        assert!(image_preview_with_limit(path.to_str().unwrap(), None).is_err());
         fs::File::create(&path)
             .unwrap()
             .set_len(MAX_BYTES as u64 + 1)
