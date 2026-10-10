@@ -44,3 +44,11 @@
 .task-delete-blockers button {height:auto;min-height:28px;white-space:normal;text-align:left;padding:4px 0;max-width:100%;overflow-wrap:anywhere}
 @media(max-width:1300px){.tasks-page .task-table-header{grid-template-columns:minmax(120px,1fr) 84px 76px 76px 132px;gap:8px}.task-list-row{gap:8px}.task-table-open[data-slot=button]{grid-template-columns:minmax(120px,1fr) 84px 76px 76px;gap:8px}}
 @media(prefers-contrast:more){.task-action-lock,.task-delete-summary{border-color:var(--ring)}}
+
+.task-owner-link[data-slot=button]{height:28px;max-width:180px;min-width:28px;padding-inline:6px;flex-shrink:1;font-size:12px}
+.task-owner-link>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.task-owner-link>svg,.task-progress-link,.task-deadline{flex-shrink:0}
+.task-deadline{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;white-space:nowrap}
+.task-context .task-directory{flex:1;min-width:0}
+@container(max-width:680px){.task-owner-link[data-slot=button]{max-width:116px}.task-context .task-directory{display:none}.task-context{gap:2px}.task-toolbar{gap:6px}.task-actions{gap:4px}}
+.goal-assistant-nav[data-slot=button]{margin:0 8px 8px}

@@ -103,6 +103,10 @@ export async function discoverLocalEnvironment(): Promise<LocalDiscoveryReport> 
   if (!isDesktop) throw new Error(translate('浏览器预览无法检测本机环境，请在 macOS 应用中使用自动检测。', 'The browser preview cannot scan your local environment. Use automatic detection in the macOS app.'))
   return invoke('discover_local_environment')
 }
+export async function ensureGoalAssistantDirectory(goalId: string): Promise<string> {
+  if (!isDesktop) throw new Error(translate('请在 macOS 应用中连接目标助手；浏览器只提供界面预览。', 'Connect the goal assistant in the macOS app; the browser is only a UI preview.'))
+  return invoke<string>('ensure_goal_assistant_directory', { goalId })
+}
 export async function chooseDirectory(): Promise<string | null> {
   if (!isDesktop) throw new Error(translate('浏览器预览无法读取本机目录，请输入路径或打开 macOS 应用。', 'The browser preview cannot read local directories. Enter a path or open the macOS app.'))
   const result = await open({ directory: true, multiple: false, title: translate('选择任务工作目录', 'Choose task working directory') })

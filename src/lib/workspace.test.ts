@@ -66,11 +66,18 @@ describe('goal association and execution context', () => {
 
   it('captures goal, current state and task criteria independently of all later edits', () => {
     const { state, task } = fixture()
+    task.delivery = '比较报告'
+    task.deadline = '2026-10-16'
+    task.requirementsVersion = 2
     const context = captureRunContext(state, task)
     state.goals[0] = updateGoalState(state.goals[0], { summary: '后来加入第三个候选', reason: '用户补充' })
     task.acceptance = '后来修订的验收要求'
+    task.delivery = '修订后的报告'
+    task.deadline = '2026-10-18'
+    task.requirementsVersion = 3
     expect(context.goal?.currentState.summary).toBe('已有两个候选')
     expect(context.task.acceptance).toBe('提供比较和验证记录')
+    expect(context.task).toMatchObject({ delivery: '比较报告', deadline: '2026-10-16', requirementsVersion: 2 })
     expect(captureRunContext({ ...state, goals: [] }, task).goal).toBeUndefined()
   })
 })
@@ -98,7 +105,8 @@ describe('business acceptance and dependency gates', () => {
     expect(() => assertTaskReady(wired, wired.tasks[1])).toThrow('依赖尚未验收')
     expect(() => setTaskDependencies(wired, task.id, [dependent.id])).toThrow('不能形成循环')
     expect(() => setTaskDependencies(wired, dependent.id, ['missing'])).toThrow('无效任务')
-    wired.tasks[0] = { ...wired.tasks[0], businessStatus: 'done' }
+    const first = submitResult(wired.tasks[0], { summary: '已完成前置任务', evidence: '/result.md' })
+    wired.tasks[0] = reviewResult(first, first.results!.at(-1)!.id, true, '已核对产物')
     expect(() => assertTaskReady(wired, wired.tasks[1])).not.toThrow()
   })
 })
@@ -116,6 +124,19 @@ describe('execution plan readiness and terminal reconciliation', () => {
     expect(readySteps(task).map(item => item.id)).toEqual(['b'])
     task.plan = [step('a', ['b']), step('b', ['a'])]
     expect(() => validatePlan(task)).toThrow('不能形成循环')
+  })
+
+  it('does not let a historical submitted result mark newer work accepted or unblock dependencies', () => {
+    const { task, state } = fixture()
+    const first = submitResult(task, { summary: '旧提交', evidence: '/old.md' })
+    const second = submitResult(first, { summary: '新提交', evidence: '/new.md' })
+    expect(() => reviewResult(second, first.results![0].id, true, '旧产物通过')).toThrow('最新提交')
+    const latestAccepted = reviewResult(second, second.results!.at(-1)!.id, true, '新产物通过')
+    expect(reviewResult(latestAccepted, first.results![0].id, false, '旧产物退回').businessStatus).toBe('done')
+    const dependent = createWorkspaceTask(state.settings, { title: '后续任务' })
+    dependent.dependencies = [task.id]
+    expect(() => assertTaskReady({ ...state, tasks: [{ ...second, businessStatus: 'done' }, dependent] }, dependent)).toThrow('依赖尚未验收')
+    expect(() => assertTaskReady({ ...state, tasks: [latestAccepted, dependent] }, dependent)).not.toThrow()
   })
 
   it('turns successful process completion into step review and failure into step failure', () => {

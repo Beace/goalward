@@ -4,10 +4,12 @@ import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
 import { RuntimeLogo } from './RuntimeLogo'
+import { GoalProgress } from './GoalProgress'
 import { getTaskStatus } from '@/lib/domain'
+import { getGoalProgress, isAcceptedTaskDone, isBusinessTask } from '@/lib/goal-progress'
 import { taskStatusLabels } from '@/lib/workspace'
 import { getCurrentLanguage, translate, useI18n } from '@/i18n'
-import type { Goal, GoalStatus } from '@/lib/goal-types'
+import type { GoalStatus } from '@/lib/goal-types'
 import type { AppState, RunStatus, Task } from '@/lib/types'
 import './dashboard.css'
 
@@ -31,11 +33,9 @@ function latestTaskTime(task: Task) {
 }
 
 function completionTime(task: Task) {
-  if ((task.businessStatus ?? 'todo') !== 'done') return 0
-  const accepted = (task.results ?? []).filter(result => result.verdict === 'accepted')
-    .flatMap(result => [result.reviewedAt ?? '', result.createdAt]).map(value => Date.parse(value) || 0)
-  const completed = task.events.filter(event => event.kind === 'completed').map(event => Date.parse(event.timestamp) || 0)
-  return Math.max(0, ...accepted, ...completed, latestTaskTime(task))
+  if (!isAcceptedTaskDone(task)) return 0
+  const result = task.results!.at(-1)!
+  return Date.parse(result.reviewedAt ?? result.createdAt) || 0
 }
 
 function startOfWeek(now: Date) {
@@ -50,19 +50,6 @@ function startOfDay(now: Date) {
   const start = new Date(now)
   start.setHours(0, 0, 0, 0)
   return start.getTime()
-}
-
-function goalProgress(goal: Goal, tasks: Task[]) {
-  if (goal.criteria.length) {
-    const done = goal.criteria.filter(item => item.status === 'satisfied').length
-    return { value: Math.round(done / goal.criteria.length * 100), detail: `${done} / ${goal.criteria.length} ${translate('项成功条件已满足', 'success criteria met')}` }
-  }
-  const linked = tasks.filter(task => task.goalId === goal.id)
-  if (linked.length) {
-    const done = linked.filter(task => (task.businessStatus ?? 'todo') === 'done').length
-    return { value: Math.round(done / linked.length * 100), detail: `${done} / ${linked.length} ${translate('个关联任务已完成', 'linked tasks completed')}` }
-  }
-  return { value: null, detail: translate('尚未记录成功条件或关联任务', 'No success criteria or linked tasks yet') }
 }
 
 function relativeTime(timestamp: number, now: Date) {
@@ -80,7 +67,8 @@ function runState(task: Task): { status: RunStatus | 'idle'; label: string } {
   if (execution === 'running') return { status: 'running', label: translate('运行中', 'Running') }
   if (execution === 'failed') return { status: 'failed', label: translate('失败', 'Failed') }
   const business = task.businessStatus ?? 'todo'
-  if (business === 'done') return { status: 'completed', label: translate('已完成', 'Done') }
+  if (isAcceptedTaskDone(task)) return { status: 'completed', label: translate('已完成', 'Done') }
+  if (business === 'done') return { status: 'idle', label: translate('待验收', 'In review') }
   if (business === 'blocked') return { status: 'interrupted', label: translate('已阻塞', 'Blocked') }
   return { status: 'idle', label: taskStatusLabel(business) }
 }
@@ -95,17 +83,17 @@ export function DashboardPage({ state, onGoal, onTask, onGoals, onTasks, onNewTa
   state: AppState; onGoal: (id: string) => void; onTask: (id: string) => void; onGoals: () => void; onTasks: () => void; onNewTask: () => void; now?: Date
 }) {
   const { t, language } = useI18n()
-  const tasks = state.tasks.filter(task => !task.demo)
+  const tasks = state.tasks.filter(isBusinessTask)
   const openGoals = state.goals.filter(goal => openGoalStatuses.has(goal.status))
     .sort((left, right) => (Date.parse(right.updatedAt) || 0) - (Date.parse(left.updatedAt) || 0))
   const achievedGoals = state.goals.filter(goal => goal.status === 'achieved')
-  const measurableOpenGoals = openGoals.map(goal => goalProgress(goal, tasks)).filter(progress => progress.value !== null)
+  const measurableOpenGoals = openGoals.map(goal => getGoalProgress(goal, tasks).criteria).filter(progress => progress.percentage !== null)
   const averageProgress = measurableOpenGoals.length
-    ? Math.round(measurableOpenGoals.reduce((sum, progress) => sum + (progress.value ?? 0), 0) / measurableOpenGoals.length) : 0
-  const goalCompletion = state.goals.length ? Math.round(achievedGoals.length / state.goals.length * 100) : 0
-  const weeklyTasks = tasks.filter(task => latestTaskTime(task) >= startOfWeek(now))
-  const weeklyDone = weeklyTasks.filter(task => (task.businessStatus ?? 'todo') === 'done')
-  const weeklyProgress = weeklyTasks.length ? Math.round(weeklyDone.length / weeklyTasks.length * 100) : 0
+    ? Math.round(measurableOpenGoals.reduce((sum, progress) => sum + (progress.percentage ?? 0), 0) / measurableOpenGoals.length) : null
+  const goalCompletion = state.goals.length ? Math.round(achievedGoals.length / state.goals.length * 100) : null
+  const weeklyTasks = tasks.filter(task => task.businessStatus !== 'cancelled' && latestTaskTime(task) >= startOfWeek(now))
+  const weeklyDone = weeklyTasks.filter(isAcceptedTaskDone)
+  const weeklyProgress = weeklyTasks.length ? Math.round(weeklyDone.length / weeklyTasks.length * 100) : null
   const doneToday = weeklyDone.filter(task => completionTime(task) >= startOfDay(now)).length
   const notStarted = weeklyTasks.filter(task => (task.businessStatus ?? 'todo') === 'todo').length
   const recentTasks = [...tasks].sort((left, right) => latestTaskTime(right) - latestTaskTime(left)).slice(0, 6)
@@ -120,19 +108,19 @@ export function DashboardPage({ state, onGoal, onTask, onGoals, onTasks, onNewTa
         <article className="dashboard-metric metric-active">
           <div className="dashboard-metric-label"><Target size={15} /><span>{t('进行中的目标', 'Active goals')}</span></div>
           <strong>{openGoals.length}</strong>
-          <Progress value={averageProgress} aria-label={`${t('进行中目标平均进度', 'Average active goal progress')} ${averageProgress}%`} />
-          <p>{measurableOpenGoals.length ? `${t('平均完成度', 'Average progress')} ${averageProgress}% · ${measurableOpenGoals.length} ${t('个目标已有可计算进度', 'goals have measurable progress')}` : t('等待记录成功条件或关联任务', 'Add success criteria or linked tasks to measure progress')}</p>
+          {averageProgress !== null ? <Progress value={averageProgress} aria-label={`${t('进行中目标标准平均验收率', 'Average active goal criteria verification')} ${averageProgress}%`} /> : <span className="dashboard-muted" aria-label={t('目标验收进度未定义', 'Goal verification progress is undefined')}>—</span>}
+          <p>{averageProgress !== null ? `${t('标准平均验收率', 'Average criteria verification')} ${averageProgress}% · ${measurableOpenGoals.length} ${t('个目标已有完成标准', 'goals have completion criteria')}` : t('等待定义目标完成标准', 'Define goal completion criteria to measure verification')}</p>
         </article>
         <article className="dashboard-metric metric-complete">
-          <div className="dashboard-metric-label"><CheckCircle2 size={15} /><span>{t('已完成的目标', 'Achieved goals')}</span><Badge variant="outline">{goalCompletion}%</Badge></div>
+          <div className="dashboard-metric-label"><CheckCircle2 size={15} /><span>{t('已完成的目标', 'Achieved goals')}</span><Badge variant="outline">{goalCompletion === null ? '—' : `${goalCompletion}%`}</Badge></div>
           <strong>{achievedGoals.length}<small>/ {state.goals.length} {t('总目标', 'total goals')}</small></strong>
-          <Progress value={goalCompletion} aria-label={`${t('目标完成率', 'Goal completion rate')} ${goalCompletion}%`} />
+          {goalCompletion !== null ? <Progress value={goalCompletion} aria-label={`${t('目标完成率', 'Goal completion rate')} ${goalCompletion}%`} /> : <span className="dashboard-muted">—</span>}
           <p>{state.goals.length ? `${t('完成率', 'Completion rate')} ${goalCompletion}% · ${state.goals.length - achievedGoals.length} ${t('个目标仍在生命周期中', 'goals are still active')}` : t('创建目标后，这里会展示整体完成率', 'Create a goal to see the overall completion rate')}</p>
         </article>
         <article className="dashboard-metric metric-week">
           <div className="dashboard-metric-label"><ListChecks size={15} /><span>{t('本周任务完成', 'Tasks completed this week')}</span><CalendarDays size={14} /></div>
           <strong>{weeklyDone.length}<small>/ {weeklyTasks.length}</small></strong>
-          <Progress value={weeklyProgress} aria-label={`${t('本周任务完成率', 'Weekly task completion rate')} ${weeklyProgress}%`} />
+          {weeklyProgress !== null ? <Progress value={weeklyProgress} aria-label={`${t('本周任务完成率', 'Weekly task completion rate')} ${weeklyProgress}%`} /> : <span className="dashboard-muted">—</span>}
           <p>{weeklyTasks.length ? `${weeklyProgress}% ${t('完成', 'done')} · ${t('今日完成', 'Done today')} ${doneToday} · ${t('未开始', 'Not started')} ${notStarted}` : t('本周还没有真实任务活动', 'No task activity this week')}</p>
         </article>
       </section>
@@ -140,18 +128,17 @@ export function DashboardPage({ state, onGoal, onTask, onGoals, onTasks, onNewTa
       <section className="dashboard-section" aria-labelledby="active-goals-heading">
         <div className="dashboard-section-heading"><h2 id="active-goals-heading"><CircleDot size={16} />{t('活跃目标', 'Active goals')}</h2><Button variant="ghost" size="sm" onClick={onGoals}>{t('查看全部', 'View all')} <ArrowRight size={13} /></Button></div>
         {openGoals.length ? <div className="dashboard-goal-grid">{openGoals.slice(0, 4).map(goal => {
-          const progress = goalProgress(goal, tasks)
-          const linked = tasks.filter(task => task.goalId === goal.id)
+          const progress = getGoalProgress(goal, tasks)
+          const linked = progress.tasks.items.map(item => item.task)
           const nextTask = [...linked].sort((left, right) => {
             const leftRunning = getTaskStatus(left) === 'running' ? 1 : 0
             const rightRunning = getTaskStatus(right) === 'running' ? 1 : 0
             return rightRunning - leftRunning || latestTaskTime(right) - latestTaskTime(left)
           })[0]
           return <article className={`dashboard-goal-card goal-${goal.status}`} key={goal.id}>
-            <div className="dashboard-goal-title"><h3>{goal.title}</h3><strong>{progress.value === null ? '—' : `${progress.value}%`}</strong></div>
+            <div className="dashboard-goal-title"><h3 title={goal.title}>{goal.title}</h3><strong aria-label={`${goal.title}：${t('目标标准验收率', 'Goal criteria verification')} ${progress.criteria.percentage === null ? '—' : `${progress.criteria.percentage}%`}`} title={t('目标标准验收率', 'Goal criteria verification')}>{progress.criteria.percentage === null ? '—' : `${progress.criteria.percentage}%`}</strong></div>
             <div className="dashboard-goal-meta"><span><GoalStateIcon status={goal.status} />{goalStatusLabel(goal.status)}</span><i aria-hidden="true" />{t('最后更新', 'Updated')}: {relativeTime(Date.parse(goal.updatedAt) || 0, now)}</div>
-            <Progress value={progress.value ?? 0} aria-label={`${goal.title}：${progress.detail}`} />
-            <div className="dashboard-goal-detail"><span><Users size={13} />{linked.length} {t('个关联任务', 'linked tasks')}</span><span>{progress.detail}</span></div>
+            <GoalProgress goal={goal} tasks={tasks} onTasks={onTasks} onCriterion={() => onGoal(goal.id)} />
             <div className="dashboard-goal-actions"><Button variant="outline" onClick={() => onGoal(goal.id)}>{t('查看详情', 'View details')}</Button><Button onClick={() => nextTask ? onTask(nextTask.id) : onGoal(goal.id)}>{nextTask ? t('继续执行', 'Continue') : t('完善目标', 'Refine goal')}<ArrowRight size={13} /></Button></div>
           </article>
         })}</div> : <div className="dashboard-empty"><Target size={24} /><h3>{t('还没有活跃目标', 'No active goals yet')}</h3><p>{t('先定义预期结果和成功条件，再把任务关联到目标。', 'Define the outcome and success criteria, then link tasks to the goal.')}</p><Button onClick={onGoals}>{t('创建目标', 'Create goal')}</Button></div>}

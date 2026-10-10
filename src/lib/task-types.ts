@@ -2,6 +2,8 @@ import type { Goal } from './goal-types'
 export type TaskBusinessStatus = 'todo' | 'in_progress' | 'blocked' | 'review' | 'done' | 'cancelled'
 export interface TaskResult {
   id: string; summary: string; evidence: string; createdAt: string; runId?: string
+  /** The task requirements this result was submitted against; legacy records use 0. */
+  requirementsVersion?: number
   verdict: 'submitted' | 'accepted' | 'rejected'; reviewedAt?: string; reviewNote?: string
   goalUpdateId?: string
 }
@@ -13,6 +15,6 @@ export interface ExecutionStep {
 }
 export interface RunContext {
   goal?: Goal
-  task: { title: string; acceptance: string; goalId?: string; parentTaskId?: string; businessStatus: TaskBusinessStatus }
+  task: { title: string; acceptance: string; goalId?: string; parentTaskId?: string; businessStatus: TaskBusinessStatus; deadline?: string; delivery?: string; requirementsVersion?: number }
   step?: ExecutionStep
 }

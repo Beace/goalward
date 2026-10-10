@@ -2,6 +2,7 @@ import type { AppState, Task, Member, Run, Settings } from './types'
 import type { ExecutionStep, RunContext, TaskBusinessStatus, TaskResult } from './task-types'
 import { migrateTraexRuntime } from './traex-runtime'
 import { translate } from '@/i18n'
+import { isAcceptedTaskDone } from './goal-progress'
 
 export const taskStatusLabels: Record<TaskBusinessStatus, string> = { todo: '待开始', in_progress: '进行中', blocked: '受阻', review: '待验收', done: '已完成', cancelled: '已取消' }
 const id = () => crypto.randomUUID()
@@ -16,6 +17,8 @@ export interface TaskEditValues {
   priority: Task['priority']
   stageId?: string
   dependencies: string[]
+  deadline?: string
+  delivery?: string
 }
 
 /** An orchestration can still dispatch while no process is currently running. */
@@ -49,10 +52,17 @@ export function editWorkspaceTask(state: AppState, taskId: string, values: TaskE
     if (goalId !== parent.goalId) throw new Error(translate('子任务继承父任务目标，请修改父任务', 'Subtasks inherit their parent’s goal. Edit the parent task instead.'))
   }
   if (stageId && !goal?.plan.some(stage => stage.id === stageId)) throw new Error(translate('推进阶段不属于当前目标，请重新选择', 'The plan stage does not belong to this goal. Select another stage.'))
+  const deadline = values.deadline === undefined ? task.deadline ?? '' : values.deadline.trim()
+  if (deadline && (!/^\d{4}-\d{2}-\d{2}$/.test(deadline) || !Number.isFinite(Date.parse(`${deadline}T00:00:00Z`)) || new Date(`${deadline}T00:00:00Z`).toISOString().slice(0, 10) !== deadline)) throw new Error(translate('任务截止日期无效', 'Invalid task deadline'))
+  if (deadline && goal?.deadline && deadline > goal.deadline) throw new Error(translate('任务日期晚于目标 DDL，请调整排期或先修订目标。', 'The task deadline is later than the goal deadline. Adjust the plan or revise the goal first.'))
+  const delivery = values.delivery === undefined ? task.delivery ?? '' : values.delivery.trim()
+  const requirementsChanged = (task.acceptance ?? '').trim() !== values.acceptance.trim() || (task.delivery ?? '') !== delivery
   let next = state
   if (task.goalId !== goalId) next = linkTaskToGoal(next, taskId, goalId)
   next = setTaskDependencies(next, taskId, values.dependencies)
-  return { ...next, tasks: next.tasks.map(item => item.id === taskId ? { ...item, title, acceptance: values.acceptance.trim(), directory: values.directory.trim(), goalId, priority: values.priority, stageId } : item) }
+  if (deadline && next.tasks.some(item => values.dependencies.includes(item.id) && item.deadline && item.deadline > deadline)) throw new Error(translate('任务截止日期早于前置任务，请调整排期。', 'The deadline precedes a dependency. Adjust the schedule.'))
+  if (deadline && next.tasks.some(item => item.dependencies?.includes(taskId) && item.deadline && item.deadline < deadline)) throw new Error(translate('任务截止日期晚于后续任务，请调整依赖排期。', 'The deadline is later than a dependent task. Adjust the schedule.'))
+  return { ...next, tasks: next.tasks.map(item => item.id === taskId ? { ...item, title, acceptance: values.acceptance.trim(), delivery, deadline, directory: values.directory.trim(), goalId, priority: values.priority, stageId, ...(requirementsChanged ? { requirementsVersion: (item.requirementsVersion ?? 0) + 1, businessStatus: item.businessStatus === 'done' ? 'review' as const : item.businessStatus } : {}) } : item) }
 }
 
 /** Remove one stopped task, never cascade through children, dependencies or goal evidence. */
@@ -62,7 +72,7 @@ export function deleteWorkspaceTask(state: AppState, taskId: string): AppState {
   if (children.length) throw new Error(translate(`请先处理子任务：${children.map(task => task.title).join('、')}`, `Resolve subtasks first: ${children.map(task => task.title).join(', ')}`))
   if (dependents.length) throw new Error(translate(`以下任务仍依赖此任务，请先调整依赖：${dependents.map(task => task.title).join('、')}`, `These tasks still depend on this task. Adjust their dependencies first: ${dependents.map(task => task.title).join(', ')}`))
   const tasks = state.tasks.filter(task => task.id !== taskId)
-  return { ...state, tasks, activeTaskId: state.activeTaskId === taskId ? tasks[0]?.id ?? '' : state.activeTaskId }
+  return { ...state, tasks, activeTaskId: state.activeTaskId === taskId ? tasks.find(item => item.kind !== 'goal_assistant')?.id ?? '' : state.activeTaskId }
 }
 
 /** Additive migration. Never interpret a process exit as business acceptance. */
@@ -116,12 +126,12 @@ export function setTaskDependencies(state: AppState, taskId: string, dependencie
 export function assertTaskReady(state: AppState, task: Task) {
   if (task.demo) throw new Error(translate('请先创建真实任务', 'Create a real task first'))
   if (['done', 'cancelled'].includes(task.businessStatus ?? 'todo')) throw new Error(translate('请先将任务重新设为进行中', 'Set the task back to in progress first'))
-  const unmet = (task.dependencies ?? []).map(key => state.tasks.find(t => t.id === key)).filter(t => !t || t.businessStatus !== 'done')
+  const unmet = (task.dependencies ?? []).map(key => state.tasks.find(t => t.id === key)).filter(t => !t || !isAcceptedTaskDone(t))
   if (unmet.length) throw new Error(translate(`依赖尚未验收完成：${unmet.map(t => t?.title ?? '已缺失任务').join('、')}`, `Dependencies have not been accepted: ${unmet.map(t => t?.title ?? 'Missing task').join(', ')}`))
 }
 
 export function captureRunContext(state: AppState, task: Task, step?: ExecutionStep): RunContext {
-  return structuredClone({ goal: state.goals.find(g => g.id === task.goalId), task: { title: task.title, acceptance: task.acceptance ?? '', goalId: task.goalId, parentTaskId: task.parentTaskId, businessStatus: task.businessStatus ?? 'todo' }, step })
+  return structuredClone({ goal: state.goals.find(g => g.id === task.goalId), task: { title: task.title, acceptance: task.acceptance ?? '', goalId: task.goalId, parentTaskId: task.parentTaskId, businessStatus: task.businessStatus ?? 'todo', deadline: task.deadline, delivery: task.delivery, requirementsVersion: task.requirementsVersion ?? 0 }, step })
 }
 export function contextPrompt(context: RunContext): string {
   if (!context.goal) return ''
@@ -134,18 +144,21 @@ export function submitResult(task: Task, input: Pick<TaskResult, 'summary' | 'ev
   if (isTaskRunning(task)) throw new Error(translate('执行仍在进行，请结束后提交结果', 'The run is still active. Submit the result after it ends.'))
   if (input.runId && !task.runs.some(run => run.id === input.runId)) throw new Error(translate('结果引用的执行不存在', 'The run referenced by this result does not exist'))
   // An explicit result is required even for human tasks; failed experiments can be valuable.
-  return { ...task, businessStatus: 'review', results: [...(task.results ?? []), { ...input, id: id(), summary: input.summary.trim(), evidence: input.evidence.trim(), createdAt: now(), verdict: 'submitted' }] }
+  return { ...task, businessStatus: 'review', results: [...(task.results ?? []), { ...input, id: id(), summary: input.summary.trim(), evidence: input.evidence.trim(), createdAt: now(), verdict: 'submitted', requirementsVersion: task.requirementsVersion ?? 0 }] }
 }
 export function reviewResult(task: Task, resultId: string, accepted: boolean, note: string): Task {
   if (isTaskRunning(task)) throw new Error(translate('执行中不能验收', 'A result cannot be accepted while the run is active'))
   const result = task.results?.find(r => r.id === resultId)
   if (!result) throw new Error(translate('结果不存在', 'Result does not exist'))
   if (result.verdict !== 'submitted') return task
+  const latest = task.results?.at(-1)?.id === resultId
+  if (accepted && !latest) throw new Error(translate('请验收最新提交的结果；历史结果不能完成当前任务。', 'Review the latest submitted result; a historical result cannot complete the current task.'))
+  if (accepted && (result.requirementsVersion ?? 0) !== (task.requirementsVersion ?? 0)) throw new Error(translate('任务要求已修改，请针对最新要求重新提交结果。', 'Task requirements changed. Submit a new result against the current requirements.'))
   if (!note.trim()) throw new Error(translate('请填写验收依据', 'Enter acceptance evidence'))
-  return { ...task, businessStatus: accepted ? 'done' : 'in_progress', results: task.results!.map(r => r.id === resultId ? { ...r, verdict: accepted ? 'accepted' : 'rejected', reviewNote: note.trim(), reviewedAt: now() } : r) }
+  return { ...task, businessStatus: latest ? accepted ? 'done' : 'in_progress' : task.businessStatus, results: task.results!.map(r => r.id === resultId ? { ...r, verdict: accepted ? 'accepted' : 'rejected', reviewNote: note.trim(), reviewedAt: now() } : r) }
 }
 export function setBusinessStatus(task: Task, status: TaskBusinessStatus): Task {
-  if (status === 'done' && !task.results?.some(r => r.verdict === 'accepted')) throw new Error(translate('请先提交并验收结果，再完成任务', 'Submit and accept a result before completing the task'))
+  if (status === 'done' && !isAcceptedTaskDone({ ...task, businessStatus: 'done' })) throw new Error(translate('请先提交并验收当前要求的结果，再完成任务', 'Submit and accept a result for the current requirements before completing the task'))
   if (isTaskRunning(task) && ['done', 'cancelled'].includes(status)) throw new Error(translate('请先停止当前执行', 'Stop the current run first'))
   return { ...task, businessStatus: status }
 }
@@ -191,7 +204,7 @@ export function rollbackControlChange(current: AppState, before: AppState, appli
     const old = before.tasks.find(t=>t.id===task.id), next = applied.tasks.find(t=>t.id===task.id)
     if (!old || !next || old === next) return task
     const restored = {...task}
-    const keys = ['businessStatus','acceptance','title','directory','goalId','priority','dependencies','results','executor','stageId'] as const
+    const keys = ['businessStatus','acceptance','title','directory','goalId','priority','dependencies','results','executor','stageId','deadline','delivery','requirementsVersion'] as const
     for (const key of keys) if (old[key] !== next[key] && task[key] === next[key]) Object.assign(restored,{[key]:old[key]})
     if (old.plan !== next.plan) restored.plan = task.plan?.flatMap(step=>{
       const previous = old.plan?.find(s=>s.id===step.id), changed = next.plan?.find(s=>s.id===step.id)

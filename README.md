@@ -18,7 +18,7 @@ Goalward runs on Apple Silicon and Intel Macs with macOS 13.3 or later. Each mac
 
 Each published prerelease includes commit-based changes and SHA-256 checksums. Check the notes and checksums before installing.
 
-The app does not include agent CLIs, model weights, subscriptions, or API credentials. Install and sign in to at least one supported agent before using it.
+The app does not include agent CLIs, model weights, subscriptions, or API credentials. Install and sign in to a supported agent before starting real agent conversations or executions. Manual goal and task planning remains available without a runtime.
 
 ## Install on macOS
 
@@ -36,6 +36,8 @@ Versions published before updater support, including `v0.2.0`, need one manual i
 4. **Review and continue.** Check the output, artifacts, and evidence before accepting the task. Record what changed and create the next task, revise the goal, or mark it achieved when its criteria are met.
 
 A finished agent process does not automatically mean a task is accepted. You can also create goals and tasks for work you will do manually.
+
+**Goal assistant:** choose **Start something** to describe a broad direction. In the macOS app, a restricted local runtime helps clarify an editable outcome, optional deadline, and verifiable success criteria. Confirming the saved definition triggers a celebration and opens the goal's task list; the assistant then proposes tasks for you to edit and adopt. Adopted tasks open in the independent Tasks workspace, with a toolbar link back to their goal. Task acceptance and goal verification have separate progress charts. Browser preview supports manual planning and does not simulate model replies. See the [goal assistant workflow, runtime limits, and verification boundary](docs/goal-assistant-flow.md) ([中文说明](docs/goal-assistant-flow.md#中文)).
 
 Choose **System**, **Dark**, or **Light** in **Settings → Appearance → Theme**. System is the default and follows changes to your operating system's appearance while Goalward is open. An explicit Dark or Light choice remains fixed until you change it. Theme, font, and language changes apply immediately and save automatically; they persist across restarts and apply throughout the app.
 

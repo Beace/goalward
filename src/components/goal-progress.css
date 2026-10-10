@@ -1,0 +1,33 @@
+.goal-progress { min-width: 0; container-type: inline-size; container-name: goal-progress; }
+.goal-progress-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.goal-progress-chart { min-width: 0; }
+.goal-progress-heading { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; height: 28px; margin-bottom: 6px; color: var(--foreground-secondary); font-size: 11px; }
+.goal-progress-heading > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-progress-heading strong { flex-shrink: 0; margin-left: auto; color: var(--foreground); font-family: var(--font-mono); font-size: 11px; font-weight: 500; }
+.goal-progress .goal-progress-task-link { justify-content: flex-start; padding: 0 4px; font-size: 11px; }
+.goal-progress-task-segments { display: flex; flex-wrap: wrap; gap: 3px; }
+.goal-progress-criterion-segments { display: grid; grid-template-columns: repeat(auto-fit, minmax(40px, 1fr)); gap: 3px; }
+.goal-progress .goal-progress-segment { display: flex; flex-shrink: 1; flex-basis: 0; min-width: 40px; height: 28px; padding: 0 4px; gap: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-inset); color: var(--muted-foreground); font-family: var(--font-mono); font-size: 10px; }
+.goal-progress .goal-progress-segment svg { width: 12px; height: 12px; }
+.goal-progress-task-segments .goal-progress-segment { min-width: max-content; flex-basis: 40px; }
+.goal-progress .goal-progress-segment[data-status=done],.goal-progress .goal-progress-segment[data-status=satisfied] { background: var(--status-success-surface); color: var(--status-success); }
+.goal-progress .goal-progress-segment[data-status=active] { background: var(--accent); color: var(--accent-foreground); }
+.goal-progress .goal-progress-segment[data-status=blocked],.goal-progress .goal-progress-segment[data-status=review] { background: var(--status-warning-surface); color: var(--status-warning); }
+.goal-progress .goal-progress-segment[data-status=unsatisfied] { background: var(--destructive-surface); color: var(--destructive); }
+.goal-progress .goal-progress-segment:hover { border-color: currentColor; }
+.goal-progress .goal-progress-segment:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.goal-progress-empty { display: flex; align-items: center; min-height: 28px; padding: 0 7px; border: 1px dashed var(--border); border-radius: 4px; color: var(--muted-foreground); font-size: 11px; overflow-wrap: anywhere; }
+.goal-progress-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; color: var(--muted-foreground); font-size: 10px; }
+.goal-progress-legend > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.goal-progress-legend i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.goal-progress-legend [data-status=done],.goal-progress-legend [data-status=satisfied] { color: var(--status-success); }
+.goal-progress-legend [data-status=active] { color: var(--accent-foreground); }
+.goal-progress-legend [data-status=blocked],.goal-progress-legend [data-status=review] { color: var(--status-warning); }
+.goal-progress-legend [data-status=unsatisfied] { color: var(--destructive); }
+.goal-progress .goal-progress-note { margin: 6px 0 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+/* Reuse immediate shared press/color feedback; frequently updated counts have no entry animation. */
+.goal-progress .goal-progress-chart [data-slot=button] { transition: var(--motion-feedback-transition); }
+.goal-progress .goal-progress-chart [data-slot=button]:active { transform: none; }
+@container goal-progress (max-width: 360px) { .goal-progress-charts { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+@media (prefers-reduced-motion: reduce) { .goal-progress .goal-progress-chart [data-slot=button] { transition: none; } }
+@media (prefers-contrast: more) { .goal-progress .goal-progress-segment,.goal-progress-empty { border-color: var(--muted-foreground); } }
