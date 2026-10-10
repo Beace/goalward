@@ -39,6 +39,7 @@ struct Running {
 pub struct RuntimeManager {
     storage: Arc<Storage>,
     processes: Arc<Mutex<HashMap<String, Arc<Running>>>>,
+    lifecycle_gate: Arc<Mutex<()>>,
 }
 
 struct EventSink {
@@ -384,10 +385,15 @@ impl RuntimeManager {
         Self {
             storage,
             processes: Arc::new(Mutex::new(HashMap::new())),
+            lifecycle_gate: Arc::new(Mutex::new(())),
         }
     }
 
     pub fn start(&self, request: StartRequest, callback: EventCallback) -> Result<(), String> {
+        let _lifecycle = self
+            .lifecycle_gate
+            .try_lock()
+            .map_err(|_| "应用更新正在安装或重启，请稍后再启动任务")?;
         for id in [
             &request.task_id,
             &request.run_id,
@@ -607,6 +613,28 @@ impl RuntimeManager {
         Ok(())
     }
 
+    /// Keep actual process creation excluded throughout installation or restart.
+    /// The process map includes children that are still stopping and draining.
+    /// This operation never stops an existing Runtime or changes its task state.
+    pub fn while_idle<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _lifecycle = self
+            .lifecycle_gate
+            .try_lock()
+            .map_err(|_| "本机任务正在启动或应用更新正在进行，请稍后重试")?;
+        if !self
+            .processes
+            .lock()
+            .map_err(|_| "无法确认本机 Runtime 状态，未安装或重启应用")?
+            .is_empty()
+        {
+            return Err("仍有本机任务正在运行或停止，请等待任务结束后再安装或重启应用".into());
+        }
+        operation()
+    }
+
     pub fn stop(&self, run_id: &str, member_id: Option<&str>) -> Result<(), String> {
         validate_id(run_id)?;
         if let Some(member_id) = member_id {
@@ -712,6 +740,60 @@ mod tests {
             directory: directory.to_string_lossy().into_owned(),
             prompt: "literal prompt $(unsafe) ' quoted".into(),
         }
+    }
+
+    #[test]
+    fn update_installation_guard_preserves_active_and_stopping_children() {
+        let directory = tempfile::tempdir().unwrap();
+        let manager = RuntimeManager::new(Arc::new(
+            Storage::new(directory.path().join("data")).unwrap(),
+        ));
+        let child = Arc::new(Running {
+            pid: 0,
+            stop: AtomicBool::new(false),
+            done: (Mutex::new(false), Condvar::new()),
+            kimi: Mutex::new(None),
+        });
+        manager
+            .processes
+            .lock()
+            .unwrap()
+            .insert("run-1:member-1".into(), child.clone());
+        let installed = AtomicBool::new(false);
+        for stopping in [false, true] {
+            child.stop.store(stopping, Ordering::SeqCst);
+            assert!(manager
+                .while_idle(|| {
+                    installed.store(true, Ordering::SeqCst);
+                    Ok(())
+                })
+                .is_err());
+            assert_eq!(manager.processes.lock().unwrap().len(), 1);
+            assert_eq!(child.stop.load(Ordering::SeqCst), stopping);
+        }
+        assert!(!installed.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn update_installation_excludes_runtime_start_and_releases_gate_for_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let manager = RuntimeManager::new(Arc::new(
+            Storage::new(directory.path().join("data")).unwrap(),
+        ));
+        manager
+            .while_idle(|| {
+                let error = manager
+                    .start(request(directory.path(), "exit 0"), Arc::new(|_| {}))
+                    .unwrap_err();
+                assert!(error.contains("应用更新"));
+                assert!(manager.processes.lock().unwrap().is_empty());
+                Ok(())
+            })
+            .unwrap();
+        assert!(manager
+            .while_idle(|| Err::<(), _>("fixture install failed".into()))
+            .is_err());
+        assert!(manager.while_idle(|| Ok(())).is_ok());
     }
 
     #[test]

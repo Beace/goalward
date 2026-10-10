@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage, type SettingsPageProps } from './SettingsPage'
 import { I18nProvider, useI18n } from '@/i18n'
 import type { LocalDiscoveryReport, Settings, ThemePreference } from '@/lib/types'
+import type { AppUpdateController } from '@/hooks/use-app-update'
 
 const bridge = vi.hoisted(() => ({
   isDesktop: true,
@@ -79,6 +80,34 @@ async function selectOption(label: string, optionName: string) {
 }
 
 describe('SettingsPage discovery entry', () => {
+  it('opens update notifications in the same page without losing runtime drafts and keeps install blocked until restore', async () => {
+    const appUpdate: AppUpdateController = { desktop: true, phase: 'downloaded', info: { currentVersion: '0.2.0', version: '0.3.0' }, downloadedBytes: 100, check: vi.fn(async () => {}), download: vi.fn(async () => {}), install: vi.fn(async () => {}), restart: vi.fn(async () => {}) }
+    const callbacks = callbacksForSettings()
+    const props = { settings: settings(), activeCount: 0, ...callbacks, appUpdate, navigationKey: 0 }
+    const view = render(<SettingsPage {...props} />)
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Unsaved runtime' } })
+    view.rerender(<SettingsPage {...props} initialCategory="updates" navigationKey={1} />)
+    expect(screen.getByRole('heading', { name: '应用更新' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: '安装更新' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '运行时' }))
+    expect((screen.getByLabelText('名称') as HTMLInputElement).value).toBe('Unsaved runtime')
+    view.rerender(<SettingsPage {...props} initialCategory="updates" navigationKey={2} />)
+    fireEvent.click(screen.getByRole('button', { name: '还原' }))
+    expect((screen.getByRole('button', { name: '安装更新' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '安装更新' }))
+    expect(appUpdate.install).toHaveBeenCalledOnce()
+    expect(callbacks.onSave).not.toHaveBeenCalled()
+  })
+
+  it('returns focus to the Back button when the dirty-settings dialog is cancelled with Escape', async () => {
+    mount()
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Edited runtime' } })
+    const back = screen.getByRole('button', { name: '返回工作台' })
+    fireEvent.click(back)
+    fireEvent.keyDown(screen.getByRole('dialog', { name: '放弃未保存的更改？' }), { key: 'Escape' })
+    await waitFor(() => expect(document.activeElement).toBe(back))
+    expect((screen.getByLabelText('名称') as HTMLInputElement).value).toBe('Edited runtime')
+  })
   it('opens the requested initial category and runtime without changing saved settings', () => {
     const callbacks = mount({ initialCategory: 'models', initialRuntimeId: 'claude', setupHint: true })
     expect(screen.getByRole('heading', { name: '模型与供应商' })).toBeTruthy()

@@ -2,6 +2,7 @@ import { uiFontStack } from '@/lib/fonts'
 import { useI18n } from '@/i18n'
 import { useAppearanceTheme } from '@/hooks/use-appearance-theme'
 import { useAppearanceSettings } from '@/hooks/use-appearance-settings'
+import { useAppUpdate } from '@/hooks/use-app-update'
 import { appearancePreferences } from '@/lib/appearance'
 import { version as appVersion } from '../package.json'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -73,7 +74,8 @@ export default function App() {
   const initialScan = useRef(false)
   const [setupBusy, setSetupBusy] = useState(false)
   const [setupError, setSetupError] = useState('')
-  const [settingsTarget, setSettingsTarget] = useState<{ runtimeId?: string; category?: 'runtimes' | 'models'; hint?: boolean }>({})
+  const [settingsTarget, setSettingsTarget] = useState<{ runtimeId?: string; category?: 'runtimes' | 'models' | 'updates'; hint?: boolean; request?: number }>({})
+  const [settingsDraftDirty, setSettingsDraftDirty] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [newOpen, setNewOpen] = useState(false)
   const [newTitle, setNewTitle] = useState('')
@@ -117,6 +119,14 @@ export default function App() {
     await update(state => ({ ...state, tasks: state.tasks.map(task => task.id === taskId ? { ...task, artifacts: [...(task.artifacts ?? []).filter(item => item.id !== reference.id), reference] } : task) }))
   }
   const activeCount = state?.tasks.flatMap(t => t.runs).flatMap(r => r.members).filter(m => m.status === 'running').length ?? 0
+  const applyingUpdateBlocked = Boolean(state?.tasks.some(task => isTaskRunning(task) || task.orchestration === 'running'))
+  const appUpdate = useAppUpdate({
+    ready: Boolean(state),
+    canApplyUpdate: () => Boolean(state && saved && !appearanceSaving && !settingsDraftDirty && !applyingUpdateBlocked && !dispatching.current && controlWrites.current === 0),
+    onAvailable: info => notify.info(t(`Goalward ${info.version} 已可更新`, `Goalward ${info.version} is available`), {
+      action: { label: t('查看更新', 'View update'), onClick: () => openSettings(undefined, 'updates') },
+    }),
+  })
   const needsConfiguration = Boolean(state && !state.settings.runtimes.some(canConfigureTask))
   const setupVisible = page === 'setup' || Boolean(isDesktop && state && !state.onboarding && page !== 'settings')
   useEffect(() => {
@@ -130,9 +140,9 @@ export default function App() {
     setSetupError(''); setPage('setup'); setCommandOpen(false)
     void discovery.scan()
   }, [discovery.scan])
-  function openSettings(runtimeId?: string, category: 'runtimes' | 'models' = 'runtimes', hint = false) {
+  function openSettings(runtimeId?: string, category: 'runtimes' | 'models' | 'updates' = 'runtimes', hint = false) {
     if(page!=='settings'&&page!=='setup')returnPage.current=page
-    setSettingsTarget({ runtimeId, category, hint }); setPage('settings'); setCommandOpen(false)
+    setSettingsTarget(current => ({ runtimeId, category, hint, request: (current.request ?? 0) + 1 })); setPage('settings'); setCommandOpen(false)
   }
   const openNew = useCallback(() => {
     setNewGoalId('none'); setNewAgentId('default'); setNewParentId(undefined); setNewAcceptance(''); setNewExecutor('agent');
@@ -341,7 +351,7 @@ export default function App() {
       {!isDesktop && <div className="window-dots" aria-hidden="true"><i /><i /><i /></div>}
       <Button variant="ghost" className="title-command" disabled={!state || setupVisible} onClick={() => setCommandOpen(true)}><Search size={13} /><span>{setupVisible ? t('Goalward / 本机环境检测', 'Goalward / Local environment scan') : t('工作空间：Goalward / 全局命令', 'Workspace: Goalward / Command palette')}</span><kbd>⌘ K</kbd></Button><span className="title-app-name" data-tauri-drag-region>Goalward <span>Desktop</span></span>
     </header>
-    {state && setupVisible ? <Suspense fallback={<div className="app-loading">{t('正在打开本机环境检测…', 'Opening local environment scan…')}</div>}><SetupPage report={discovery.report} scanning={discovery.scanning} error={setupError || discovery.error} busy={setupBusy} settings={state.settings} mode={state.onboarding ? 'rescan' : 'first-run'} onRescan={() => { setSetupError(''); void discovery.scan() }} onImport={importDiscovery} onConfigure={(runtimeId, category) => { void configureFromSetup(runtimeId, category) }} onLater={laterSetup} /></Suspense> : state && page === 'settings' ? <Suspense fallback={<div className="app-loading">{t('正在打开设置…', 'Opening Settings…')}</div>}><SettingsPage key={`${settingsTarget.runtimeId ?? ''}:${settingsTarget.category ?? ''}:${settingsTarget.hint ?? false}`} settings={state.settings} onSave={saveSettings} onAppearanceChange={saveAppearance} appearanceSaving={appearanceSaving} onBack={() => setPage(returnPage.current)} onExport={doExport} activeCount={activeCount} initialCategory={settingsTarget.category} initialRuntimeId={settingsTarget.runtimeId} setupHint={settingsTarget.hint || needsConfiguration} onDiscover={openDiscovery} discoveryReport={state.onboarding?.lastScan} /></Suspense> : <>
+    {state && setupVisible ? <Suspense fallback={<div className="app-loading">{t('正在打开本机环境检测…', 'Opening local environment scan…')}</div>}><SetupPage report={discovery.report} scanning={discovery.scanning} error={setupError || discovery.error} busy={setupBusy} settings={state.settings} mode={state.onboarding ? 'rescan' : 'first-run'} onRescan={() => { setSetupError(''); void discovery.scan() }} onImport={importDiscovery} onConfigure={(runtimeId, category) => { void configureFromSetup(runtimeId, category) }} onLater={laterSetup} /></Suspense> : state && page === 'settings' ? <Suspense fallback={<div className="app-loading">{t('正在打开设置…', 'Opening Settings…')}</div>}><SettingsPage settings={state.settings} onSave={saveSettings} onAppearanceChange={saveAppearance} appearanceSaving={appearanceSaving} onBack={() => setPage(returnPage.current)} onExport={doExport} activeCount={activeCount} initialCategory={settingsTarget.category} initialRuntimeId={settingsTarget.runtimeId} navigationKey={settingsTarget.request} appUpdate={appUpdate} onDraftChange={setSettingsDraftDirty} dataSaving={!saved} tasksBusy={applyingUpdateBlocked} setupHint={settingsTarget.hint || needsConfiguration} onDiscover={openDiscovery} discoveryReport={state.onboarding?.lastScan} /></Suspense> : <>
     {state && needsConfiguration && <div role="status" className="flex shrink-0 items-center gap-3 border-b border-border bg-accent px-4 py-2 text-xs"><Terminal size={14} /><span className="flex-1">{t('目标和任务可先记录；启动 Agent 前请配置本地 Runtime。', 'You can record goals and tasks now; configure a local runtime before starting an agent.')}</span><Button size="sm" variant="outline" onClick={openDiscovery}>{t('检测本机环境', 'Scan local environment')}</Button><Button size="sm" onClick={() => openSettings(undefined, 'runtimes', true)}>{t('手动配置', 'Configure manually')}</Button></div>}
     <WorkspaceLayout sidebarWidth={sidebarWidth} navigation={<WorkspaceNavigation state={state} page={page} onPage={setPage} onNewTask={openNew} onSearch={()=>setCommandOpen(true)} onSettings={openSettings} onTask={selectTask}/>}>
       {!state ? <WorkspacePending page={page} error={storageError} goalListWidth={goalListWidth} /> : page==='dashboard'?<DashboardPage state={state} onGoal={openGoal} onTask={selectTask} onGoals={()=>setPage('goals')} onTasks={()=>setPage('tasks')} onNewTask={openNew}/>:page==='goals'?<GoalsPage goalListWidth={goalListWidth} state={state} onChange={update} onCreateTask={newFromGoal} onOpenTask={selectTask} onOpenAgent={openAgent} selectedGoalId={state.activeGoalId} onSelectGoal={id=>void update(s=>({...s,activeGoalId:id})).catch(report)}/>:page==='agents'?<Suspense fallback={<div className="app-loading">{t('正在打开 Agents…', 'Opening Agents…')}</div>}><AgentsPage state={state} onChange={update} onCreateTask={newFromAgent} onOpenTask={selectTask} onSettings={openSettings} initialAgentId={selectedAgentId}/></Suspense>:page==='running'?<ActivityPage state={state} onTask={selectTask} onStop={(taskId,runId)=>void stopExecution(taskId,runId).catch(report)}/>: <TasksPage state={state} selectedTaskId={task?.id} onTask={selectTask} onCreate={openNew} rememberedWidth={taskListWidth}>{task ? <InspectorLayout open={inspectorOpen} compact={smallWindow} onOpenChange={setInspectorOpen} inspector={<InspectorTabs key={task.id} value={inspectorTab} onValueChange={setInspectorTab} onClose={() => setInspectorOpen(false)} onCloseTab={id => setInspectorTabs(tabs => tabs.filter(tab => tab !== id))} tabs={[

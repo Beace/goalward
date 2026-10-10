@@ -48,6 +48,7 @@ src-tauri/icons/app.svg
 .env
 .env.*
 !.env.example
+*.key
 
 # Logs
 *.log

@@ -36,5 +36,12 @@
     "category": "DeveloperTool",
     "shortDescription": "Turn goals into tasks, outcomes, and evidence-backed reviews with coding agents",
     "macOS": { "minimumSystemVersion": "13.3", "signingIdentity": "-" }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFRDhBRTkxNjUwMDMyODcKUldTSE1nQmxrYTdZWHQyM2pmeFpLOXUvM3RkaVRHY3o1OUE0d2x4bUdoTXk1MnQ4V3J0aU9ROUwK",
+      "endpoints": [],
+      "requireSignedVersion": true
+    }
   }
 }

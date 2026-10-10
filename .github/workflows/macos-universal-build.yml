@@ -18,6 +18,13 @@ on:
         required: false
         type: string
         default: ''
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        description: Persistent updater signing key; mandatory for release builds.
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        description: Updater key password; empty for an unencrypted key.
+        required: false
 
 permissions:
   contents: read
@@ -127,12 +134,22 @@ jobs:
       - name: Check installed Tauri packages
         run: npm ls @tauri-apps/api @tauri-apps/cli @tauri-apps/plugin-dialog @tauri-apps/plugin-notification --depth=0
 
-      - name: Build and verify universal DMG and ZIP
-        run: npm run mac:dist
+      - name: Build and verify universal distribution and signed updater
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then
+            npm run mac:dist -- --updater
+          else
+            npm run mac:dist
+          fi
 
       - name: Verify distribution files
         env:
           EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+          UPDATER_REQUIRED: ${{ inputs.release_version != '' }}
         run: |
           python3 - <<'PY'
           import hashlib
@@ -144,6 +161,8 @@ jobs:
           output = Path('releases') / version
           prefix = f'Goalward_{version}_macos-universal'
           expected = {f'{prefix}.dmg', f'{prefix}.zip'}
+          if os.environ['UPDATER_REQUIRED'] == 'true':
+              expected |= {f'{prefix}.app.tar.gz', f'{prefix}.app.tar.gz.sig', 'latest.json'}
           info = json.loads((output / 'BUILD-INFO.json').read_text())
           if info['version'] != version or info['architecture'] != 'universal':
               raise SystemExit('Build metadata does not match the requested universal version')
@@ -154,8 +173,8 @@ jobs:
               raise SystemExit('Build metadata does not list both macOS architectures')
           if info['signing'] != 'ad-hoc' or info['notarized'] is not False:
               raise SystemExit('Unexpected signature or notarization status')
-          if {item['file'] for item in info['artifacts']} != expected:
-              raise SystemExit('Missing or unexpected DMG/ZIP in build metadata')
+          if {item['file'] for item in info['artifacts']} != expected or len(info['artifacts']) != len(expected):
+              raise SystemExit('Missing, duplicate, or unexpected distribution artifact in build metadata')
           for item in info['artifacts']:
               path = output / item['file']
               with path.open('rb') as stream:
@@ -167,6 +186,9 @@ jobs:
           PY
           version="$(node -p "require('./package.json').version")"
           (cd "releases/$version" && shasum -a 256 -c SHA256SUMS.txt)
+          if [ "$UPDATER_REQUIRED" = 'true' ]; then
+            node scripts/updater-artifacts.mjs verify "releases/$version" "$version" "$GITHUB_REPOSITORY"
+          fi
 
       - uses: actions/upload-artifact@v7
         with:

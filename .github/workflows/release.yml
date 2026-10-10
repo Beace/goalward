@@ -155,6 +155,9 @@ jobs:
     with:
       source_sha: ${{ needs.prepare.outputs.target_sha }}
       release_version: ${{ needs.prepare.outputs.version }}
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     permissions:
       contents: read
 
@@ -214,6 +217,10 @@ jobs:
           name: goalward-macos-universal
           path: releases/
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
       - name: Verify downloaded distribution
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -228,7 +235,8 @@ jobs:
           version = os.environ['VERSION']
           output = Path('releases') / version
           prefix = f'Goalward_{version}_macos-universal'
-          archives = {f'{prefix}.dmg', f'{prefix}.zip'}
+          archives = {f'{prefix}.dmg', f'{prefix}.zip', f'{prefix}.app.tar.gz',
+                      f'{prefix}.app.tar.gz.sig', 'latest.json'}
           expected = archives | {'BUILD-INFO.json', 'SHA256SUMS.txt', '安装说明.txt'}
           if not output.is_dir() or {item.name for item in output.iterdir()} != expected:
               raise SystemExit('Downloaded distribution contains missing or unexpected files')
@@ -240,8 +248,8 @@ jobs:
           if info['signing'] != 'ad-hoc' or info['notarized'] is not False:
               raise SystemExit('Unexpected signing or notarization status')
           artifacts = info['artifacts']
-          if {item['file'] for item in artifacts} != archives or len(artifacts) != 2:
-              raise SystemExit('Build metadata does not identify exactly the expected DMG and ZIP')
+          if {item['file'] for item in artifacts} != archives or len(artifacts) != len(archives):
+              raise SystemExit('Build metadata does not identify exactly the expected distribution and updater artifacts')
           checksum_lines = []
           for item in artifacts:
               path = output / item['file']
@@ -251,10 +259,11 @@ jobs:
                   raise SystemExit(f'Build asset failed verification: {path}')
               checksum_lines.append(f"{item['sha256']}  {item['file']}")
           if set((output / 'SHA256SUMS.txt').read_text().splitlines()) != set(checksum_lines):
-              raise SystemExit('SHA256SUMS.txt does not match the verified DMG and ZIP')
+              raise SystemExit('SHA256SUMS.txt does not match the verified distribution and updater artifacts')
           (output / 'INSTALL.zh-CN.txt').write_bytes((output / '安装说明.txt').read_bytes())
           PY
           (cd "releases/$VERSION" && sha256sum --check SHA256SUMS.txt)
+          node scripts/updater-artifacts.mjs verify "releases/$VERSION" "$VERSION" "$GITHUB_REPOSITORY"
 
       - name: Generate commit-based release notes
         env:
@@ -338,6 +347,9 @@ jobs:
           title = f'v{version}'
           names = [f'Goalward_{version}_macos-universal.dmg',
                    f'Goalward_{version}_macos-universal.zip',
+                   f'Goalward_{version}_macos-universal.app.tar.gz',
+                   f'Goalward_{version}_macos-universal.app.tar.gz.sig',
+                   'latest.json',
                    'SHA256SUMS.txt', 'BUILD-INFO.json', 'INSTALL.zh-CN.txt']
           expected = {}
           for name in names:
