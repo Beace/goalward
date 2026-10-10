@@ -1,4 +1,5 @@
 import type { Run, RunMember, RunStatus, RuntimeEvent, Task } from './types'
+import { getCurrentLanguage } from '@/i18n'
 
 type JsonObject = Record<string, unknown>
 const object = (value: unknown): JsonObject | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : undefined
@@ -11,6 +12,8 @@ export interface RunActivity {
   phase: 'starting' | 'waiting' | 'web-search' | 'tool' | 'responding' | 'completed' | 'failed' | 'stopped' | 'interrupted'
   label: string
   summary?: string
+  /** Set only for app-authored summaries; runtime-provided text stays verbatim. */
+  summaryEn?: string
   lastEventAt?: string
   memberId?: string
 }
@@ -44,8 +47,8 @@ function upsert(state: Projection, key: string, text: string, createdAt: string,
   if (previous) { previous.text = text; previous.streaming = streaming }
   else state.outputs.push({ key, text, createdAt, streaming, kind })
 }
-function activity(state: Projection, phase: RunActivity['phase'], label: string, detail?: string) {
-  state.activity = { ...state.activity, phase, label, summary: detail ? summary(detail) : undefined }
+function activity(state: Projection, phase: RunActivity['phase'], label: string, detail?: string, detailEn?: string) {
+  state.activity = { ...state.activity, phase, label, summary: detail ? summary(detail) : undefined, summaryEn: detailEn ? summary(detailEn) : undefined }
 }
 function completeOutputs(state: Projection) { state.outputs.forEach(item => { item.streaming = false }) }
 function claudeText(state: Projection, timestamp: string, streaming: boolean) {
@@ -154,9 +157,12 @@ function readCodex(state: Projection, payload: JsonObject, timestamp: string) {
       const query = string(item.query) || string(action?.query) || string(action?.url)
       activity(state, complete ? 'waiting' : 'web-search', complete ? '检索已完成，等待 Runtime 下一步' : '正在检索网页', query)
     } else if (['command_execution', 'mcp_tool_call', 'file_change', 'collab_tool_call'].includes(string(item.type))) {
+      const toolName = string(item.tool)
       const detail = item.type === 'command_execution' ? '执行本机命令'
-        : item.type === 'file_change' ? '更新工作区文件' : string(item.tool) || '调用工具'
-      activity(state, complete ? 'waiting' : 'tool', complete ? '工具已返回，等待 Runtime 下一步' : '正在执行工具', detail)
+        : item.type === 'file_change' ? '更新工作区文件' : toolName || '调用工具'
+      const detailEn = item.type === 'command_execution' ? 'Run local command'
+        : item.type === 'file_change' ? 'Update workspace files' : toolName ? undefined : 'Call tool'
+      activity(state, complete ? 'waiting' : 'tool', complete ? '工具已返回，等待 Runtime 下一步' : '正在执行工具', detail, detailEn)
     } else if (item.type === 'reasoning') {
       activity(state, 'waiting', '等待 Runtime 输出')
     }
@@ -323,6 +329,23 @@ export function advanceRuntimeOutput(previous: Task, next: Task, event: RuntimeE
 }
 
 const terminalLabels: Record<Exclude<RunStatus, 'running'>, string> = { completed: '执行完成', failed: '执行失败', stopped: '已停止', interrupted: '执行已中断' }
+const activityLabelsEn: Record<string, string> = {
+  '正在启动 Runtime': 'Starting runtime', '正在检索网页': 'Searching the web', '正在调用工具': 'Calling tool', '等待 Runtime 输出': 'Waiting for runtime output',
+  '正在生成回答': 'Generating response', '正在思考': 'Thinking', '等待 Runtime 下一步': 'Waiting for the next runtime step',
+  '已收到回答，等待 Runtime 下一步': 'Response received; waiting for the next runtime step', '工具已返回，等待 Runtime 下一步': 'Tool returned; waiting for the next runtime step',
+  'Runtime 返回异常，等待进程结束': 'Runtime error; waiting for process exit', '回答已完成，等待进程结束': 'Response complete; waiting for process exit',
+  '检索已完成，等待 Runtime 下一步': 'Search complete; waiting for the next runtime step', '正在执行工具': 'Running tool',
+  '等待工具权限确认': 'Waiting for tool permission', '已提交权限选择，等待 Runtime': 'Permission choice submitted; waiting for runtime',
+  '回答已结束，等待 Runtime 退出': 'Response ended; waiting for runtime exit', '正在更新执行计划': 'Updating execution plan',
+  '等待 Pi 输出': 'Waiting for Pi output', 'Pi 请求失败，等待进程结束': 'Pi request failed; waiting for process exit',
+  '已收到回答，等待 Pi 下一步': 'Response received; waiting for the next Pi step', '工具已返回，等待 Pi 下一步': 'Tool returned; waiting for the next Pi step',
+  'Pi 本轮已结束，等待进程退出': 'Pi turn ended; waiting for process exit', 'Runtime 已启动': 'Runtime started',
+  '正在接收 Runtime 输出': 'Receiving runtime output', '执行完成': 'Run complete', '执行失败': 'Run failed',
+  '已停止': 'Stopped', '执行已中断': 'Run interrupted', '等待 Runtime': 'Waiting for runtime',
+}
+function localizedActivity(activity: RunActivity): RunActivity {
+  return getCurrentLanguage() === 'zh' ? activity : { ...activity, label: activityLabelsEn[activity.label] ?? activity.label, summary: activity.summaryEn ?? activity.summary }
+}
 export function getRunActivity(task: Task, run: Run, memberId?: string): RunActivity {
   const members = run.members.filter(member => !memberId || member.id === memberId)
   const running = members.filter(member => member.status === 'running')
@@ -330,8 +353,8 @@ export function getRunActivity(task: Task, run: Run, memberId?: string): RunActi
   const states = candidates.map(member => ({ member, state: projection(task, run, member) }))
   states.sort((left, right) => (Date.parse(right.state.activity.lastEventAt ?? '') || 0) - (Date.parse(left.state.activity.lastEventAt ?? '') || 0))
   const latest = states[0]
-  if (!latest) return { phase: 'waiting', label: '等待 Runtime' }
-  if (running.length) return { ...latest.state.activity, memberId: latest.member.id }
+  if (!latest) return localizedActivity({ phase: 'waiting', label: '等待 Runtime' })
+  if (running.length) return localizedActivity({ ...latest.state.activity, memberId: latest.member.id })
   const status = (['failed', 'interrupted', 'stopped', 'completed'] as const).find(value => members.some(member => member.status === value)) ?? 'completed'
-  return { phase: status, label: terminalLabels[status], lastEventAt: latest.state.activity.lastEventAt, memberId: latest.member.id }
+  return localizedActivity({ phase: status, label: terminalLabels[status], lastEventAt: latest.state.activity.lastEventAt, memberId: latest.member.id })
 }

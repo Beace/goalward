@@ -42,6 +42,8 @@ export interface Settings {
   defaultDirectory: string
   /** UI font family; empty or absent uses the application default. */
   fontFamily?: string
+  /** Manual UI language override; absent follows the current system language. */
+  language?: 'zh' | 'en'
   /** Legacy persisted setting; ignored. Runtime output is retained without a quota. */
   outputLimit?: number
 }

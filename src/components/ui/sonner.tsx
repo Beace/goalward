@@ -1,6 +1,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { CircleCheck, CircleAlert, Info, X } from 'lucide-react'
 import { Toaster as Sonner, toast, type ExternalToast } from 'sonner'
+import { useI18n } from '@/i18n'
 
 // shadcn/ui Sonner adapter, themed for the desktop workbench.
 // One latest notification across pages; updates preserve the mounted toast.
@@ -37,6 +38,7 @@ export const notify = {
 }
 
 export function Toaster() {
+  const { t } = useI18n()
   const returnFocus = useRef<HTMLElement | null>(null)
   useEffect(() => () => { current = undefined; toast.dismiss() }, [])
   return <div
@@ -76,8 +78,8 @@ export function Toaster() {
     visibleToasts={1}
     closeButton
     swipeDirections={[]}
-    customAriaLabel="通知（Alt+T）"
+    customAriaLabel={t('通知（Alt+T）', 'Notifications (Alt+T)')}
     icons={{ success: <CircleCheck size={16} />, info: <Info size={16} />, error: <CircleAlert size={16} />, close: <X size={14} /> }}
-    toastOptions={{ unstyled: true, classNames: { toast: 'app-toast' }, closeButtonAriaLabel: '关闭提示' }}
+    toastOptions={{ unstyled: true, classNames: { toast: 'app-toast' }, closeButtonAriaLabel: t('关闭提示', 'Dismiss notification') }}
   /></div>
 }

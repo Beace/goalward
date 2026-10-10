@@ -33,6 +33,8 @@ Open the DMG, drag **Goalward.app** into **Applications**, and launch it. If you
 
 A finished agent process does not automatically mean a task is accepted. You can also create goals and tasks for work you will do manually.
 
+Goalward starts in Chinese or English based on your Mac's language; other system languages use English. To choose manually or return to the system default, use **Settings → Appearance → Language** and save.
+
 ## Data
 
 Goalward stores workspace data locally in `~/Library/Application Support/dev.goalward.desktop/`. Quit the previous app before the first launch. Goalward preserves its data directory and attempts a non-destructive migration; do not remove the old directory while existing attachments may still refer to it.
