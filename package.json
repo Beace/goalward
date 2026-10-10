@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.13",
-    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/api": "2.12.2",
     "@tauri-apps/plugin-dialog": "2.7.3",
     "@tauri-apps/plugin-notification": "2.4.0",
     "@tauri-apps/plugin-os": "2.4.0",
@@ -39,7 +39,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/cli": "2.11.4",
+    "@tauri-apps/cli": "2.12.1",
     "@testing-library/react": "^16.3.3",
     "@types/mdast": "^4.0.4",
     "@types/node": "^26.5.1",

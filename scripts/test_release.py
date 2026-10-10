@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,34 @@ def run(root: Path, *args: str) -> str:
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_repository_tauri_dependencies_match_locked_rust_versions(self) -> None:
+        package = json.loads((SOURCE_ROOT / "package.json").read_text(encoding="utf-8"))
+        npm_lock = json.loads((SOURCE_ROOT / "package-lock.json").read_text(encoding="utf-8"))
+        cargo_lock = tomllib.loads((SOURCE_ROOT / "src-tauri/Cargo.lock").read_text(encoding="utf-8"))
+        rust_versions = {item["name"]: item["version"] for item in cargo_lock["package"]}
+        rust_tauri_minor = rust_versions["tauri"].split(".")[:2]
+
+        for name, dependencies in (("api", package["dependencies"]),
+                                   ("cli", package["devDependencies"])):
+            with self.subTest(package=f"@tauri-apps/{name}"):
+                version = dependencies[f"@tauri-apps/{name}"]
+                self.assertIsNotNone(re.fullmatch(r"\d+\.\d+\.\d+", version))
+                self.assertEqual(version.split(".")[:2], rust_tauri_minor)
+                self.assertEqual(
+                    npm_lock["packages"][f"node_modules/@tauri-apps/{name}"]["version"], version
+                )
+
+        for name in ("dialog", "notification"):
+            with self.subTest(package=f"@tauri-apps/plugin-{name}"):
+                self.assertEqual(
+                    package["dependencies"][f"@tauri-apps/plugin-{name}"],
+                    rust_versions[f"tauri-plugin-{name}"],
+                )
+
+        for entry in npm_lock["packages"].values():
+            if "resolved" in entry:
+                self.assertTrue(entry["resolved"].startswith("https://registry.npmjs.org/"))
+
     def test_conventional_bumps_and_plain_commit(self) -> None:
         self.assertEqual(release.classify_commit("feat: add goals"), "minor")
         self.assertEqual(release.classify_commit("feat(tasks): add queue"), "minor")
