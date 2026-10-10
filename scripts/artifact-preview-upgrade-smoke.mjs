@@ -35,7 +35,9 @@ function pdfFixture() {
 }
 const pdf = pdfFixture()
 await writeFile(`${output}/two-pages.pdf`, pdf)
-await writeFile(`${output}/harness.html`, '<!doctype html><html class="dark" lang="zh-CN"><head><meta charset="UTF-8"></head><body><div id="root"></div><script type="module" src="./harness.tsx"></script></body></html>')
+// Vite ignores test-results in its watcher. Use a fresh module URL on each run
+// so regenerated fixture code is exercised even when the server stays running.
+await writeFile(`${output}/harness.html`, `<!doctype html><html class="dark" lang="zh-CN"><head><meta charset="UTF-8"></head><body><div id="root"></div><script type="module" src="./harness.tsx?v=${Date.now()}"></script></body></html>`)
 // The generated page is also a usable interactive fixture outside Playwright.
 // An existing init-script/native bridge always wins; no mock leaks into the app.
 await writeFile(`${output}/demo-ipc.ts`, `if (!(window as any).__TAURI_INTERNALS__) {
