@@ -1,4 +1,5 @@
 import { getTraceEntries, type TraceCategory, type TraceEntry } from './trace-events'
+import { getCurrentLanguage } from '@/i18n'
 import type { Run, RunMember, RuntimeEvent, Task } from './types'
 
 type JsonObject = Record<string, unknown>
@@ -94,19 +95,39 @@ function updateState(entry: CallEntry) {
 interface DisplayCache {
   count: number
   routes: string
+  language: 'zh' | 'en'
   entries: TraceDisplayEntry[]
   byRun: Map<string, TraceDisplayEntry[]>
 }
 // App state replaces event arrays on append. Weak keys let abandoned histories
 // and their derived records be collected; title/selection edits reuse the work.
 const displayCache = new WeakMap<RuntimeEvent[], DisplayCache>()
+const displayLabelsEn: Record<string, string> = {
+  '读取网页': 'Read web page', '网页搜索': 'Web search', '执行命令': 'Run command', '文件变更': 'File changes', '调用工具': 'Call tool',
+  '执行中': 'Running', '完成': 'Completed', '失败': 'Failed', '已停止': 'Stopped', '未完成': 'Incomplete', '进行中': 'In progress', '已接收': 'Received',
+  'Agent 回复': 'Agent response', '思考过程': 'Reasoning', '生成回复': 'Generating response',
+  '执行已停止，未收到工具的最终结果。': 'Run stopped before a final tool result was received.',
+  '本次执行失败，未收到此工具的最终结果。': 'This run failed before the final tool result was received.',
+  '本次执行已结束，未收到工具的最终结果。': 'This run ended before the final tool result was received.',
+  '工具参数尚未完整接收，显示已收到的原文。': 'Tool arguments are incomplete; showing the raw text received so far.',
+  '运行时未提供此工具的入参。': 'The runtime did not provide this tool’s input.',
+  '运行时已报告搜索完成，但未提供搜索结果正文。': 'The runtime reported that search finished but did not provide result text.',
+  '运行时未提供此工具的出参。': 'The runtime did not provide this tool’s output.',
+}
+const displayLabel = (value: string | undefined) => value ? displayLabelsEn[value] ?? value : value
+function localizeDisplayEntries(entries: TraceDisplayEntry[]): TraceDisplayEntry[] {
+  if (getCurrentLanguage() === 'zh') return entries
+  return entries.map(entry => ({ ...entry, title: displayLabel(entry.title) ?? entry.title, phase: displayLabel(entry.phase),
+    call: entry.call ? { ...entry.call, inputNote: displayLabel(entry.call.inputNote), outputNote: displayLabel(entry.call.outputNote) } : undefined }))
+}
 
 /** Read-only projection shared by artifacts and the inspector, including run views. */
 export function getTraceDisplayEntries(task: Task, run?: Run): TraceDisplayEntry[] {
   const routes = JSON.stringify(task.runs.map(run => [run.id, run.members.map(member => [member.id, member.runtime.adapter, member.status])]))
+  const language = getCurrentLanguage()
   let cached = displayCache.get(task.events)
-  if (!cached || cached.count !== task.events.length || cached.routes !== routes) {
-    cached = { count: task.events.length, routes, entries: buildTraceDisplayEntries(task), byRun: new Map() }
+  if (!cached || cached.count !== task.events.length || cached.routes !== routes || cached.language !== language) {
+    cached = { count: task.events.length, routes, language, entries: localizeDisplayEntries(buildTraceDisplayEntries(task)), byRun: new Map() }
     displayCache.set(task.events, cached)
   }
   if (!run) return cached.entries

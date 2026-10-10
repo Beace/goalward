@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { Button } from './ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import './inspector-tabs.css'
+import { useI18n } from '@/i18n'
 
 export interface InspectorTab {
   id: string
@@ -20,6 +21,7 @@ export function InspectorTabs({ tabs, value, onValueChange, onClose, onCloseTab 
   onClose: () => void
   onCloseTab?: (id: string) => void
 }) {
+  const { t } = useI18n()
   const selected = tabs.find(tab => tab.id === value) ?? tabs[0]
   const triggers = useRef(new Map<string, HTMLButtonElement>())
   const focusAfterClose = useRef<string | undefined>(undefined)
@@ -39,13 +41,13 @@ export function InspectorTabs({ tabs, value, onValueChange, onClose, onCloseTab 
   }
   return <Tabs className="inspector-tabs" value={selected?.id ?? ''} onValueChange={onValueChange}>
     <div className="inspector-tabs-heading">
-      <TabsList aria-label="右侧工具面板">{tabs.map(tab => <div key={tab.id} className="inspector-tab-label" data-closable={Boolean(onCloseTab)}>
+      <TabsList aria-label={t('右侧工具面板', 'Right tool panel')}>{tabs.map(tab => <div key={tab.id} className="inspector-tab-label" data-closable={Boolean(onCloseTab)}>
         <TabsTrigger value={tab.id} ref={node => { if (node) triggers.current.set(tab.id, node); else triggers.current.delete(tab.id) }}
           onKeyDown={event => { if (event.key === 'Delete' && onCloseTab) { event.preventDefault(); closeTab(tab.id) } }}>{tab.icon}{tab.label}</TabsTrigger>
         {onCloseTab && <Button className="inspector-tab-close" variant="ghost" size="icon-sm" tabIndex={selected?.id === tab.id ? 0 : -1}
-          title={`关闭${tab.label}标签`} aria-label={`关闭${tab.label}标签`} onClick={() => closeTab(tab.id)}><X/></Button>}
+          title={t(`关闭${tab.label}标签`, `Close ${tab.label} tab`)} aria-label={t(`关闭${tab.label}标签`, `Close ${tab.label} tab`)} onClick={() => closeTab(tab.id)}><X/></Button>}
       </div>)}</TabsList>
-      <div className="inspector-tabs-actions">{selected?.actions}<Button variant="ghost" size="icon-sm" title="收起检查器" aria-label="收起检查器" onClick={onClose}><X/></Button></div>
+      <div className="inspector-tabs-actions">{selected?.actions}<Button variant="ghost" size="icon-sm" title={t('收起检查器', 'Collapse inspector')} aria-label={t('收起检查器', 'Collapse inspector')} onClick={onClose}><X/></Button></div>
     </div>
     {tabs.map(tab => <TabsContent key={tab.id} value={tab.id} forceMount hidden={tab.id !== selected?.id} inert={tab.id !== selected?.id} className="inspector-tab-content">{tab.content}</TabsContent>)}
   </Tabs>

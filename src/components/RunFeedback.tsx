@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { getRunActivity } from '@/lib/domain'
 import type { Run, Task } from '@/lib/types'
 import { RuntimeLogo } from './RuntimeLogo'
+import { useI18n } from '@/i18n'
 
 type Activity = ReturnType<typeof getRunActivity>
 
@@ -19,6 +20,7 @@ function duration(ms: number) {
 }
 
 export function RunFeedback({ task, run, onStop, onInspector }: { task: Task; run: Run; onStop?: () => void; onInspector: () => void }) {
+  const { t } = useI18n()
   const active = run.members.some(member => member.status === 'running')
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -32,23 +34,24 @@ export function RunFeedback({ task, run, onStop, onInspector }: { task: Task; ru
   const elapsed = (active ? now : lastEvent) - started
   const idleFor = now - lastEvent
   const owner = run.members.find(member => member.id === activity.memberId)
-  return <div className={'run-feedback phase-' + activity.phase} aria-label="当前执行状态">
+  return <div className={'run-feedback phase-' + activity.phase} aria-label={t('当前执行状态', 'Current run status')}>
     <ActivityIcon phase={activity.phase} />
     <div className="run-feedback-copy"><span className="run-feedback-title" role="status" aria-live="polite">{activity.label}{owner && run.members.length > 1 ? ` · ${owner.role}` : ''}</span>{activity.summary && <span className="run-feedback-summary" title={activity.summary}>{activity.summary}</span>}</div>
-    {Number.isFinite(elapsed) && <time className="run-elapsed" title="从本次执行开始到当前或终止事件的时间">{duration(elapsed)}</time>}
-    {active && Number.isFinite(idleFor) && idleFor >= 15000 && <span className="run-last-event" title="最近一次 Runtime 事件距今的时间">最近事件 {duration(idleFor)} 前</span>}
-    {active && onStop ? <Button variant="outline" size="sm" onClick={onStop} aria-label="停止当前执行"><Square size={11} />停止</Button> : <Button variant="ghost" size="sm" onClick={onInspector}>查看执行</Button>}
+    {Number.isFinite(elapsed) && <time className="run-elapsed" title={t('从本次执行开始到当前或终止事件的时间', 'Time since this run started, until now or its final event')}>{duration(elapsed)}</time>}
+    {active && Number.isFinite(idleFor) && idleFor >= 15000 && <span className="run-last-event" title={t('最近一次 Runtime 事件距今的时间', 'Time since the most recent runtime event')}>{t(`最近事件 ${duration(idleFor)} 前`, `Last event ${duration(idleFor)} ago`)}</span>}
+    {active && onStop ? <Button variant="outline" size="sm" onClick={onStop} aria-label={t('停止当前执行', 'Stop current run')}><Square size={11} />{t('停止', 'Stop')}</Button> : <Button variant="ghost" size="sm" onClick={onInspector}>{t('查看执行', 'View run')}</Button>}
   </div>
 }
 
 export function RunActivityList({ task, run, memberId, onInspector }: { task: Task; run: Run; memberId?: string; onInspector: () => void }) {
+  const { t, language } = useI18n()
   const members = memberId ? run.members.filter(member => member.id === memberId) : run.members
-  return <div className="run-activity-list" aria-label="实时执行活动">{members.map(member => {
+  return <div className="run-activity-list" aria-label={t('实时执行活动', 'Live run activity')}>{members.map(member => {
     const activity = getRunActivity(task, run, member.id)
     return <div key={member.id} className={'run-activity-row phase-' + activity.phase}>
       <div className="run-activity-avatar"><RuntimeLogo runtime={member.runtime} size={16} /></div>
-      <div className="run-activity-content"><div className="run-activity-heading"><strong>{member.role}</strong><ActivityIcon phase={activity.phase} /><span>{activity.label}</span>{activity.lastEventAt && <time>{new Date(activity.lastEventAt).toLocaleTimeString('zh-CN', { hour12: false })}</time>}</div>{activity.summary && <p>{activity.summary}</p>}</div>
-      <Button variant="ghost" size="icon-sm" aria-label={`查看${member.role}的执行过程`} title="查看完整执行过程" onClick={onInspector}><Terminal size={13} /></Button>
+      <div className="run-activity-content"><div className="run-activity-heading"><strong>{member.role}</strong><ActivityIcon phase={activity.phase} /><span>{activity.label}</span>{activity.lastEventAt && <time>{new Date(activity.lastEventAt).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US', { hour12: false })}</time>}</div>{activity.summary && <p>{activity.summary}</p>}</div>
+      <Button variant="ghost" size="icon-sm" aria-label={`${t('查看', 'View')} ${member.role} ${t('的执行过程', 'run details')}`} title={t('查看完整执行过程', 'View full run details')} onClick={onInspector}><Terminal size={13} /></Button>
     </div>
   })}</div>
 }

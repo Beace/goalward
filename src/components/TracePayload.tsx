@@ -1,6 +1,7 @@
 import { Fragment, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import './trace-payload.css'
+import { useI18n } from '@/i18n'
 
 const MAX_HIGHLIGHT_CHARACTERS = 120_000
 const MAX_HIGHLIGHT_TOKENS = 8_000
@@ -44,7 +45,7 @@ function formatJsonText(text: string): string {
   return output.join('')
 }
 
-function formatPayload(value: unknown): Payload {
+function formatPayload(value: unknown, fallback: string): Payload {
   if (typeof value === 'string') {
     try {
       return { text: formatJsonText(value), json: true }
@@ -62,7 +63,7 @@ function formatPayload(value: unknown): Payload {
   try {
     return { text: String(value), json: false }
   } catch {
-    return { text: '无法显示此数据', json: false }
+    return { text: fallback, json: false }
   }
 }
 
@@ -107,12 +108,14 @@ function highlightJson(text: string): ReactNode | null {
 
 /** Read-only runtime payload, with JSON formatting and an exact plain-text fallback. */
 export function TracePayload({ value }: { value: unknown }) {
+  const { t } = useI18n()
+  const fallback = t('无法显示此数据', 'Unable to display this data')
   const { payload, highlighted } = useMemo(() => {
-    const payload = formatPayload(value)
+    const payload = formatPayload(value, fallback)
     return { payload, highlighted: payload.json ? highlightJson(payload.text) : null }
-  }, [value])
+  }, [value, fallback])
 
-  return <pre className={`trace-payload ${payload.json ? 'trace-payload-json' : 'trace-payload-text'}`} tabIndex={0} aria-label={payload.json ? 'JSON 数据' : '文本数据'}>
+  return <pre className={`trace-payload ${payload.json ? 'trace-payload-json' : 'trace-payload-text'}`} tabIndex={0} aria-label={payload.json ? t('JSON 数据', 'JSON data') : t('文本数据', 'Text data')}>
     <code>{highlighted ?? payload.text}</code>
   </pre>
 }

@@ -1,6 +1,7 @@
 import type { AppState, Task, Member, Run, Settings } from './types'
 import type { ExecutionStep, RunContext, TaskBusinessStatus, TaskResult } from './task-types'
 import { migrateTraexRuntime } from './traex-runtime'
+import { translate } from '@/i18n'
 
 export const taskStatusLabels: Record<TaskBusinessStatus, string> = { todo: '待开始', in_progress: '进行中', blocked: '受阻', review: '待验收', done: '已完成', cancelled: '已取消' }
 const id = () => crypto.randomUUID()
@@ -19,7 +20,7 @@ export interface TaskEditValues {
 
 /** An orchestration can still dispatch while no process is currently running. */
 export function taskMutationLockReason(task: Task): string {
-  return isTaskRunning(task) || task.orchestration === 'running' ? '请先停止执行和编排，再编辑或删除' : ''
+  return isTaskRunning(task) || task.orchestration === 'running' ? translate('请先停止执行和编排，再编辑或删除', 'Stop the run and orchestration before editing or deleting.') : ''
 }
 
 export function getTaskDeletionBlockers(state: AppState, taskId: string): { children: Task[]; dependents: Task[]; reason: string } {
@@ -27,27 +28,27 @@ export function getTaskDeletionBlockers(state: AppState, taskId: string): { chil
   return {
     children: state.tasks.filter(item => item.parentTaskId === taskId),
     dependents: state.tasks.filter(item => item.id !== taskId && item.dependencies?.includes(taskId)),
-    reason: task ? taskMutationLockReason(task) : '任务不存在或已删除',
+    reason: task ? taskMutationLockReason(task) : translate('任务不存在或已删除', 'Task does not exist or was deleted'),
   }
 }
 
 /** Edit only mutable planning fields; historical execution and goal evidence are immutable. */
 export function editWorkspaceTask(state: AppState, taskId: string, values: TaskEditValues): AppState {
   const task = state.tasks.find(item => item.id === taskId)
-  if (!task) throw new Error('任务不存在或已删除')
+  if (!task) throw new Error(translate('任务不存在或已删除', 'Task does not exist or was deleted'))
   const lock = taskMutationLockReason(task)
   if (lock) throw new Error(lock)
   const title = values.title.trim(), goalId = values.goalId || undefined, stageId = values.stageId || undefined
-  if (!title) throw new Error('请输入任务名称')
-  if (values.priority && !['low', 'normal', 'high'].includes(values.priority)) throw new Error('任务优先级无效')
+  if (!title) throw new Error(translate('请输入任务名称', 'Enter a task name'))
+  if (values.priority && !['low', 'normal', 'high'].includes(values.priority)) throw new Error(translate('任务优先级无效', 'Invalid task priority'))
   const goal = state.goals.find(item => item.id === goalId)
-  if (goalId && !goal) throw new Error('目标不存在')
+  if (goalId && !goal) throw new Error(translate('目标不存在', 'Goal does not exist'))
   if (task.parentTaskId) {
     const parent = state.tasks.find(item => item.id === task.parentTaskId)
-    if (!parent) throw new Error('父任务不存在，请先处理任务归属')
-    if (goalId !== parent.goalId) throw new Error('子任务继承父任务目标，请修改父任务')
+    if (!parent) throw new Error(translate('父任务不存在，请先处理任务归属', 'Parent task does not exist. Resolve task ownership first.'))
+    if (goalId !== parent.goalId) throw new Error(translate('子任务继承父任务目标，请修改父任务', 'Subtasks inherit their parent’s goal. Edit the parent task instead.'))
   }
-  if (stageId && !goal?.plan.some(stage => stage.id === stageId)) throw new Error('推进阶段不属于当前目标，请重新选择')
+  if (stageId && !goal?.plan.some(stage => stage.id === stageId)) throw new Error(translate('推进阶段不属于当前目标，请重新选择', 'The plan stage does not belong to this goal. Select another stage.'))
   let next = state
   if (task.goalId !== goalId) next = linkTaskToGoal(next, taskId, goalId)
   next = setTaskDependencies(next, taskId, values.dependencies)
@@ -58,8 +59,8 @@ export function editWorkspaceTask(state: AppState, taskId: string, values: TaskE
 export function deleteWorkspaceTask(state: AppState, taskId: string): AppState {
   const { children, dependents, reason } = getTaskDeletionBlockers(state, taskId)
   if (reason) throw new Error(reason)
-  if (children.length) throw new Error(`请先处理子任务：${children.map(task => task.title).join('、')}`)
-  if (dependents.length) throw new Error(`以下任务仍依赖此任务，请先调整依赖：${dependents.map(task => task.title).join('、')}`)
+  if (children.length) throw new Error(translate(`请先处理子任务：${children.map(task => task.title).join('、')}`, `Resolve subtasks first: ${children.map(task => task.title).join(', ')}`))
+  if (dependents.length) throw new Error(translate(`以下任务仍依赖此任务，请先调整依赖：${dependents.map(task => task.title).join('、')}`, `These tasks still depend on this task. Adjust their dependencies first: ${dependents.map(task => task.title).join(', ')}`))
   const tasks = state.tasks.filter(task => task.id !== taskId)
   return { ...state, tasks, activeTaskId: state.activeTaskId === taskId ? tasks[0]?.id ?? '' : state.activeTaskId }
 }
@@ -67,8 +68,8 @@ export function deleteWorkspaceTask(state: AppState, taskId: string): AppState {
 /** Additive migration. Never interpret a process exit as business acceptance. */
 export function migrateWorkspace(value: unknown): AppState {
   let raw = value as AppState
-  if (!raw || ![1, 2].includes(raw.version) || !Array.isArray(raw.tasks) || !raw.settings || !Array.isArray(raw.settings.runtimes) || !Array.isArray(raw.settings.models)) throw new Error('存储文件格式不兼容，原文件已保留。')
-  if (raw.version === 2 && (!Array.isArray(raw.goals) || !Array.isArray(raw.agents))) throw new Error('目标或 Agent 数据格式无效，原文件已保留。')
+  if (!raw || ![1, 2].includes(raw.version) || !Array.isArray(raw.tasks) || !raw.settings || !Array.isArray(raw.settings.runtimes) || !Array.isArray(raw.settings.models)) throw new Error(translate('存储文件格式不兼容，原文件已保留。', 'Incompatible storage file format. The original file was preserved.'))
+  if (raw.version === 2 && (!Array.isArray(raw.goals) || !Array.isArray(raw.agents))) throw new Error(translate('目标或 Agent 数据格式无效，原文件已保留。', 'Invalid goal or Agent data format. The original file was preserved.'))
   const runtimes = raw.settings.runtimes.map(migrateTraexRuntime)
   const managedRuntimes = raw.onboarding?.managedRuntimes?.map(migrateTraexRuntime)
   if (runtimes.some((runtime, index) => runtime !== raw.settings.runtimes[index])
@@ -76,35 +77,35 @@ export function migrateWorkspace(value: unknown): AppState {
     raw = { ...raw, settings: { ...raw.settings, runtimes }, onboarding: raw.onboarding ? { ...raw.onboarding, managedRuntimes } : undefined }
   }
   if (raw.version === 2 && raw.settings.runtimes.some(runtime => runtime.id === 'kimi') && !raw.tasks.some(task => task.orchestration === 'running')) return raw
-  const kimi = { id: 'kimi', name: 'Kimi CLI', executable: 'kimi', adapter: 'kimi' as const, enabled: false, args: [], defaultModel: '', description: '通过 ACP 执行，默认自动批准工具请求；模型与思考设置继承 Runtime。' }
+  const kimi = { id: 'kimi', name: 'Kimi CLI', executable: 'kimi', adapter: 'kimi' as const, enabled: false, args: [], defaultModel: '', description: translate('通过 ACP 执行，默认自动批准工具请求；模型与思考设置继承 Runtime。', 'Runs through ACP and auto-approves tool requests by default; model and reasoning settings inherit from the runtime.') }
   return { ...raw, version: 2, goals: raw.goals ?? [], agents: raw.agents ?? [], settings: { ...raw.settings, runtimes: raw.settings.runtimes.some(r => r.id === 'kimi') ? raw.settings.runtimes : [...raw.settings.runtimes, kimi] }, tasks: raw.tasks.map(task => task.orchestration === 'running' ? { ...task, orchestration: 'stopped' } : task) }
 }
 
 export function createWorkspaceTask(settings: Settings, input: { title: string; directory?: string; mode?: 'solo' | 'team'; goalId?: string; parentTaskId?: string; acceptance?: string; executor?: 'human' | 'agent'; members?: Member[] }): Task {
-  if (!input.title.trim()) throw new Error('请输入任务名称')
+  if (!input.title.trim()) throw new Error(translate('请输入任务名称', 'Enter a task name'))
   const runtime = settings.runtimes.find(r => r.enabled && r.id === settings.defaultRuntime) ?? settings.runtimes.find(r => r.enabled)
-  const members = input.members ?? (input.executor !== 'human' && runtime ? [{ id: id(), name: runtime.name, role: '执行', runtimeId: runtime.id, modelId: runtime.defaultModel }] : [])
+  const members = input.members ?? (input.executor !== 'human' && runtime ? [{ id: id(), name: runtime.name, role: translate('执行', 'Execution'), runtimeId: runtime.id, modelId: runtime.defaultModel }] : [])
   return { id: id(), title: input.title.trim(), directory: input.directory?.trim() ?? '', mode: input.mode ?? (members.length > 1 ? 'team' : 'solo'), members, createdAt: now(), messages: [], runs: [], events: [], goalId: input.goalId || undefined, parentTaskId: input.parentTaskId, acceptance: input.acceptance ?? '', executor: input.executor ?? 'agent', businessStatus: 'todo', priority: 'normal', dependencies: [], results: [], plan: [] }
 }
 
 export function linkTaskToGoal(state: AppState, taskId: string, goalId?: string): AppState {
   const task = state.tasks.find(t => t.id === taskId)
-  if (!task) throw new Error('任务不存在')
-  if (task.parentTaskId) throw new Error('子任务继承父任务目标，请修改父任务')
-  if (goalId && !state.goals.some(g => g.id === goalId)) throw new Error('目标不存在')
+  if (!task) throw new Error(translate('任务不存在', 'Task does not exist'))
+  if (task.parentTaskId) throw new Error(translate('子任务继承父任务目标，请修改父任务', 'Subtasks inherit their parent’s goal. Edit the parent task instead.'))
+  if (goalId && !state.goals.some(g => g.id === goalId)) throw new Error(translate('目标不存在', 'Goal does not exist'))
   const ids = new Set([taskId])
   let changed = true
   while (changed) { changed = false; for (const item of state.tasks) if (item.parentTaskId && ids.has(item.parentTaskId) && !ids.has(item.id)) { ids.add(item.id); changed = true } }
-  if (state.tasks.some(t => ids.has(t.id) && taskMutationLockReason(t))) throw new Error('请等待本任务及子任务的执行结束，并停止编排后更改目标')
+  if (state.tasks.some(t => ids.has(t.id) && taskMutationLockReason(t))) throw new Error(translate('请等待本任务及子任务的执行结束，并停止编排后更改目标', 'Wait for this task and its subtasks to finish running and stop orchestration before changing the goal.'))
   return { ...state, tasks: state.tasks.map(t => ids.has(t.id) && t.goalId !== (goalId || undefined) ? { ...t, goalId: goalId || undefined, stageId: undefined } : t) }
 }
 
 export function setTaskDependencies(state: AppState, taskId: string, dependencies: string[]): AppState {
   const deps = [...new Set(dependencies)]
-  if (deps.some(dep => dep === taskId || !state.tasks.some(t => t.id === dep && !t.demo))) throw new Error('依赖包含无效任务')
+  if (deps.some(dep => dep === taskId || !state.tasks.some(t => t.id === dep && !t.demo))) throw new Error(translate('依赖包含无效任务', 'Dependencies contain an invalid task'))
   const tasks = state.tasks.map(t => t.id === taskId ? { ...t, dependencies: deps } : t)
   const visit = (key: string, path: Set<string>): void => {
-    if (path.has(key)) throw new Error('任务依赖不能形成循环')
+    if (path.has(key)) throw new Error(translate('任务依赖不能形成循环', 'Task dependencies cannot form a cycle'))
     const next = new Set(path).add(key)
     for (const dep of tasks.find(t => t.id === key)?.dependencies ?? []) visit(dep, next)
   }
@@ -113,10 +114,10 @@ export function setTaskDependencies(state: AppState, taskId: string, dependencie
 }
 
 export function assertTaskReady(state: AppState, task: Task) {
-  if (task.demo) throw new Error('请先创建真实任务')
-  if (['done', 'cancelled'].includes(task.businessStatus ?? 'todo')) throw new Error('请先将任务重新设为进行中')
+  if (task.demo) throw new Error(translate('请先创建真实任务', 'Create a real task first'))
+  if (['done', 'cancelled'].includes(task.businessStatus ?? 'todo')) throw new Error(translate('请先将任务重新设为进行中', 'Set the task back to in progress first'))
   const unmet = (task.dependencies ?? []).map(key => state.tasks.find(t => t.id === key)).filter(t => !t || t.businessStatus !== 'done')
-  if (unmet.length) throw new Error(`依赖尚未验收完成：${unmet.map(t => t?.title ?? '已缺失任务').join('、')}`)
+  if (unmet.length) throw new Error(translate(`依赖尚未验收完成：${unmet.map(t => t?.title ?? '已缺失任务').join('、')}`, `Dependencies have not been accepted: ${unmet.map(t => t?.title ?? 'Missing task').join(', ')}`))
 }
 
 export function captureRunContext(state: AppState, task: Task, step?: ExecutionStep): RunContext {
@@ -129,35 +130,35 @@ export function contextPrompt(context: RunContext): string {
 }
 
 export function submitResult(task: Task, input: Pick<TaskResult, 'summary' | 'evidence' | 'runId'>): Task {
-  if (!input.summary.trim()) throw new Error('请填写结果说明')
-  if (isTaskRunning(task)) throw new Error('执行仍在进行，请结束后提交结果')
-  if (input.runId && !task.runs.some(run => run.id === input.runId)) throw new Error('结果引用的执行不存在')
+  if (!input.summary.trim()) throw new Error(translate('请填写结果说明', 'Enter a result summary'))
+  if (isTaskRunning(task)) throw new Error(translate('执行仍在进行，请结束后提交结果', 'The run is still active. Submit the result after it ends.'))
+  if (input.runId && !task.runs.some(run => run.id === input.runId)) throw new Error(translate('结果引用的执行不存在', 'The run referenced by this result does not exist'))
   // An explicit result is required even for human tasks; failed experiments can be valuable.
   return { ...task, businessStatus: 'review', results: [...(task.results ?? []), { ...input, id: id(), summary: input.summary.trim(), evidence: input.evidence.trim(), createdAt: now(), verdict: 'submitted' }] }
 }
 export function reviewResult(task: Task, resultId: string, accepted: boolean, note: string): Task {
-  if (isTaskRunning(task)) throw new Error('执行中不能验收')
+  if (isTaskRunning(task)) throw new Error(translate('执行中不能验收', 'A result cannot be accepted while the run is active'))
   const result = task.results?.find(r => r.id === resultId)
-  if (!result) throw new Error('结果不存在')
+  if (!result) throw new Error(translate('结果不存在', 'Result does not exist'))
   if (result.verdict !== 'submitted') return task
-  if (!note.trim()) throw new Error('请填写验收依据')
+  if (!note.trim()) throw new Error(translate('请填写验收依据', 'Enter acceptance evidence'))
   return { ...task, businessStatus: accepted ? 'done' : 'in_progress', results: task.results!.map(r => r.id === resultId ? { ...r, verdict: accepted ? 'accepted' : 'rejected', reviewNote: note.trim(), reviewedAt: now() } : r) }
 }
 export function setBusinessStatus(task: Task, status: TaskBusinessStatus): Task {
-  if (status === 'done' && !task.results?.some(r => r.verdict === 'accepted')) throw new Error('请先提交并验收结果，再完成任务')
-  if (isTaskRunning(task) && ['done', 'cancelled'].includes(status)) throw new Error('请先停止当前执行')
+  if (status === 'done' && !task.results?.some(r => r.verdict === 'accepted')) throw new Error(translate('请先提交并验收结果，再完成任务', 'Submit and accept a result before completing the task'))
+  if (isTaskRunning(task) && ['done', 'cancelled'].includes(status)) throw new Error(translate('请先停止当前执行', 'Stop the current run first'))
   return { ...task, businessStatus: status }
 }
 
 export function validatePlan(task: Task) {
   const plan = task.plan ?? []
-  if (new Set(plan.map(s => s.id)).size !== plan.length) throw new Error('步骤标识重复')
+  if (new Set(plan.map(s => s.id)).size !== plan.length) throw new Error(translate('步骤标识重复', 'Duplicate step identifiers'))
   for (const step of plan) {
-    if (!step.title.trim()) throw new Error('请填写步骤名称')
-    if (step.kind === 'agent' && (!step.memberIds.length || step.memberIds.some(id => !task.members.some(m => m.id === id)))) throw new Error(`${step.title}：请选择有效成员`)
-    if (step.dependsOn.some(id => !plan.some(s => s.id === id))) throw new Error('步骤依赖不存在')
+    if (!step.title.trim()) throw new Error(translate('请填写步骤名称', 'Enter a step name'))
+    if (step.kind === 'agent' && (!step.memberIds.length || step.memberIds.some(id => !task.members.some(m => m.id === id)))) throw new Error(translate(`${step.title}：请选择有效成员`, `${step.title}: Select a valid member`))
+    if (step.dependsOn.some(id => !plan.some(s => s.id === id))) throw new Error(translate('步骤依赖不存在', 'Step dependency does not exist'))
     const visit = (id: string, path: Set<string>) => {
-      if (path.has(id)) throw new Error('步骤依赖不能形成循环')
+      if (path.has(id)) throw new Error(translate('步骤依赖不能形成循环', 'Step dependencies cannot form a cycle'))
       for (const dep of plan.find(s => s.id === id)?.dependsOn ?? []) visit(dep, new Set(path).add(id))
     }
     visit(step.id, new Set())

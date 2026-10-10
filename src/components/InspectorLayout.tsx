@@ -3,11 +3,13 @@ import { animate, motion, useMotionValue, useReducedMotion, useTransform, type A
 import type { PanelImperativeHandle } from 'react-resizable-panels'
 import { OverlayResizeHandle, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { inspectorSizing, quietSpring } from '@/lib/motion'
+import { useI18n } from '@/i18n'
 
 type Props = { open: boolean; compact: boolean; onOpenChange: (open: boolean) => void; children: ReactNode; inspector: ReactNode }
 
 /** Keep one trace tree alive; animate its reserved space and its right-edge transform together. */
 export function InspectorLayout({ open, compact: forcedCompact, onOpenChange, children, inspector }: Props) {
+  const { t } = useI18n()
   const reduced = useReducedMotion()
   const panel = useRef<PanelImperativeHandle | null>(null)
   const root = useRef<HTMLDivElement>(null)
@@ -172,7 +174,7 @@ export function InspectorLayout({ open, compact: forcedCompact, onOpenChange, ch
       }
     }}>
       <ResizablePanel id="conversation" minSize={`${inspectorSizing.conversationMin}px`}>{children}</ResizablePanel>
-      <ResizableHandle id="inspector-resize" elementRef={handle} aria-label="调整执行检查器宽度" aria-hidden={!open || compact}
+      <ResizableHandle id="inspector-resize" elementRef={handle} aria-label={t('调整执行检查器宽度', 'Resize run inspector')} aria-hidden={!open || compact}
         disabled={compact || (!open && phase === 'idle')}
         className="inspector-resize" style={{ visibility: compact || (!open && phase === 'idle') ? 'hidden' : 'visible' }}
         onPointerDownCapture={event => { if (event.button === 0 && event.isPrimary) beginResize() }}
@@ -193,7 +195,7 @@ export function InspectorLayout({ open, compact: forcedCompact, onOpenChange, ch
       style={{ width: contentWidth, x, visibility: !open && phase === 'idle' && !changing ? 'hidden' : 'visible' }}
       aria-hidden={!open} inert={!open}
       onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); restoreFocus(); onOpenChange(false) } }}>
-      {compact && open && <OverlayResizeHandle label="调整产物与执行面板宽度" min={inspectorSizing.min} max={maxWidth} getWidth={() => contentWidth.get()}
+      {compact && open && <OverlayResizeHandle label={t('调整产物与执行面板宽度', 'Resize artifact and run panels')} min={inspectorSizing.min} max={maxWidth} getWidth={() => contentWidth.get()}
         onResize={width => {
           generation.current++; animation.current?.stop(); moving.current = false
           remembered.current = boundWidth(width)

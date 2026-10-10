@@ -16,6 +16,7 @@ try {
   const { createGoal } = await fixtureServer.ssrLoadModule('/src/lib/goals.ts')
   const { createAgentProfile } = await fixtureServer.ssrLoadModule('/src/lib/agent-profiles.ts')
   fixture = createInitialState()
+  fixture.settings.language = 'zh'
   fixture.settings.defaultDirectory = '/tmp/hover-motion-fixture'
   fixture.settings.models = [{ id: 'hover-model', name: 'Hover fixture model', modelId: 'hover-model', enabled: true, runtimeIds: ['codex', 'claude'] }]
   const goal = createGoal({ title: 'Hover 动效验收目标', expected: '交互反馈保持连续', currentSummary: '独立浏览器合成数据；没有启动真实 Agent。', criteria: ['按钮与 Tab 的现有颜色变化连续'] })
@@ -223,17 +224,19 @@ async function keyboardTabs(page, list) {
   assert(previousDurations[0] === 0 && previousDurations.slice(2).every(value => value === 0) && result.previous.transitions.length === 0, 'Previous keyboard Tab must clear its selection immediately; unchanged hovered text may retain a color transition declaration')
   return result
 }
-async function modeKeyboardToPointer(page) {
+async function modeKeyboardToPointer(page, language = 'zh') {
   const group = page.locator('.mode-switch')
-  const solo = group.getByRole('button', { name: '单 Agent', exact: true })
-  const team = group.getByRole('button', { name: '协作', exact: true })
+  const labels = language === 'en' ? { group: 'Execution mode', solo: 'Single agent', team: 'Collaboration' } : { group: '执行模式', solo: '单 Agent', team: '协作' }
+  await expect(group).toHaveAttribute('aria-label', labels.group)
+  const solo = group.getByRole('button', { name: labels.solo, exact: true })
+  const team = group.getByRole('button', { name: labels.team, exact: true })
   await moveOutside(page)
   await team.focus()
   await page.keyboard.press('Shift+Tab')
   await expect(solo).toBeFocused()
   assert(await solo.evaluate(node => node.matches(':focus-visible')), 'Mode focus must begin in keyboard modality')
   const selectedBefore = await group.evaluate(node => Array.from(node.querySelectorAll('button')).map(button => button.getAttribute('aria-pressed')))
-  const check = await hoverCheck(page, team, 'Mode button immediately after keyboard')
+  const check = await hoverCheck(page, team, `Mode button immediately after keyboard${language === 'en' ? ' (English)' : ''}`)
   const selectedAfter = await group.evaluate(node => Array.from(node.querySelectorAll('button')).map(button => button.getAttribute('aria-pressed')))
   assert.deepEqual(selectedAfter, selectedBefore, 'Mode hover must not activate a business change')
   return check
@@ -263,16 +266,17 @@ async function keyboardMenu(page) {
 
 try {
   for (const [width, height] of [[1536, 960], [1280, 720]]) for (const reducedMotion of ['no-preference', 'reduce']) {
-    const context = await browser.newContext({ viewport: { width, height }, reducedMotion })
+    const context = await browser.newContext({ viewport: { width, height }, reducedMotion, locale: 'zh-CN' })
     const page = await context.newPage()
     activePage = page
     page.on('pageerror', error => report.errors.push(error.message))
     await context.addInitScript(state => localStorage.setItem('goalward.preview.v1', JSON.stringify(state)), fixture)
-    const scenario = { viewport: { width, height }, reducedMotion, checks: [], overflow: {} }
+    const scenario = { viewport: { width, height }, reducedMotion, language: 'zh', checks: [], overflow: {} }
     report.scenarios.push(scenario)
     try {
       await page.goto(baseUrl)
       await expect(page.locator('.settings-nav')).toBeVisible()
+      await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
       assert.equal(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)), false, 'Must remain isolated browser storage')
       assert(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches), 'Chrome must expose a real fine-hover pointer')
       await installCapture(page)
@@ -330,9 +334,60 @@ try {
       throw error
     } finally { await context.close() }
   }
+  // A focused English regression check covers the translated Workbench fields
+  // touched by the merge, without repeating the entire Chinese hover matrix.
+  {
+    const englishFixture = structuredClone(fixture)
+    englishFixture.settings.language = 'en'
+    const context = await browser.newContext({ viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', locale: 'en-US' })
+    const page = await context.newPage()
+    activePage = page
+    page.on('pageerror', error => report.errors.push(error.message))
+    await context.addInitScript(state => localStorage.setItem('goalward.preview.v1', JSON.stringify(state)), englishFixture)
+    const scenario = { viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', language: 'en', scope: 'English Workbench execution mode', checks: [], overflow: {} }
+    report.scenarios.push(scenario)
+    try {
+      await page.goto(baseUrl)
+      await expect(page.locator('.settings-nav')).toBeVisible()
+      await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+      assert.equal(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)), false, 'English check must remain isolated browser storage')
+      await page.locator('.task-nav-item').filter({ hasText: englishFixture.tasks[0].title }).click()
+      await expect(page.locator('.workbench')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Open execution inspector', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Send instruction', exact: true })).toBeVisible()
+      await installCapture(page)
+      scenario.checks.push(await modeKeyboardToPointer(page, 'en'))
+      const group = page.locator('.mode-switch')
+      const solo = group.getByRole('button', { name: 'Single agent', exact: true })
+      const team = group.getByRole('button', { name: 'Collaboration', exact: true })
+      await expect(solo).toHaveAttribute('aria-pressed', 'true')
+      await expect(team).toHaveAttribute('aria-pressed', 'false')
+      await page.keyboard.press('Tab')
+      await expect(team).toBeFocused()
+      await page.keyboard.press('Space')
+      await expect(team).toHaveAttribute('aria-pressed', 'true')
+      await expect(solo).toHaveAttribute('aria-pressed', 'false')
+      await expect.poll(() => page.evaluate(taskId => JSON.parse(localStorage.getItem('goalward.preview.v1')).tasks.find(task => task.id === taskId).mode, englishFixture.tasks[0].id)).toBe('team')
+      await page.keyboard.press('Shift+Tab')
+      await expect(solo).toBeFocused()
+      await page.keyboard.press('Enter')
+      await expect(solo).toHaveAttribute('aria-pressed', 'true')
+      await expect(team).toHaveAttribute('aria-pressed', 'false')
+      await expect.poll(() => page.evaluate(taskId => JSON.parse(localStorage.getItem('goalward.preview.v1')).tasks.find(task => task.id === taskId).mode, englishFixture.tasks[0].id)).toBe('solo')
+      const savedTask = await page.evaluate(taskId => JSON.parse(localStorage.getItem('goalward.preview.v1')).tasks.find(task => task.id === taskId), englishFixture.tasks[0].id)
+      assert.deepEqual(savedTask.runs, englishFixture.tasks[0].runs, 'Keyboard mode changes must preserve historical run snapshots')
+      assert.deepEqual(savedTask.events, englishFixture.tasks[0].events, 'Keyboard mode changes must not start a Runtime or append execution events')
+      scenario.keyboardModeSwitch = { spaceSelectsCollaboration: true, enterReturnsToSingleAgent: true, persistedMode: savedTask.mode, preservedRuns: true, noNewRuntimeEvents: true }
+      scenario.overflow.workbench = await noOverflow(page)
+      await page.screenshot({ path: `${output}/workbench-english-mode.png` })
+    } catch (error) {
+      await page.screenshot({ path: `${output}/failure-english-mode.png` }).catch(() => {})
+      throw error
+    } finally { await context.close() }
+  }
   assert.equal(report.errors.length, 0, report.errors.join('\n'))
   report.status = 'passed'
-  console.log(`PASS: ${report.scenarios.length} viewport/motion combinations, ${report.scenarios.reduce((total, scenario) => total + scenario.checks.length, 0)} real hover controls; intermediate colors, enter/leave reversal, rapid pointer retargeting, immediate keyboard/press, disabled, focus restoration and no overflow. ${output}/report.json`)
+  console.log(`PASS: ${report.scenarios.length} browser scenarios, ${report.scenarios.reduce((total, scenario) => total + scenario.checks.length, 0)} real hover controls; intermediate colors, enter/leave reversal, rapid pointer retargeting, immediate keyboard/press, disabled, focus restoration, English mode switching and no overflow. ${output}/report.json`)
 } catch (error) {
   report.status = 'failed'
   report.failure = error.stack ?? String(error)

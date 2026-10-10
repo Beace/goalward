@@ -1,11 +1,13 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useResizeHandle } from '@/hooks/use-resize-handle'
+import { useI18n } from '@/i18n'
 
-export function GoalListLayout({ navigation, children, rememberedWidth, idPrefix = 'goal', resizeLabel = '调整目标列表宽度', contentMinSize = '480px' }: {
+export function GoalListLayout({ navigation, children, rememberedWidth, idPrefix = 'goal', resizeLabel, contentMinSize = '480px' }: {
   navigation: ReactNode; children: ReactNode; rememberedWidth?: RefObject<number>
   idPrefix?: string; resizeLabel?: string; contentMinSize?: string
 }) {
+  const { t } = useI18n()
   const localWidth = useRef(window.innerWidth <= 1400 ? 186 : 210)
   const width = rememberedWidth ?? localWidth
   const [initialWidth] = useState(width.current)
@@ -17,7 +19,7 @@ export function GoalListLayout({ navigation, children, rememberedWidth, idPrefix
       groupResizeBehavior="preserve-pixel-size" onResize={size => { width.current = size.inPixels }}>
       {navigation}
     </ResizablePanel>
-    <ResizableHandle id={`${idPrefix}-list-resize`} elementRef={handle} className="sidebar-resize" aria-label={resizeLabel} />
+    <ResizableHandle id={`${idPrefix}-list-resize`} elementRef={handle} className="sidebar-resize" aria-label={resizeLabel ?? t('调整目标列表宽度', 'Resize goal list')} />
     <ResizablePanel id={`${idPrefix}-content`} minSize={contentMinSize} className="goal-split-content">{children}</ResizablePanel>
   </ResizablePanelGroup>
 }

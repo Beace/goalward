@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { getTraceEntries } from './trace-events'
+import { translate } from '@/i18n'
 import type { Task } from './types'
 
 export interface RuntimeApproval {
@@ -34,7 +35,7 @@ export function getPendingRuntimeApprovals(task: Task): RuntimeApproval[] {
     if (!options.length) continue
     pending.set(key, {
       id, runId: event.runId, memberId: event.memberId, memberName: member.name,
-      title: typeof tool?.title === 'string' ? tool.title : 'Kimi 请求确认工具操作',
+      title: typeof tool?.title === 'string' ? tool.title : translate('Kimi 请求确认工具操作', 'Kimi requests approval for a tool action'),
       detail: tool?.rawInput === undefined ? undefined : JSON.stringify(tool.rawInput, null, 2), options,
     })
   }

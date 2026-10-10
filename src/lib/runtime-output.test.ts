@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import * as i18n from '@/i18n'
 import { applyRuntimeEvent, createInitialState, createTask, getRunActivity, recoverInterruptedState } from './domain'
 import type { Adapter, AppState, RuntimeEvent } from './types'
 
@@ -220,6 +221,27 @@ describe('run activity from actual protocol events', () => {
     state = applyRuntimeEvent(state, f.json({ type: 'item.completed', item: { type: 'reasoning', text: 'PRIVATE_REASONING' } }))
     expect(JSON.stringify(state.tasks[0].messages)).not.toContain('PRIVATE')
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).summary).toBeUndefined()
+  })
+
+  it('localizes generated Codex tool summaries without translating runtime-provided tool names', () => {
+    const f = fixture('codex')
+    const language = vi.spyOn(i18n, 'getCurrentLanguage').mockReturnValue('en')
+    try {
+      let state = applyRuntimeEvent(f.state, f.json({ type: 'item.started', item: { id: 'command', type: 'command_execution', command: 'private command' } }))
+      expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).summary).toBe('Run local command')
+      language.mockReturnValue('zh')
+      expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).summary).toBe('执行本机命令')
+      language.mockReturnValue('en')
+
+      state = applyRuntimeEvent(state, f.json({ type: 'item.started', item: { id: 'file', type: 'file_change' } }))
+      expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).summary).toBe('Update workspace files')
+
+      state = applyRuntimeEvent(state, f.json({ type: 'item.started', item: { id: 'unnamed', type: 'mcp_tool_call' } }))
+      expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).summary).toBe('Call tool')
+
+      state = applyRuntimeEvent(state, f.json({ type: 'item.started', item: { id: 'named', type: 'mcp_tool_call', tool: '执行本机命令' } }))
+      expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).summary).toBe('执行本机命令')
+    } finally { language.mockRestore() }
   })
 
   it('shows Claude tools until their result arrives, then reports waiting', () => {
