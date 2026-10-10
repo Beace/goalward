@@ -1,3 +1,4 @@
+mod app_updates;
 mod artifacts;
 mod attachments;
 mod discovery;
@@ -215,7 +216,9 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_os::init());
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(app_updates::AppUpdates::default());
     #[cfg(target_os = "macos")]
     let builder = builder.on_window_event(|window, event| {
         if window.label() == "main" {
@@ -279,6 +282,10 @@ pub fn run() {
             respond_runtime_permission,
             export_task,
             open_external_url,
+            app_updates::check_app_update,
+            app_updates::download_app_update,
+            app_updates::install_app_update,
+            app_updates::restart_app_after_update,
             attachments::read_clipboard_attachments,
             attachments::save_clipboard_file,
             attachments::read_attachment_image,

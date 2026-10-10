@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Collapsible, CollapsibleContent, CollapsibleIndicator, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Separator } from '@/components/ui/separator'
 import { AppearanceSettings } from './AppearanceSettings'
+import { AppUpdateSettings } from './AppUpdateSettings'
+import type { AppUpdateController } from '@/hooks/use-app-update'
 import { useI18n } from '@/i18n'
 import { normalizeThemePreference } from '@/lib/theme'
 import { appearanceKeys, appearancePreferences, configurationSettings, type AppearancePatch } from '@/lib/appearance'
@@ -36,14 +38,19 @@ export interface SettingsPageProps {
   onBack: () => void
   onExport: () => void
   activeCount: number
-  initialCategory?: 'runtimes' | 'models'
+  initialCategory?: 'runtimes' | 'models' | 'updates'
   initialRuntimeId?: string
+  navigationKey?: number
+  appUpdate?: AppUpdateController
+  onDraftChange?: (dirty: boolean) => void
+  dataSaving?: boolean
+  tasksBusy?: boolean
   setupHint?: boolean
   onDiscover?: () => void
   discoveryReport?: LocalDiscoveryReport
 }
 
-type Category = 'appearance' | 'runtimes' | 'models' | 'execution' | 'storage'
+type Category = 'appearance' | 'runtimes' | 'models' | 'execution' | 'storage' | 'updates'
 type Notice = { text?: string; translation?: readonly [zh: string, en: string]; error?: boolean }
 type RuntimeProbe = { executable: string; busy: boolean; result?: ProbeResult; error?: string }
 type AppearanceKey = typeof appearanceKeys[number]
@@ -55,6 +62,7 @@ const categories = [
   { id: 'appearance' as const, label: ['外观', 'Appearance'], icon: Type },
   { id: 'execution' as const, label: ['执行默认值', 'Execution defaults'], icon: SlidersHorizontal },
   { id: 'storage' as const, label: ['记录与存储', 'Records & storage'], icon: HardDrive },
+  { id: 'updates' as const, label: ['应用更新', 'App updates'], icon: Download },
 ]
 const adapters: { value: Adapter; label: string }[] = [
   { value: 'codex', label: 'Codex' }, { value: 'claude', label: 'Claude Code' }, { value: 'kimi', label: 'Kimi Code CLI · ACP' }, { value: 'pi', label: 'Pi · JSON' }, { value: 'generic', label: '通用 CLI / Harness' },
@@ -104,7 +112,7 @@ function EmptyState({ title, description, action }: { title: string; description
   return <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border px-6 py-10 text-center"><Database className="size-6 text-muted-foreground" /><div><p className="text-sm font-medium">{title}</p><p className="mt-1 max-w-md text-xs leading-5 text-muted-foreground">{description}</p></div>{action}</div>
 }
 
-export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceSaving = false, onBack, onExport, activeCount, initialCategory = 'runtimes', initialRuntimeId, setupHint, onDiscover, discoveryReport }: SettingsPageProps) {
+export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceSaving = false, onBack, onExport, activeCount, initialCategory = 'runtimes', initialRuntimeId, navigationKey, appUpdate, onDraftChange, dataSaving = false, tasksBusy = false, setupHint, onDiscover, discoveryReport }: SettingsPageProps) {
   const { language, t } = useI18n()
   const adapterOptions = adapters.map(item => item.value === 'generic' ? { ...item, label: t('通用 CLI / Harness', 'Generic CLI / Harness') } : item)
   const [draft, setDraft] = useState(() => copy(settings))
@@ -134,6 +142,7 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
     }).join(t('；', '; ')),
   } : null
   const [discardTarget, setDiscardTarget] = useState<'back' | 'discover' | null>(null)
+  const discardReturnFocus = useRef<HTMLElement | null>(null)
   const [newRuntime, setNewRuntime] = useState<RuntimeConfig | null>(null)
   const [modelEditor, setModelEditor] = useState<ModelConfig | null>(null)
   const [providerEditor, setProviderEditor] = useState<ProviderConfig | null>(null)
@@ -174,6 +183,11 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
   const visibleModels = draft.models.filter(model => (model.name + ' ' + model.modelId).toLowerCase().includes(modelSearch.toLowerCase()) && (modelFilter === '__all__' || model.runtimeIds.includes(modelFilter)))
 
   useEffect(() => { live.current = true; return () => { live.current = false } }, [])
+  useEffect(() => { onDraftChange?.(dirty); return () => { onDraftChange?.(false) } }, [dirty, onDraftChange])
+  useEffect(() => {
+    setCategory(initialCategory)
+    if (initialRuntimeId) setSelectedRuntimeId(initialRuntimeId)
+  }, [initialCategory, initialRuntimeId, navigationKey])
   useEffect(() => {
     const serialized = JSON.stringify(settings)
     if (serialized === incoming.current) return
@@ -341,9 +355,9 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
     finally { if (live.current) setSaving(false) }
   }
   function reset() { setDraft(copy(baseline)); setArgTexts(argsFor(baseline)); setPermissionTexts(permissionTextsFor(baseline)); setNotice({ text: t('已还原到上次保存的配置。', 'Restored the last saved settings.') }) }
-  function leaveSettings(target: 'back' | 'discover') {
+  function leaveSettings(target: 'back' | 'discover', trigger: HTMLElement) {
     if (saving) return
-    if (dirty) { setDiscardTarget(target); return }
+    if (dirty) { discardReturnFocus.current = trigger; setDiscardTarget(target); return }
     if (target === 'discover') onDiscover?.()
     else onBack()
   }
@@ -358,7 +372,7 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
   return <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground">
     <header className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-sidebar px-4">
       <div className="flex items-center gap-3"><span className="text-[13px] font-semibold">{t('设置', 'Settings')}</span><span className="text-[11px] text-muted-foreground">{t('工作空间的运行环境与默认配置', 'Workspace runtimes and defaults')}</span></div>
-      <div className="flex items-center gap-2">{onDiscover && <Button variant="outline" size="sm" disabled={saving} onClick={() => leaveSettings('discover')}><Search className="size-3.5" />{t('自动检测本机', 'Detect local runtimes')}</Button>}<Button variant="ghost" size="sm" disabled={saving} onClick={() => leaveSettings('back')}><ArrowLeft className="size-3.5" />{t('返回工作台', 'Back to workbench')}</Button></div>
+      <div className="flex items-center gap-2">{onDiscover && <Button variant="outline" size="sm" disabled={saving} onClick={event => leaveSettings('discover', event.currentTarget)}><Search className="size-3.5" />{t('自动检测本机', 'Detect local runtimes')}</Button>}<Button variant="ghost" size="sm" disabled={saving} onClick={event => leaveSettings('back', event.currentTarget)}><ArrowLeft className="size-3.5" />{t('返回工作台', 'Back to workbench')}</Button></div>
     </header>
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <nav aria-label={t('设置分类', 'Settings categories')} className="flex w-[200px] shrink-0 flex-col border-r border-border bg-sidebar p-2">
@@ -407,6 +421,7 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
           </Tabs></div>}
 
           {category === 'appearance' && <AppearanceSettings value={settings.fontFamily} themeValue={normalizeThemePreference(settings.theme)} languagePreference={settings.language} disabled={false} onChange={fontFamily => changeAppearance({ fontFamily })} onThemeChange={theme => changeAppearance({ theme })} onLanguageChange={language => changeAppearance({ language })} />}
+          {category === 'updates' && appUpdate && <AppUpdateSettings update={appUpdate} activeCount={activeCount} tasksBusy={tasksBusy} unsaved={dirty || saving || appearanceSaving || dataSaving} />}
           {category === 'execution' && <div className="space-y-7"><div><h1 className="text-xl font-semibold">{t('执行默认值', 'Execution defaults')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('新建任务和成员的起点；任务中的独立配置与历史 Run 保持原样。', 'Starting values for new tasks and members; task overrides and historical runs stay unchanged.')}</p></div><Section title={t('新任务默认配置', 'New task defaults')}><Field id="default-mode" label={t('执行模式', 'Execution mode')}><Picker id="default-mode" label={t('新任务默认执行模式', 'Default execution mode for new tasks')} value={draft.defaultMode} onChange={value => { setDraft(current => ({ ...current, defaultMode: value as 'solo' | 'team' })); setNotice(null) }} options={[{ value: 'solo', label: t('单 Agent', 'Single agent') }, { value: 'team', label: t('多 Agent 协作', 'Multi-agent collaboration') }]} /></Field><Field id="default-runtime" label={t('默认 Runtime', 'Default runtime')} hint={t('成员的默认模型来自此 Runtime 的配置。', 'A member’s default model comes from this runtime’s configuration.')}><Picker id="default-runtime" label={t('新任务默认 Runtime', 'Default runtime for new tasks')} value={draft.defaultRuntime || '__none__'} onChange={value => { setDraft(current => ({ ...current, defaultRuntime: value === '__none__' ? '' : value })); setNotice(null) }} options={[{ value: '__none__', label: t('创建时选择', 'Choose when creating') }, ...draft.runtimes.map(item => ({ value: item.id, label: item.name + (item.enabled ? '' : t('（已停用）', ' (disabled)')), disabled: !item.enabled, runtime: item }))]} /></Field><Field id="max-parallel" label={t('最大并行成员', 'Maximum parallel members')} hint={t('1–8 位。限制同时执行的成员数量，不会改变已运行的批次。', '1–8 members. Limits concurrent execution without changing active runs.')}><Input id="max-parallel" type="number" min={1} max={8} step={1} className="max-w-36" value={draft.maxParallel || ''} onChange={event => { setDraft(current => ({ ...current, maxParallel: Number(event.target.value) })); setNotice(null) }} /></Field><Field id="default-directory" label={t('默认工作目录', 'Default working directory')} hint={t('留空时在任务中选择；任务自身的工作目录优先。', 'If blank, choose in each task. A task’s own directory takes precedence.')}><div className="flex gap-2"><Input id="default-directory" className="min-w-0 font-mono" placeholder={t('未指定默认目录', 'No default directory')} value={draft.defaultDirectory} onChange={event => { setDraft(current => ({ ...current, defaultDirectory: event.target.value })); setNotice(null) }} /><Button variant="outline" size="sm" onClick={() => void pickDirectory()}><FolderOpen className="size-3.5" />{t('选择目录', 'Choose directory')}</Button></div></Field></Section><Section title={t('配置何时生效', 'When changes take effect')}><div className="space-y-3 text-xs leading-6 text-muted-foreground"><p>{t('新建成员使用当前默认的 Runtime 和模型；已有成员保留各自选择。Runtime 的访问权限与启动配置会用于所有关联成员的下一次执行。', 'New members use the current default runtime and model; existing members keep their selections. Runtime permissions and startup settings apply to the next run of related members.')}</p><p>{t(`保存设置不会重启 ${activeCount > 0 ? '当前 ' + activeCount + ' 个执行实例' : '执行实例'}，也不会改写历史聊天与执行记录。`, `Saving settings does not restart ${activeCount > 0 ? `${activeCount} active instances` : 'active instances'} or rewrite historical chats and runs.`)}</p></div></Section></div>}
 
 
@@ -419,7 +434,7 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
       </main>
     </div>
 
-    <Dialog open={discardTarget !== null} onOpenChange={open => { if (!open) setDiscardTarget(null) }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{t('放弃未保存的更改？', 'Discard unsaved changes?')}</DialogTitle><DialogDescription>{t('当前设置编辑尚未保存。', 'Your settings edits are not saved. ')}{discardTarget === 'discover' ? t('进入自动检测', 'Starting local detection') : t('返回工作台', 'Returning to the workbench')}{t('会丢弃这些更改，已保存配置和运行中的实例不受影响。', ' will discard them. Saved settings and running instances are unaffected.')}</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setDiscardTarget(null)}>{t('继续编辑', 'Keep editing')}</Button><Button variant="destructive" onClick={discardAndLeave}>{discardTarget === 'discover' ? t('放弃更改并检测', 'Discard and detect') : t('放弃更改并返回', 'Discard and return')}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={discardTarget !== null} onOpenChange={open => { if (!open) setDiscardTarget(null) }}><DialogContent className="max-w-md" onCloseAutoFocus={event => { event.preventDefault(); const trigger = discardReturnFocus.current; if (trigger?.isConnected) trigger.focus({ preventScroll: true }) }}><DialogHeader><DialogTitle>{t('放弃未保存的更改？', 'Discard unsaved changes?')}</DialogTitle><DialogDescription>{t('当前设置编辑尚未保存。', 'Your settings edits are not saved. ')}{discardTarget === 'discover' ? t('进入自动检测', 'Starting local detection') : t('返回工作台', 'Returning to the workbench')}{t('会丢弃这些更改，已保存配置和运行中的实例不受影响。', ' will discard them. Saved settings and running instances are unaffected.')}</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setDiscardTarget(null)}>{t('继续编辑', 'Keep editing')}</Button><Button variant="destructive" onClick={discardAndLeave}>{discardTarget === 'discover' ? t('放弃更改并检测', 'Discard and detect') : t('放弃更改并返回', 'Discard and return')}</Button></DialogFooter></DialogContent></Dialog>
 
     <Dialog open={Boolean(newRuntime)} onOpenChange={open => { if (!open) setNewRuntime(null) }}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{t('添加 Runtime', 'Add runtime')}</DialogTitle><DialogDescription>{t('登记一个本机 CLI 或 Harness。添加后继续配置，点击页面底部保存才会持久化。', 'Register a local CLI or Harness. Configure it after adding, then save at the bottom of the page to persist it.')}</DialogDescription></DialogHeader>{newRuntime && <div className="space-y-4"><Field id="new-runtime-name" label={t('显示名称', 'Display name')}><Input id="new-runtime-name" autoFocus placeholder={t('例如 DeepSeek Harness', 'For example, DeepSeek Harness')} value={newRuntime.name} onChange={event => { setNewRuntime({ ...newRuntime, name: event.target.value }); setEditorError('') }} /></Field><Field id="new-runtime-adapter" label={t('适配器', 'Adapter')}><Picker id="new-runtime-adapter" label={t('新 Runtime 适配器', 'New runtime adapter')} value={newRuntime.adapter} options={adapterOptions} onChange={value => setNewRuntime({ ...newRuntime, adapter: value as Adapter })} /></Field><Field id="new-runtime-executable" label={t('可执行文件', 'Executable')} hint={t('可以稍后填写。新注册项默认停用，不会立即启动进程。', 'You can set this later. New runtimes are disabled by default and will not start a process.')}><Input id="new-runtime-executable" className="font-mono" placeholder={t('命令名称或文件路径', 'Command name or file path')} value={newRuntime.executable} onChange={event => { setNewRuntime({ ...newRuntime, executable: event.target.value }) }} /></Field>{editorError && <p role="alert" className="text-xs text-destructive">{editorError}</p>}</div>}<DialogFooter><Button variant="outline" onClick={() => setNewRuntime(null)}>{t('取消', 'Cancel')}</Button><Button onClick={addRuntime}>{t('添加到配置', 'Add to settings')}</Button></DialogFooter></DialogContent></Dialog>
 

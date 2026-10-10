@@ -2,27 +2,35 @@ import { useEffect, useRef, type CSSProperties } from 'react'
 import { CircleCheck, CircleAlert, Info, X } from 'lucide-react'
 import { Toaster as Sonner, toast, type ExternalToast } from 'sonner'
 import { useI18n } from '@/i18n'
+import { Button } from '@/components/ui/button'
 
 // shadcn/ui Sonner adapter, themed for the desktop workbench.
 // One latest notification across pages; updates preserve the mounted toast.
 type NoticeKind = 'success' | 'info' | 'error'
-type NoticeOptions = Pick<ExternalToast, 'onDismiss' | 'onAutoClose'>
-let current: { id: number; message: string; kind: NoticeKind } | undefined
+type NoticeOptions = Pick<ExternalToast, 'onDismiss' | 'onAutoClose'> & { action?: { label: string; onClick: () => void } }
+let current: { id: number; message: string; kind: NoticeKind; action?: NoticeOptions['action'] } | undefined
 let sequence = 0
 const lifetime = (kind: NoticeKind) => kind === 'error' ? 8000 : 5000
 const canFocus = (element: HTMLElement | null): element is HTMLElement => Boolean(
   element?.isConnected && element.getClientRects().length && !element.closest('[inert], [aria-hidden="true"]') && !element.matches(':disabled'),
 )
 
+function noticeContent(kind: NoticeKind, message: string, id: number, action?: NoticeOptions['action']) {
+  return <span className="flex flex-wrap items-center gap-2"><span role={kind === 'error' ? 'alert' : 'status'}>{message}</span>{action && <Button variant="outline" size="sm" onClick={() => {
+    action.onClick()
+    if (current?.id === id) current = undefined
+    toast.dismiss(id)
+  }}>{action.label}</Button>}</span>
+}
 function show(kind: NoticeKind, message: string, options: NoticeOptions = {}) {
   const previous = document.querySelector<HTMLElement>('.app-toast[data-front="true"]')
   const exiting = previous?.dataset.removed === 'true'
   const id = current && !exiting ? current.id : ++sequence
-  current = { id, kind, message }
+  current = { id, kind, message, action: options.action }
   // If a new result arrives during dismissal, continue its visible opacity.
   const initialOpacity = exiting && previous ? getComputedStyle(previous).opacity : '0'
   const finish = () => { if (current?.id === id) current = undefined }
-  return toast[kind](<span role={kind === 'error' ? 'alert' : 'status'}>{message}</span>, {
+  return toast[kind](noticeContent(kind, message, id, options.action), {
     id,
     duration: previous?.contains(document.activeElement) ? Infinity : lifetime(kind),
     style: { '--toast-initial-opacity': initialOpacity } as CSSProperties,
@@ -46,15 +54,15 @@ export function Toaster({ theme = 'system' }: { theme?: 'dark' | 'light' | 'syst
       if (!event.currentTarget.contains(event.relatedTarget)) {
         returnFocus.current = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null
         if (current) {
-          const { id, kind, message } = current
-          toast(<span role={kind === 'error' ? 'alert' : 'status'}>{message}</span>, { id, duration: Infinity })
+          const { id, kind, message, action } = current
+          toast(noticeContent(kind, message, id, action), { id, duration: Infinity })
         }
       }
     }}
     onBlurCapture={event => {
       if (!event.currentTarget.contains(event.relatedTarget) && current) {
-        const { id, kind, message } = current
-        toast(<span role={kind === 'error' ? 'alert' : 'status'}>{message}</span>, { id, duration: lifetime(kind) })
+        const { id, kind, message, action } = current
+        toast(noticeContent(kind, message, id, action), { id, duration: lifetime(kind) })
       }
     }}
     onClickCapture={event => {

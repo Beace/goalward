@@ -24,6 +24,10 @@ The app does not include agent CLIs, model weights, subscriptions, or API creden
 
 Open the DMG, drag **Goalward.app** into **Applications**, and launch it. If you use the ZIP, extract it and move the app into **Applications**. The release is not notarized; if macOS blocks the first launch, review the warning in **System Settings → Privacy & Security**.
 
+Builds with the updater check public GitHub Releases at startup and every six hours, including published prereleases. Open **Settings → App updates** to check manually, download a signed update, install it, and restart when ready. Installation and restart require idle agents and saved settings; checks and downloads can run while you work. Update signatures verify the package and version against the app's embedded public key. They do not replace Apple Developer ID signing or notarization.
+
+Versions published before updater support, including `v0.2.0`, need one manual installation of an updater-capable release. Updates keep the existing workspace data directory. Install the app in **Applications** and eject the DMG before updating; a read-only disk image cannot be updated in place. Browser previews and development builds cannot install app updates.
+
 ## Get started
 
 1. **Connect an agent.** On first launch, review the detected runtimes, import one, and choose a default. If yours is missing, install and sign in to it, scan again, or set its executable path in **Settings → Runtimes**.
