@@ -10,7 +10,7 @@ try {
   for (const [width, height] of [[1536, 960], [1280, 720]]) {
     for (const reducedMotion of ['no-preference', 'reduce']) {
       for (const initialSystem of ['dark', 'light']) {
-        const context = await browser.newContext({ viewport: { width, height }, reducedMotion, colorScheme: initialSystem })
+        const context = await browser.newContext({ viewport: { width, height }, locale: 'zh-CN', reducedMotion, colorScheme: initialSystem })
         const page = await context.newPage()
         const errors = []
         page.on('pageerror', error => errors.push(error.message))
@@ -36,15 +36,15 @@ try {
           await page.getByRole('option', { name: label, exact: true }).click()
           await expect(picker).toBeFocused()
         }
-        async function save(theme) {
-          await page.getByRole('button', { name: '保存更改', exact: true }).click()
-          await expect(page.getByText('所有更改已保存', { exact: true })).toBeVisible()
+        async function saved(theme, preference) {
           await expect(root).toHaveAttribute('data-theme', theme)
+          await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.theme)).toBe(preference)
+          await expect(page.getByText('外观已自动保存', { exact: true })).toBeVisible()
           await expect(root).not.toHaveClass(/theme-changing/)
         }
         await appearance()
         await expect(picker).toContainText('跟随系统')
-        await expect(page.getByRole('button', { name: '保存更改', exact: true })).toBeDisabled()
+        await expect(page.getByRole('button', { name: '保存更改', exact: true })).toHaveCount(0)
         await page.evaluate(() => {
           window.themeMenuExits = []
           window.themeMenuObserver = new MutationObserver(records => {
@@ -86,14 +86,15 @@ try {
         await page.keyboard.press('Escape')
         await expect(picker).toBeFocused()
         await pick('浅色')
-        await expect(root).toHaveAttribute('data-theme', initialSystem)
-        await page.getByRole('button', { name: '还原', exact: true }).click()
+        await saved('light', 'light')
+        await pick('跟随系统')
+        await saved(initialSystem, 'system')
         await expect(picker).toContainText('跟随系统')
 
         const surfaces = []
         for (const [preference, label] of [['light', '浅色'], ['dark', '深色']]) {
           await pick(label)
-          await save(preference)
+          await saved(preference, preference)
           await expect(root).toHaveCSS('color-scheme', preference)
           const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.theme)
           expect(persisted).toBe(preference)
@@ -115,7 +116,8 @@ try {
           })
           expect(menuColor).toBe(preference === 'light' ? 'rgb(255, 255, 255)' : 'rgb(32, 34, 34)')
           expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
-          await expect(page.getByRole('button', { name: '保存更改', exact: true })).toBeInViewport()
+          await expect(page.getByText('外观已自动保存', { exact: true })).toBeInViewport()
+          await expect(page.locator('[data-dialog-exit]')).toHaveCount(0)
           const name = `${width}-${reducedMotion}-${initialSystem}-${preference}`
           await page.screenshot({ path: `${output}/appearance-${name}.png` })
           await page.reload()
@@ -152,7 +154,7 @@ try {
 
         await pick('跟随系统')
         await page.emulateMedia({ colorScheme: 'light' })
-        await save('light')
+        await saved('light', 'system')
         await page.emulateMedia({ colorScheme: 'dark' })
         await expect(root).toHaveAttribute('data-theme', 'dark')
         await expect(root).not.toHaveClass(/theme-changing/)
@@ -183,8 +185,11 @@ try {
         await page.keyboard.press('Enter')
         await expect(picker).toBeFocused()
         await expect(picker).toContainText('浅色')
-        await page.getByRole('button', { name: '还原', exact: true }).click()
-        await pick('深色')
+        await saved('light', 'light')
+        const storedName = await page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.runtimes[0].name)
+        await page.getByRole('button', { name: '运行时', exact: true }).click()
+        await page.getByLabel('名称', { exact: true }).fill('Unsaved runtime name')
+        await page.getByRole('button', { name: '外观', exact: true }).click()
         await page.evaluate(() => {
           const original = Storage.prototype.setItem
           window.restoreThemeStorage = () => { Storage.prototype.setItem = original }
@@ -193,15 +198,27 @@ try {
             return original.call(this, key, value)
           }
         })
-        await page.getByRole('button', { name: '保存更改', exact: true }).click()
-        await expect(page.getByRole('alert').filter({ hasText: '保存失败' }).first()).toBeVisible()
+        await pick('深色')
+        await expect(page.getByRole('alert').filter({ hasText: '自动保存失败' }).first()).toBeVisible()
         await expect(root).toHaveAttribute('data-theme', 'light')
-        await expect(picker).toContainText('深色')
+        await expect(picker).toContainText('浅色')
         await page.evaluate(() => { window.restoreThemeStorage(); delete window.restoreThemeStorage })
+        await page.getByRole('button', { name: '重试', exact: true }).click()
+        await expect(root).toHaveAttribute('data-theme', 'dark')
+        await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.theme)).toBe('dark')
+        await expect(page.getByText('外观已自动保存 · 其他设置有未保存的更改', { exact: true })).toBeVisible()
+        expect(await page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.runtimes[0].name)).toBe(storedName)
+        await page.getByRole('button', { name: '运行时', exact: true }).click()
+        await expect(page.getByLabel('名称', { exact: true })).toHaveValue('Unsaved runtime name')
         await page.getByRole('button', { name: '还原', exact: true }).click()
-        await expect(picker).toContainText('跟随系统')
+        await page.getByRole('button', { name: '外观', exact: true }).click()
+        await expect(picker).toContainText('深色')
+        await page.getByRole('button', { name: '返回工作台', exact: true }).click()
+        await expect(page.getByRole('dialog')).toHaveCount(0)
+        await page.reload()
+        await expect(root).toHaveAttribute('data-theme', 'dark')
         expect(errors).toEqual([])
-        results.push({ width, height, reducedMotion, initialSystem, savedAndReloaded: true, followsSystemLive: true, explicitOverride: true, restored: true, saveFailureRollback: true, keyboardFocus: true, menuEntrance, menuExit, menuReopen, surfaces, reversalSamples: samples, errors })
+        results.push({ width, height, reducedMotion, initialSystem, savedAndReloaded: true, followsSystemLive: true, explicitOverride: true, immediateApply: true, automaticSave: true, runtimeDraftIsolated: true, saveFailureRetry: true, saveFailureRollback: true, keyboardFocus: true, menuEntrance, menuExit, menuReopen, surfaces, reversalSamples: samples, errors })
         console.log(`PASS theme ${width}x${height} ${reducedMotion} OS ${initialSystem}`)
         await context.close()
       }

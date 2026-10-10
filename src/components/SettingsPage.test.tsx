@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage, type SettingsPageProps } from './SettingsPage'
@@ -371,6 +371,22 @@ describe('SettingsPage appearance', () => {
     expect(callbacks.currentSettings().fontFamily).toBe('Menlo')
     expect(screen.getByRole('combobox', { name: '界面字体' }).textContent).toContain('Menlo')
     expect(screen.getByTestId('font-preview').style.fontFamily).toContain('Menlo')
+    fireEvent.click(screen.getByRole('combobox', { name: '界面字体' }))
+    fireEvent.click(await screen.findByRole('option', { name: /应用默认/ }))
+    expect(callbacks.onAppearanceChange.mock.calls).toEqual([[{ fontFamily: 'Menlo' }], [{ fontFamily: '' }]])
+    expect(callbacks.currentSettings().fontFamily).toBe('')
+    expect(callbacks.onSave).not.toHaveBeenCalled()
+  })
+
+  it('keeps appearance controls responsive during saving and retains the latest rapid selection', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    const callbacks = mountControlled({ ...settings(), theme: 'dark' }, { appearanceSaving: true })
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    await selectOption('界面主题', '浅色')
+    await selectOption('界面主题', '深色')
+    expect(callbacks.onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ theme: 'dark' }]])
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('深色')
+    expect(callbacks.currentSettings().theme).toBe('dark')
     expect(callbacks.onSave).not.toHaveBeenCalled()
   })
 
@@ -436,6 +452,65 @@ describe('SettingsPage appearance', () => {
     fireEvent.click(screen.getByRole('button', { name: /重试/ }))
     await waitFor(() => expect(onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ theme: 'light' }]]))
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('retains a theme failure and its retry when a concurrent font change succeeds', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    let rejectTheme!: (error: Error) => void
+    const themeWrite = new Promise<void>((_resolve, reject) => { rejectTheme = reject })
+    const onAppearanceChange = vi.fn<(patch: AppearancePatch) => Promise<void>>()
+      .mockReturnValueOnce(themeWrite).mockResolvedValue(undefined)
+    mount({ settings: { ...settings(), theme: 'dark' }, onAppearanceChange })
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    await selectOption('界面主题', '浅色')
+    await screen.findByText('本机可用字体 · 1 款')
+    fireEvent.click(screen.getByRole('combobox', { name: '界面字体' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Menlo' }))
+    await waitFor(() => expect(onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ fontFamily: 'Menlo' }]]))
+    await act(async () => { rejectTheme(new Error('Theme unavailable')) })
+    expect((await screen.findByRole('alert')).textContent).toContain('主题：Theme unavailable')
+    expect(screen.queryByText('外观已自动保存', { exact: true })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /重试/ }))
+    await waitFor(() => expect(onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ fontFamily: 'Menlo' }], [{ theme: 'light' }]]))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('ignores an older failure after a newer selection changes the same appearance field', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    let rejectOlder!: (error: Error) => void
+    const olderWrite = new Promise<void>((_resolve, reject) => { rejectOlder = reject })
+    const onAppearanceChange = vi.fn<(patch: AppearancePatch) => Promise<void>>()
+      .mockReturnValueOnce(olderWrite).mockResolvedValue(undefined)
+    mount({ settings: { ...settings(), theme: 'dark' }, onAppearanceChange })
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    await selectOption('界面主题', '浅色')
+    await selectOption('界面主题', '跟随系统')
+    await act(async () => { rejectOlder(new Error('Superseded theme failure')) })
+    expect(onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ theme: 'system' }]])
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: /重试/ })).toBeNull()
+    expect(screen.getByText('外观已自动保存', { exact: true })).toBeTruthy()
+  })
+
+  it('keeps failures for multiple fields and retries their combined appearance patch', async () => {
+    bridge.listSystemFonts.mockResolvedValue(['Menlo'])
+    const onAppearanceChange = vi.fn<(patch: AppearancePatch) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('Theme unavailable'))
+      .mockRejectedValueOnce(new Error('Font unavailable'))
+      .mockResolvedValue(undefined)
+    mount({ settings: { ...settings(), theme: 'dark' }, onAppearanceChange })
+    fireEvent.click(screen.getByRole('button', { name: '外观' }))
+    await selectOption('界面主题', '浅色')
+    expect((await screen.findByRole('alert')).textContent).toContain('主题：Theme unavailable')
+    await screen.findByText('本机可用字体 · 1 款')
+    fireEvent.click(screen.getByRole('combobox', { name: '界面字体' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Menlo' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('字体：Font unavailable'))
+    expect(screen.getByRole('alert').textContent).toContain('主题：Theme unavailable')
+    fireEvent.click(screen.getByRole('button', { name: /重试/ }))
+    await waitFor(() => expect(onAppearanceChange).toHaveBeenLastCalledWith({ theme: 'light', fontFamily: 'Menlo' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(screen.getByText('外观已自动保存', { exact: true })).toBeTruthy()
   })
 
   it('keeps a saved missing font and reports fallback without silently rewriting it', async () => {

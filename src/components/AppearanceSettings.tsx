@@ -29,7 +29,7 @@ export function AppearanceSettings({ value, onChange, themeValue = 'system', onT
     return () => { cancelled = true }
   }, [revision])
   const options = selected && !families.includes(selected) ? [selected, ...families] : families
-  function select(family: string) { onChange(family); setOpen(false) }
+  function select(family: string) { if (family !== selected) onChange(family); setOpen(false) }
   return <div className="space-y-7">
     <div><h1 className="text-xl font-semibold">{t('外观', 'Appearance')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('调整应用主题、语言与界面字体。选择后立即生效并自动保存。', 'Choose the app theme, language, and interface font. Changes apply immediately and save automatically.')}</p></div>
     <section className="space-y-4">

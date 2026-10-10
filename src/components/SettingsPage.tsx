@@ -16,7 +16,7 @@ import { Separator } from '@/components/ui/separator'
 import { AppearanceSettings } from './AppearanceSettings'
 import { useI18n } from '@/i18n'
 import { normalizeThemePreference } from '@/lib/theme'
-import { appearancePreferences, configurationSettings, type AppearancePatch } from '@/lib/appearance'
+import { appearanceKeys, appearancePreferences, configurationSettings, type AppearancePatch } from '@/lib/appearance'
 import { RuntimeLogo } from './RuntimeLogo'
 import { ReasoningEffortSelect } from './ReasoningEffortSelect'
 import { RuntimePermissions, claudePermissionsFor, codexPermissionsFor, parsePermissionArgs, permissionTextFor, permissionTextsFor, type PermissionTextDraft } from './RuntimePermissions'
@@ -46,6 +46,9 @@ export interface SettingsPageProps {
 type Category = 'appearance' | 'runtimes' | 'models' | 'execution' | 'storage'
 type Notice = { text?: string; translation?: readonly [zh: string, en: string]; error?: boolean }
 type RuntimeProbe = { executable: string; busy: boolean; result?: ProbeResult; error?: string }
+type AppearanceKey = typeof appearanceKeys[number]
+type AppearanceFailure = { patch: AppearancePatch; message: string }
+const appearanceLabels = { theme: ['主题', 'Theme'], fontFamily: ['字体', 'Font'], language: ['语言', 'Language'] } as const
 const categories = [
   { id: 'runtimes' as const, label: ['运行时', 'Runtimes'], icon: Cpu },
   { id: 'models' as const, label: ['模型与供应商', 'Models & providers'], icon: Database },
@@ -116,8 +119,20 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
   const [modelTab, setModelTab] = useState('catalog')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [saving, setSaving] = useState(false)
-  const [appearanceFailure, setAppearanceFailure] = useState<{ patch: AppearancePatch; message: string } | null>(null)
-  const appearanceRequest = useRef(0)
+  const [appearanceFailures, setAppearanceFailures] = useState<Partial<Record<AppearanceKey, AppearanceFailure>>>({})
+  const appearanceGeneration = useRef(0)
+  const appearanceRequests = useRef<Partial<Record<AppearanceKey, number>>>({})
+  const failures = appearanceKeys.flatMap(key => {
+    const failure = appearanceFailures[key]
+    return failure ? [{ key, ...failure }] : []
+  })
+  const appearanceFailure = failures.length ? {
+    patch: Object.assign({} as AppearancePatch, ...failures.map(failure => failure.patch)),
+    message: failures.map(failure => {
+      const [zh, en] = appearanceLabels[failure.key]
+      return t(zh, en) + t('：', ': ') + failure.message
+    }).join(t('；', '; ')),
+  } : null
   const [discardTarget, setDiscardTarget] = useState<'back' | 'discover' | null>(null)
   const [newRuntime, setNewRuntime] = useState<RuntimeConfig | null>(null)
   const [modelEditor, setModelEditor] = useState<ModelConfig | null>(null)
@@ -174,10 +189,23 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
   useEffect(() => { if (category === 'storage') void refreshStorage() }, [category])
 
   function changeAppearance(patch: AppearancePatch) {
-    const request = ++appearanceRequest.current
-    setAppearanceFailure(null)
+    const request = ++appearanceGeneration.current
+    const keys = appearanceKeys.filter(key => Object.hasOwn(patch, key))
+    for (const key of keys) appearanceRequests.current[key] = request
+    setAppearanceFailures(current => {
+      const next = { ...current }
+      for (const key of keys) delete next[key]
+      return next
+    })
     void onAppearanceChange(patch).catch(error => {
-      if (live.current && request === appearanceRequest.current) setAppearanceFailure({ patch, message: errorText(error) })
+      if (!live.current) return
+      setAppearanceFailures(current => {
+        const next = { ...current }
+        for (const key of keys) {
+          if (appearanceRequests.current[key] === request) next[key] = { patch: { [key]: patch[key] }, message: errorText(error) }
+        }
+        return next
+      })
     })
   }
 
@@ -385,7 +413,7 @@ export function SettingsPage({ settings, onSave, onAppearanceChange, appearanceS
           {category === 'storage' && <div className="space-y-7"><div><h1 className="text-xl font-semibold">{t('记录与存储', 'Records & storage')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('聊天、配置与 Runtime 公开事件存储在本机，可导出当前任务的记录。', 'Chats, settings and runtime public events are stored locally. You can export the current task.')}</p></div><Section title={t('本地数据', 'Local data')} action={<Button variant="ghost" size="sm" disabled={storageLoading} onClick={() => void refreshStorage()}><RefreshCw className={'size-3.5 ' + (storageLoading ? 'animate-spin motion-reduce:animate-none' : '')} />{t('刷新', 'Refresh')}</Button>}><Field label={t('存储位置', 'Storage location')}><p className="min-h-8 break-all rounded-md border border-border bg-card/40 px-3 py-2 font-mono text-xs">{storage?.path || (storageLoading ? t('正在读取…', 'Loading…') : t('尚未获取', 'Not loaded'))}</p></Field><Field label={t('存储占用', 'Storage used')}><p className="py-2 text-xs">{storage ? <span title={storage.bytes + ' bytes'}>{formatBytes(storage.bytes)} <span className="ml-2 text-[11px] text-muted-foreground">{storage.bytes.toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')} {t('字节', 'bytes')}</span></span> : t('未读取', 'Not loaded')}</p></Field>{storageError && <p role="alert" className="text-xs text-destructive">{storageError}</p>}<p className="text-[11px] leading-5 text-muted-foreground">{isDesktop ? t('这是桌面应用当前实际使用的数据位置。', 'This is the desktop app’s actual data location.') : t('当前为浏览器预览存储；桌面应用使用独立的本地数据文件。', 'This browser preview uses separate storage from the desktop app.')}{t('现有记录不会自动过期。', 'Existing records do not expire automatically.')}</p></Section><Section title={t('执行输出保留', 'Execution output retention')}><p className="text-xs leading-5 text-muted-foreground">{t('完整保留每次执行的公开输出与 Trace，不再按累计字节数或记录条数截断。旧版本已丢弃的输出无法恢复。', 'Public output and traces for each run are retained in full, without a cumulative size or record limit. Output discarded by older versions cannot be recovered.')}</p></Section><Section title={t('导出当前任务', 'Export current task')}><div className="flex items-center justify-between gap-6 rounded-md border border-border p-4"><div><p className="text-xs font-medium">{t('聊天与执行记录', 'Chat and execution records')}</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{t('导出当前任务的聊天、成员配置与公开执行事件。', 'Export this task’s chats, member settings and public execution events.')}</p></div><Button variant="outline" size="sm" onClick={onExport}><Download className="size-3.5" />{t('导出任务', 'Export task')}</Button></div><p className="text-[11px] leading-5 text-muted-foreground">{t('执行事件只包含 Runtime 公开的数据，不代表模型不可访问的内部思考。', 'Execution events contain only data exposed by the runtime, not private model reasoning.')}</p></Section></div>}
         </div></ScrollArea>
         <footer className="flex min-h-[76px] shrink-0 items-center justify-between gap-4 border-t border-border bg-sidebar px-6 py-3">
-          <div className="min-w-0 space-y-1">{category === 'appearance' ? <><p role="status" className={'flex items-center gap-1.5 text-xs ' + (appearanceFailure ? 'text-destructive' : 'text-muted-foreground')}><span className={'size-1.5 rounded-full ' + (appearanceFailure ? 'bg-destructive' : 'bg-border')} />{appearanceFailure ? t('外观未能保存', 'Appearance could not be saved') : appearanceSaving ? t('正在自动保存外观…', 'Saving appearance automatically…') : dirty ? t('外观已自动保存 · 其他设置有未保存的更改', 'Appearance saved automatically · Other settings have unsaved changes') : t('外观已自动保存', 'Appearance saved automatically')}</p><p role={appearanceFailure ? 'alert' : 'status'} aria-live="polite" className={'max-w-[620px] text-[11px] leading-4 ' + (appearanceFailure ? 'text-destructive' : 'text-muted-foreground')}>{appearanceFailure ? t('自动保存失败：', 'Automatic save failed: ') + appearanceFailure.message + t('。已恢复上次保存的外观，可重试。', '. The last saved appearance has been restored. You can retry.') : t('主题、字体和语言修改后立即生效，并自动保存。', 'Theme, font and language changes apply immediately and save automatically.')}</p></> : <><p className={'flex items-center gap-1.5 text-xs ' + (dirty ? 'text-accent-foreground' : 'text-muted-foreground')}><span className={'size-1.5 rounded-full ' + (dirty ? 'bg-accent-foreground' : 'bg-border')} />{saving ? t('正在保存配置…', 'Saving settings…') : dirty ? t('有未保存的更改 · 切换分类会保留编辑', 'Unsaved changes · Switching categories keeps edits') : t('所有更改已保存', 'All changes saved')}</p><p role={notice?.error ? 'alert' : 'status'} aria-live="polite" className={'max-w-[620px] text-[11px] leading-4 ' + (notice?.error ? 'text-destructive' : 'text-muted-foreground')}>{notice?.translation ? t(...notice.translation) : notice?.text || t('外观自动保存；Runtime 配置用于下次执行。', 'Appearance saves automatically; runtime settings apply to the next run.')}</p></>}</div>
+          <div className="min-w-0 space-y-1">{category === 'appearance' ? <><p role="status" className={'flex items-center gap-1.5 text-xs ' + (appearanceFailure ? 'text-destructive' : 'text-muted-foreground')}><span className={'size-1.5 rounded-full ' + (appearanceFailure ? 'bg-destructive' : 'bg-border')} />{appearanceFailure ? t('外观未能保存', 'Appearance could not be saved') : appearanceSaving ? t('正在自动保存外观…', 'Saving appearance automatically…') : dirty ? t('外观已自动保存 · 其他设置有未保存的更改', 'Appearance saved automatically · Other settings have unsaved changes') : t('外观已自动保存', 'Appearance saved automatically')}</p><p role={appearanceFailure ? 'alert' : 'status'} aria-live="polite" className={'max-w-[620px] text-[11px] leading-4 ' + (appearanceFailure ? 'text-destructive' : 'text-muted-foreground')}>{appearanceFailure ? t('自动保存失败：', 'Automatic save failed: ') + appearanceFailure.message + t('。本次修改已回退，可重试。', '. This change has been reverted. You can retry.') : t('主题、字体和语言修改后立即生效，并自动保存。', 'Theme, font and language changes apply immediately and save automatically.')}</p></> : <><p className={'flex items-center gap-1.5 text-xs ' + (dirty ? 'text-accent-foreground' : 'text-muted-foreground')}><span className={'size-1.5 rounded-full ' + (dirty ? 'bg-accent-foreground' : 'bg-border')} />{saving ? t('正在保存配置…', 'Saving settings…') : dirty ? t('有未保存的更改 · 切换分类会保留编辑', 'Unsaved changes · Switching categories keeps edits') : t('所有更改已保存', 'All changes saved')}</p><p role={notice?.error ? 'alert' : 'status'} aria-live="polite" className={'max-w-[620px] text-[11px] leading-4 ' + (notice?.error ? 'text-destructive' : 'text-muted-foreground')}>{notice?.translation ? t(...notice.translation) : notice?.text || t('外观自动保存；Runtime 配置用于下次执行。', 'Appearance saves automatically; runtime settings apply to the next run.')}</p></>}</div>
           {category === 'appearance' ? appearanceFailure && <Button variant="outline" size="sm" onClick={() => changeAppearance(appearanceFailure.patch)}><RefreshCw className="size-3.5" />{t('重试', 'Retry')}</Button> : <div className="flex shrink-0 items-center gap-2"><Button variant="ghost" size="sm" disabled={!dirty || saving} onClick={reset}><RotateCcw className="size-3.5" />{t('还原', 'Restore')}</Button><Button size="sm" disabled={!dirty || saving} onClick={() => void saveChanges()}>{saving ? <RefreshCw className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Save className="size-3.5" />}{saving ? t('保存中…', 'Saving…') : t('保存更改', 'Save changes')}</Button></div>}
         </footer>
       </main>

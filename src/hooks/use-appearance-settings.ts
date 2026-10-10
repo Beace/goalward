@@ -11,7 +11,6 @@ export function useAppearanceSettings(settings: Settings | undefined, update: Up
   const generation = useRef(0)
   const latest = useRef<Partial<Record<typeof appearanceKeys[number], number>>>({})
   const committed = useRef<Partial<Record<typeof appearanceKeys[number], number>>>({})
-  const lastWrite = useRef<Promise<void> | undefined>(undefined)
   const [pending, setPending] = useState(0)
 
   const saveAppearance = useCallback((patch: AppearancePatch): Promise<void> => {
@@ -28,7 +27,7 @@ export function useAppearanceSettings(settings: Settings | undefined, update: Up
       }
       return { ...state, settings: { ...state.settings, ...appearance } }
     })
-    if (!changed.length) return lastWrite.current ?? write
+    if (!changed.length) return write
     setPending(count => count + 1)
     const result = write.then(() => {
       for (const key of changed) {
@@ -50,9 +49,7 @@ export function useAppearanceSettings(settings: Settings | undefined, update: Up
       throw error
     }).finally(() => {
       setPending(count => count - 1)
-      if (lastWrite.current === result) lastWrite.current = undefined
     })
-    lastWrite.current = result
     return result
   }, [update])
 
