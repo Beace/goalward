@@ -1,6 +1,6 @@
 # Releasing Goalward for macOS
 
-Goalward publishes macOS universal prereleases in batches, not on every Pull Request merge. The local Codex automation **Goalward 每日下午发布** checks for unreleased changes at **14:00 Asia/Shanghai** and dispatches the GitHub Actions release workflow on `main` only when needed; a maintainer can also run the same workflow manually. The workflow itself has no GitHub cron trigger. The published GitHub Release, its version tag, and the tagged Git commit are the release source of truth. No person or workflow pushes changes directly to `main`.
+Goalward publishes macOS universal prereleases in batches, not on every Pull Request merge. The local Codex automation **Goalward 每日下午发布** dispatches the GitHub Actions release workflow on `main` at **14:00 Asia/Shanghai**; a maintainer can also run the same workflow manually. The workflow itself has no GitHub cron trigger and skips the build and Release when there are no unreleased commits. The published GitHub Release, its version tag, and the tagged Git commit are the release source of truth. No person or workflow pushes changes directly to `main`.
 
 ## Develop through a Pull Request
 
