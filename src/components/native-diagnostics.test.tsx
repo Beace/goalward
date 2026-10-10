@@ -77,11 +77,11 @@ describe('native diagnostic presentation', () => {
 
   it('localizes a saved probe error and an English built-in description after switching to Chinese', async () => {
     const report = discovery()
-    render(<I18nProvider><SettingsPage settings={{ ...settings, runtimes: [{ ...settings.runtimes[0], description: 'Uses local Codex CLI login and configuration; installation must be checked.' }] }} activeCount={0} onSave={vi.fn(async () => {})} onBack={vi.fn()} onExport={vi.fn()} discoveryReport={report} /></I18nProvider>)
+    render(<I18nProvider><SettingsPage settings={{ ...settings, runtimes: [{ ...settings.runtimes[0], description: 'Uses local Codex CLI login and configuration; installation must be checked.' }] }} activeCount={0} onSave={vi.fn(async () => {})} onAppearanceChange={vi.fn(async () => {})} onBack={vi.fn()} onExport={vi.fn()} discoveryReport={report} /></I18nProvider>)
     expect(await screen.findByText('Runtime detection could not complete.')).toBeTruthy()
     cleanup()
     browserLanguage('zh-CN')
-    render(<I18nProvider><SettingsPage settings={{ ...settings, runtimes: [{ ...settings.runtimes[0], description: 'Uses local Codex CLI login and configuration; installation must be checked.' }] }} activeCount={0} onSave={vi.fn(async () => {})} onBack={vi.fn()} onExport={vi.fn()} /></I18nProvider>)
+    render(<I18nProvider><SettingsPage settings={{ ...settings, runtimes: [{ ...settings.runtimes[0], description: 'Uses local Codex CLI login and configuration; installation must be checked.' }] }} activeCount={0} onSave={vi.fn(async () => {})} onAppearanceChange={vi.fn(async () => {})} onBack={vi.fn()} onExport={vi.fn()} /></I18nProvider>)
     fireEvent.click(await screen.findByRole('button', { name: '高级启动配置' }))
     expect((screen.getByLabelText('备注') as HTMLTextAreaElement).value).toBe('使用本机 Codex CLI 的登录与配置；安装状态需检测。')
   })

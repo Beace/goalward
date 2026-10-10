@@ -17,6 +17,7 @@ try {
   const { createAgentProfile } = await fixtureServer.ssrLoadModule('/src/lib/agent-profiles.ts')
   fixture = createInitialState()
   fixture.settings.language = 'zh'
+  fixture.settings.theme = 'dark'
   fixture.settings.defaultDirectory = '/tmp/hover-motion-fixture'
   fixture.settings.models = [{ id: 'hover-model', name: 'Hover fixture model', modelId: 'hover-model', enabled: true, runtimeIds: ['codex', 'claude'] }]
   const goal = createGoal({ title: 'Hover 动效验收目标', expected: '交互反馈保持连续', currentSummary: '独立浏览器合成数据；没有启动真实 Agent。', criteria: ['按钮与 Tab 的现有颜色变化连续'] })
@@ -171,6 +172,17 @@ async function noOverflow(page) {
   assert(dimensions.horizontal <= 1 && dimensions.vertical <= 1, `Viewport overflow: ${JSON.stringify(dimensions)}`)
   return dimensions
 }
+async function expectTheme(page, theme) {
+  const root = page.locator('html')
+  await expect(root).toHaveAttribute('data-theme', theme)
+  await expect(root).toHaveAttribute('data-theme-preference', theme)
+  if (theme === 'dark') await expect(root).toHaveClass(/\bdark\b/)
+  else await expect(root).not.toHaveClass(/\bdark\b/)
+  // Wait on the theme lifecycle itself, so a surface transition cannot be
+  // mistaken for this check's hover transition after saved-state hydration.
+  await expect(root).not.toHaveClass(/\btheme-changing\b/)
+  assert.equal(await root.evaluate(node => getComputedStyle(node).colorScheme), theme, 'Saved theme must resolve to the requested color scheme')
+}
 async function instantChecks(page, locator, disabled) {
   await moveOutside(page)
   await locator.focus()
@@ -266,17 +278,18 @@ async function keyboardMenu(page) {
 
 try {
   for (const [width, height] of [[1536, 960], [1280, 720]]) for (const reducedMotion of ['no-preference', 'reduce']) {
-    const context = await browser.newContext({ viewport: { width, height }, reducedMotion, locale: 'zh-CN' })
+    const context = await browser.newContext({ viewport: { width, height }, reducedMotion, locale: 'zh-CN', colorScheme: 'dark' })
     const page = await context.newPage()
     activePage = page
     page.on('pageerror', error => report.errors.push(error.message))
     await context.addInitScript(state => localStorage.setItem('goalward.preview.v1', JSON.stringify(state)), fixture)
-    const scenario = { viewport: { width, height }, reducedMotion, language: 'zh', checks: [], overflow: {} }
+    const scenario = { viewport: { width, height }, reducedMotion, language: 'zh', theme: 'dark', checks: [], overflow: {} }
     report.scenarios.push(scenario)
     try {
       await page.goto(baseUrl)
       await expect(page.locator('.settings-nav')).toBeVisible()
       await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+      await expectTheme(page, 'dark')
       assert.equal(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)), false, 'Must remain isolated browser storage')
       assert(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches), 'Chrome must expose a real fine-hover pointer')
       await installCapture(page)
@@ -339,17 +352,18 @@ try {
   {
     const englishFixture = structuredClone(fixture)
     englishFixture.settings.language = 'en'
-    const context = await browser.newContext({ viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', locale: 'en-US' })
+    const context = await browser.newContext({ viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', locale: 'en-US', colorScheme: 'dark' })
     const page = await context.newPage()
     activePage = page
     page.on('pageerror', error => report.errors.push(error.message))
     await context.addInitScript(state => localStorage.setItem('goalward.preview.v1', JSON.stringify(state)), englishFixture)
-    const scenario = { viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', language: 'en', scope: 'English Workbench execution mode', checks: [], overflow: {} }
+    const scenario = { viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', language: 'en', theme: 'dark', scope: 'English Workbench execution mode', checks: [], overflow: {} }
     report.scenarios.push(scenario)
     try {
       await page.goto(baseUrl)
       await expect(page.locator('.settings-nav')).toBeVisible()
       await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+      await expectTheme(page, 'dark')
       assert.equal(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)), false, 'English check must remain isolated browser storage')
       await page.locator('.task-nav-item').filter({ hasText: englishFixture.tasks[0].title }).click()
       await expect(page.locator('.workbench')).toBeVisible()
@@ -385,9 +399,43 @@ try {
       throw error
     } finally { await context.close() }
   }
+  // One light-theme regression samples the same real mode-button background
+  // and keyboard-to-pointer boundary, without duplicating the full matrix.
+  {
+    const lightFixture = structuredClone(fixture)
+    lightFixture.settings.theme = 'light'
+    const context = await browser.newContext({ viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', locale: 'zh-CN', colorScheme: 'light' })
+    const page = await context.newPage()
+    activePage = page
+    page.on('pageerror', error => report.errors.push(error.message))
+    await context.addInitScript(state => localStorage.setItem('goalward.preview.v1', JSON.stringify(state)), lightFixture)
+    const scenario = { viewport: { width: 1536, height: 960 }, reducedMotion: 'no-preference', language: 'zh', theme: 'light', scope: 'Light Workbench mode-button hover', checks: [], overflow: {} }
+    report.scenarios.push(scenario)
+    try {
+      await page.goto(baseUrl)
+      await expect(page.locator('.settings-nav')).toBeVisible()
+      await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+      await expectTheme(page, 'light')
+      assert.equal(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)), false, 'Light-theme check must remain isolated browser storage')
+      await page.locator('.task-nav-item').filter({ hasText: lightFixture.tasks[0].title }).click()
+      await expect(page.locator('.workbench')).toBeVisible()
+      await installCapture(page)
+      scenario.checks.push(await modeKeyboardToPointer(page))
+      const savedTask = await page.evaluate(taskId => JSON.parse(localStorage.getItem('goalward.preview.v1')).tasks.find(task => task.id === taskId), lightFixture.tasks[0].id)
+      assert.equal(savedTask.mode, lightFixture.tasks[0].mode, 'Light-theme hover must preserve the persisted execution mode')
+      assert.deepEqual(savedTask.runs, lightFixture.tasks[0].runs, 'Light-theme hover must preserve historical run snapshots')
+      assert.deepEqual(savedTask.events, lightFixture.tasks[0].events, 'Light-theme hover must not append Runtime events')
+      scenario.preservedExecutionMode = savedTask.mode
+      scenario.overflow.workbench = await noOverflow(page)
+      await page.screenshot({ path: `${output}/workbench-light-mode.png` })
+    } catch (error) {
+      await page.screenshot({ path: `${output}/failure-light-mode.png` }).catch(() => {})
+      throw error
+    } finally { await context.close() }
+  }
   assert.equal(report.errors.length, 0, report.errors.join('\n'))
   report.status = 'passed'
-  console.log(`PASS: ${report.scenarios.length} browser scenarios, ${report.scenarios.reduce((total, scenario) => total + scenario.checks.length, 0)} real hover controls; intermediate colors, enter/leave reversal, rapid pointer retargeting, immediate keyboard/press, disabled, focus restoration, English mode switching and no overflow. ${output}/report.json`)
+  console.log(`PASS: ${report.scenarios.length} browser scenarios, ${report.scenarios.reduce((total, scenario) => total + scenario.checks.length, 0)} real hover controls; intermediate colors, enter/leave reversal, rapid pointer retargeting, immediate keyboard/press, disabled, focus restoration, English mode switching, light-theme hover and no overflow. ${output}/report.json`)
 } catch (error) {
   report.status = 'failed'
   report.failure = error.stack ?? String(error)

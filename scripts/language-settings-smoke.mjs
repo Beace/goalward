@@ -9,8 +9,8 @@ const labels = {
 }
 const htmlLang = { zh: 'zh-CN', en: 'en' }
 const savedNotice = {
-  zh: '配置已保存。外观立即生效；Runtime 配置用于下次执行，默认值用于新建成员。',
-  en: 'Settings saved. Appearance changes apply now; runtime changes apply to the next run and defaults to new members.',
+  zh: '外观已自动保存',
+  en: 'Appearance saved automatically',
 }
 
 await mkdir(output, { recursive: true })
@@ -21,7 +21,6 @@ async function openAppearance(page, language) {
   await page.getByRole('button', { name: labels[language].settings, exact: true }).click()
   await page.getByRole('button', { name: labels[language].appearance, exact: true }).click()
   await expect(page.getByRole('button', { name: labels[language].appearance, exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('button', { name: labels[language].appearance, exact: true })).toHaveCSS('background-color', 'rgb(48, 44, 39)')
   await expect(page.getByRole('combobox', { name: labels[language].language, exact: true })).toBeVisible()
   await expect(page.getByTestId('font-preview')).toContainText(language === 'zh'
     ? '让每个 Agent 专注于目标，让协作清晰可见。'
@@ -31,6 +30,13 @@ async function openAppearance(page, language) {
 async function selectLanguage(page, currentLanguage, optionName) {
   await page.getByRole('combobox', { name: labels[currentLanguage].language, exact: true }).click()
   await page.getByRole('option', { name: optionName, exact: true }).click()
+}
+
+async function assertAutomaticSave(page, language, preference) {
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.language)).toBe(preference)
+  await expect(page.getByText(savedNotice[language], { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: labels[language].save, exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: language === 'zh' ? '还原' : 'Restore', exact: true })).toHaveCount(0)
 }
 
 async function assertPage(page, language, issues) {
@@ -72,10 +78,8 @@ try {
           await expect(page.getByRole('combobox', { name: labels[systemLanguage].language, exact: true })).toContainText(labels[systemLanguage].system)
 
           await selectLanguage(page, systemLanguage, manualLanguage === 'zh' ? '中文' : 'English')
-          await expect(page.locator('html')).toHaveAttribute('lang', htmlLang[systemLanguage])
-          await page.getByRole('button', { name: labels[systemLanguage].save, exact: true }).click()
           await expect(page.locator('html')).toHaveAttribute('lang', htmlLang[manualLanguage])
-          await expect(page.getByText(savedNotice[manualLanguage], { exact: true })).toBeVisible()
+          await assertAutomaticSave(page, manualLanguage, manualLanguage)
           await expect(page.getByTestId('font-preview')).toContainText(manualLanguage === 'zh'
             ? '让每个 Agent 专注于目标，让协作清晰可见。'
             : 'Keep every agent focused on the goal and every collaboration clear.')
@@ -90,9 +94,8 @@ try {
           expect(await page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.language)).toBe(manualLanguage)
 
           await selectLanguage(page, manualLanguage, labels[manualLanguage].system)
-          await page.getByRole('button', { name: labels[manualLanguage].save, exact: true }).click()
           await assertPage(page, systemLanguage, issues)
-          await expect(page.getByText(savedNotice[systemLanguage], { exact: true })).toBeVisible()
+          await assertAutomaticSave(page, systemLanguage, undefined)
           await expect(page.getByTestId('font-preview')).toContainText(systemLanguage === 'zh'
             ? '让每个 Agent 专注于目标，让协作清晰可见。'
             : 'Keep every agent focused on the goal and every collaboration clear.')
@@ -101,10 +104,10 @@ try {
           await assertPage(page, systemLanguage, issues)
           await openAppearance(page, systemLanguage)
           await expect(page.getByRole('combobox', { name: labels[systemLanguage].language, exact: true })).toContainText(labels[systemLanguage].system)
-          await expect(page.getByRole('button', { name: labels[systemLanguage].save, exact: true })).toBeInViewport()
+          await expect(page.getByText(savedNotice[systemLanguage], { exact: true })).toBeInViewport()
           await page.screenshot({ path: `${output}/${locale}-${width}x${height}-${reducedMotion}-system.png` })
 
-          results.push({ locale, width, height, reducedMotion, systemLanguage, manualLanguage, manualOverridePersisted: true, systemChoiceRestored: true, horizontalOverflow: false, issues })
+          results.push({ locale, width, height, reducedMotion, systemLanguage, manualLanguage, immediateLanguageChange: true, automaticSave: true, noManualSaveControls: true, manualOverridePersisted: true, systemChoiceRestoredAndPersisted: true, horizontalOverflow: false, issues })
         } finally {
           await context.close()
         }

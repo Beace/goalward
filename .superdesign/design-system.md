@@ -2,23 +2,35 @@
 
 ## Mandatory project constraints
 
-Read and follow [AGENTS.md](../AGENTS.md). The project uses **shadcn/ui** as its common UI component foundation. Preserve the current dark desktop visual direction through shared theme tokens and component variants. New or changed motion must use the actual **apple-design** skill from its installed `SKILL.md`. Apply its motion and accessibility guidance within the existing visual system.
+Read and follow [AGENTS.md](../AGENTS.md). The project uses **shadcn/ui** as its common UI component foundation. Preserve the current compact desktop visual direction through shared theme tokens and component variants in both dark and light themes. New or changed motion must use the actual **apple-design** skill from its installed `SKILL.md`. Apply its motion and accessibility guidance within the existing visual system.
 
 The exported HTML drafts remain design references. This requirement governs subsequent implementation; it does not mean the existing HTML is already a shadcn/ui application.
 
 ## Product and intended outcome
 
-A native-feeling, goal-driven desktop workbench that helps users turn a broad direction into goals and tasks, carry out work with people and local coding agents, collect artifacts and evidence, and review the next action. Coding Agent proxying, solo and collaborative runs, runtime/model configuration, persistent conversations, and execution traces support that loop. For product scope, follow docs/goal-driven-product-proposal.md; the existing task workbench remains the execution surface. Primary language: Simplified Chinese, with runtime names and familiar technical identifiers in English.
+A native-feeling, goal-driven desktop workbench that helps users turn a broad direction into goals and tasks, carry out work with people and local coding agents, collect artifacts and evidence, and review the next action. Coding Agent proxying, solo and collaborative runs, runtime/model configuration, persistent conversations, and execution traces support that loop. For product scope, follow docs/goal-driven-product-proposal.md; the existing task workbench remains the execution surface. UI languages: Simplified Chinese and English, initially selected from the system language, with other system languages falling back to English. Runtime names and familiar technical identifiers retain their original spelling.
 
 The first draft is the main workbench during a three-agent collaboration. It must communicate an operational product through actual controls and realistic information hierarchy. Task, runtime, model, member, and trace are distinct concepts. See product-design.md for precise interactions and boundaries.
 
 ## Primary visual source
 
-The current workbench and settings designs are the visual baseline. Preserve their near-black neutral foundation, restrained warm sand/bronze accent, precise UI typography, compact controls, and fine light borders. shadcn/ui supplies the component foundation; its default theme does not replace these project visuals.
+The current workbench and settings designs are the visual baseline. Preserve their layered neutral surfaces, restrained warm sand/bronze accent, precise UI typography, compact controls, and fine borders. The dark palette keeps the existing near-black values; the light palette translates the same hierarchy to warm off-white surfaces. shadcn/ui supplies the component foundation; its default theme does not replace these project visuals.
 
 Historical inspiration: Superdesign library style `neural-noir-interface-style` (Neural Noir Interface Style).
 
-The user selected a dark professional IDE-like split view. Therefore editorial typefaces, hero sections, decorative network diagrams, gradients, dot-grid decoration, floating marketing cards, glow effects, glass cards, large radii, and promotional page structures from the source do not apply. The complete allowed system is below; it overrides the source's unsuitable marketing components.
+The user selected a professional IDE-like split view, now available in dark and light themes. Editorial typefaces, hero sections, decorative network diagrams, gradients, dot-grid decoration, floating marketing cards, glow effects, glass cards, large radii, and promotional page structures from the source do not apply. The complete allowed system is below; it overrides the source's unsuitable marketing components.
+
+## Theme behavior
+
+- **Settings → Appearance → Theme** offers System, Dark, and Light. System is the default, including older settings with no theme field.
+- Theme, UI font, and language selections apply throughout the app immediately and save automatically. Appearance saves contain only these appearance preferences; they do not submit runtime, model, provider, execution, or storage edits from another settings category.
+- Runtime and other operational configuration retain the explicit Save Changes / Revert workflow. Revert and leaving with unsaved changes affect those configuration drafts, while persisted appearance preferences remain in effect.
+- Automatic saves use the latest appearance choices when changes arrive rapidly. Expose saving, saved, and failed states without claiming success before persistence completes; a failed save retains a recoverable choice and offers retry.
+- System follows operating-system appearance changes while the app is open. An explicit Dark or Light choice remains fixed until the user selects another choice. The selected mode persists across restarts after automatic saving succeeds.
+- Language offers System, Simplified Chinese, and English. The System choice follows the current system-language rule without rewriting goals, task content, messages, runtime names, or paths.
+- Apply the resolved palette through shared semantic tokens to the workbench, settings, chat and trace, menus, dialogs, focus and error states, toast notifications, and artifact-preview chrome. Preserve layout, fonts, spacing, radii, and interaction behavior across both themes.
+- HTML, images, and remote web artifacts retain their own content design. Theme the enclosing application controls without modifying artifact content.
+- Theme selection updates colors without a staged entrance, positional movement, or business-operation delay. Preserve meaningful selected and pressed feedback through the shared controls.
 
 ## Typography
 
@@ -31,7 +43,7 @@ The user selected a dark professional IDE-like split view. Therefore editorial t
 - Supporting labels: 11 px / 16 px; avoid excessive low-contrast text.
 - English metadata can use modest tracking; Chinese text uses normal tracking.
 
-## Colors
+## Colors — dark baseline
 
 - Window background: #101111.
 - Title bar and sidebar: #141515.
@@ -55,14 +67,39 @@ The user selected a dark professional IDE-like split view. Therefore editorial t
 
 Use neutral monochrome for most of the interface. Accent is sparse and purposeful: active mode, selected agent, primary action. Status must pair a color with a text label or icon. No blue/purple gradient aesthetic.
 
+## Colors — light palette
+
+- Window background: #E9EDE7.
+- Title bar and sidebar: #F0F2ED.
+- Main workspace: #F7F8F5.
+- Raised panel / menu: #FFFFFF.
+- Hover / selected neutral: #E8ECE5.
+- Inset code / input: #EEF1EB; code-block surface: #EDF1E9.
+- Subtle divider: #D8DDD5.
+- Strong border: #BDC6B9.
+- Primary text: #252A27.
+- Secondary text: #535B53.
+- Muted text: #646E63.
+- Warm sand / bronze accent: #6E5A3F; selected subdued background #E9E3D9.
+- Primary button: #826E53 with #FFFFFF text.
+- Focus ring: #8A7152.
+- Running / success: #35744C, muted surface #E0EEE3.
+- Waiting / needs attention: #8C661E, muted surface #F2EAD6.
+- Failure: #B14E43, muted surface #F5E4E0.
+- Secondary member indicator: #466C7A; third member indicator: #786749.
+- Text selection: #DDCEB8.
+- Window control colors remain the dark baseline values.
+
+The lighter surface hierarchy uses the same semantic roles as dark mode. Status text and file icons use darker values to retain contrast against the light backgrounds. All implementation values, including supporting surfaces, contrast fallbacks, overlays, and syntax colors, are centralized in `src/index.css`.
+
 ## Spacing and components
 
 - Spacing steps: 4, 8, 12, 16, 20, 24, 32 px.
 - Border radius: 4 px small controls, 6 px menus, 8 px member panels and composer. Larger pills only for compact status badges.
 - Borders: mostly 1 px. Prefer flat separated regions to floating cards.
-- Shadows: only menus / overlays, 0 12px 32px rgba(0,0,0,.3).
+- Shadows: only menus / overlays; dark uses 0 12px 32px rgba(0,0,0,.3), light uses 0 12px 32px rgba(32,41,29,.16).
 - Button heights: 28 / 32 / 36 px. Small icon buttons need accessible labels.
-- Icons: consistent 16 px simple outline functional icons, stroke 1.5 px; no emoji avatars or invented vendor logos. Runtime identities use locally bundled official logo assets beside their text labels (16–20 px, up to 24 px in detail headers), preserving their original proportions and published dark-compatible colors. This small brand-color exception does not change the neutral/sand interface theme. Source records live in `assets/branding/runtime-source-*.md`; unknown custom runtimes retain a neutral terminal icon.
+- Icons: consistent 16 px simple outline functional icons, stroke 1.5 px; no emoji avatars or invented vendor logos. Runtime identities use locally bundled official logo assets beside their text labels (16–20 px, up to 24 px in detail headers), preserving their original proportions and published colors. Ensure fixed white assets remain distinguishable on light surfaces through a shared neutral backing treatment; do not alter original asset bytes. This small brand-color exception does not change the neutral/sand interface theme. Source records live in `assets/branding/runtime-source-*.md`; unknown custom runtimes retain a neutral terminal icon.
 - Identity: use Goalward as the app title and the current app icon documented in `assets/branding/README.md`. Historical S-mark assets are not the Goalward icon. The brand update does not change interface colors, dimensions, motion, or vendor runtime identities.
 
 ## 信息密度与渐进展示
@@ -70,7 +107,7 @@ Use neutral monochrome for most of the interface. Accent is sparse and purposefu
 - 工作台以用户内容为主，工具栏和文件列表项默认一行；工具栏 / 产物行基准 40 px，Tabs item 32 px，图标按钮至少 28 × 28 px。使用既有字体和间距 token，不通过缩小文字或点击区域挤内容。
 - 产物行采用「文件图标 · 文件名 · 灰色路径 · 右对齐的复制 / 预览按钮」。名称优先展示，路径使用 `muted-foreground` 填充同一行剩余空间，过长省略；名称最多占行宽的 45%，长名称也可省略，按钮保持完整可见。完整名称、路径、成员与执行来源在悬停或键盘聚焦时查看。未落盘内容显示“回复内容”并使用“复制内容”，网页显示 URL 并使用“复制链接”，避免虚构文件路径。
 - 文件类型图标统一复用 `src/components/FileIcon.tsx`，列表和预览标题保持一致。HTML 使用橙色代码文件图标，Markdown 使用蓝色 M 与向下箭头，CSS / 样式文件使用紫色画笔；代码、配置、图片、表格、压缩包、音视频等按扩展名识别，未知类型回退为灰色通用文件。保持 16 px 细线与固定占位，颜色辅助识别，不替代图形与文件名；类型图标不代表该格式一定支持内嵌预览。
-- 文件类型色是中性色工作台的局部例外，仅用于类型图标。颜色在 `src/index.css` 的 `--file-icon-*` token 中集中管理：橙 `#E6A071`、蓝 `#83B4E8`、紫 `#B59CDE`、青 `#78C6D6`、黄 `#D7BE78`、绿 `#89B99A`、红 `#DF9294`。文件名、灰色路径和操作按钮沿用原有主题，不用类型色表示运行状态。
+- 文件类型色是中性色工作台的局部例外，仅用于类型图标。颜色在 `src/index.css` 的 `--file-icon-*` token 中集中管理；深色 / 浅色分别为：橙 `#E6A071` / `#A45A22`、蓝 `#83B4E8` / `#386DA6`、紫 `#B59CDE` / `#7955AC`、青 `#78C6D6` / `#237385`、黄 `#D7BE78` / `#826821`、绿 `#89B99A` / `#35744C`、红 `#DF9294` / `#AD4D56`。文件名、灰色路径和操作按钮沿用当前主题，不用类型色表示运行状态。
 - 上级 Tab 已表达当前视图时省略重复标题。扩展名已说明文件类型时省略重复徽标；来源、实现方式、刷新时间和一般性帮助不单独占行，移入提示或详情。验收状态、错误和待操作事项保留明确反馈。
 - 常见操作使用共享图标按钮，设置 accessible name 与悬停说明；复制成功在原按钮显示勾选并通过 live region 宣告，失败提供可读、可重试的反馈。高频切换即时响应，反馈不推动列表或预览内容位移。
 - Tab 图标、文字和关闭按钮共享同一 item 的背景 / 边框；关闭图标和点击区域均须包含在其边界内，不拼成独立的额外列。
@@ -82,24 +119,24 @@ Use neutral monochrome for most of the interface. Accent is sparse and purposefu
 - Use CSS-variable theming with semantic tokens. Define the visual values centrally; page-specific code must not replace them with a competing palette.
 - Preserve accessibility, keyboard interaction, focus management, and disabled/error semantics when customizing appearance.
 - Use shared component variants for compact desktop control sizes. Avoid per-page copies of buttons, selects, menus, dialogs, and tables.
-- Match the exact visual colors below even if the implementation stores them in another CSS color notation. This mapping is a project decision based on the current design, using the official theme mechanism.
+- Match the exact visual colors for the resolved theme even if the implementation stores them in another CSS color notation. The table below preserves the dark baseline and maps the light palette to the same semantic names. These mappings are project decisions based on the current design, using the official theme mechanism.
 
-| Semantic theme token | Project value / role |
-| --- | --- |
-| `background` / `foreground` | #191A1A / #EAECE8 |
-| `card` / `card-foreground` | #202222 / #EAECE8 |
-| `popover` / `popover-foreground` | #202222 / #EAECE8 |
-| `primary` / `primary-foreground` | #D9C8B1 / #171817 |
-| `secondary` / `secondary-foreground` | #292B2B / #EAECE8 |
-| `muted` / `muted-foreground` | #202222 / #90998E |
-| `accent` / `accent-foreground` | #302C27 / #C9B8A0 |
-| `border` / `input` | #2E3231; use #454B47 for the existing stronger border variant |
-| `ring` | #C9B8A0 |
-| `sidebar` / `sidebar-foreground` | #141515 / #B1B7AE |
-| `sidebar-accent` / `sidebar-accent-foreground` | #302C27 / #C9B8A0 |
-| `sidebar-border` / `sidebar-ring` | #2E3231 / #C9B8A0 |
-| `destructive` | #D58D83; choose paired text / fill treatment to retain contrast |
-| Project-specific surface and status tokens | Preserve #101111 window, #151717 inset input surface, and the status colors listed above |
+| Semantic theme token | Dark value / role | Light value / role |
+| --- | --- | --- |
+| `background` / `foreground` | #191A1A / #EAECE8 | #F7F8F5 / #252A27 |
+| `card` / `card-foreground` | #202222 / #EAECE8 | #FFFFFF / #252A27 |
+| `popover` / `popover-foreground` | #202222 / #EAECE8 | #FFFFFF / #252A27 |
+| `primary` / `primary-foreground` | #D9C8B1 / #171817 | #826E53 / #FFFFFF |
+| `secondary` / `secondary-foreground` | #292B2B / #EAECE8 | #E8ECE5 / #252A27 |
+| `muted` / `muted-foreground` | #202222 / #90998E | #FFFFFF / #646E63 |
+| `accent` / `accent-foreground` | #302C27 / #C9B8A0 | #E9E3D9 / #6E5A3F |
+| `border` / `input` | #2E3231; stronger border #454B47 | #D8DDD5; stronger border #BDC6B9 |
+| `ring` | #C9B8A0 | #8A7152 |
+| `sidebar` / `sidebar-foreground` | #141515 / #B1B7AE | #F0F2ED / #535B53 |
+| `sidebar-accent` / `sidebar-accent-foreground` | #302C27 / #C9B8A0 | #E9E3D9 / #6E5A3F |
+| `sidebar-border` / `sidebar-ring` | #2E3231 / #C9B8A0 | #D8DDD5 / #8A7152 |
+| `destructive` / `destructive-foreground` | #D58D83 / #FFFFFF | #B14E43 / #FFFFFF |
+| Project-specific surface and status tokens | #101111 window, #151717 inset input, dark status values above | #E9EDE7 window, #EEF1EB inset input, light status values above |
 
 Set the radius scale to the existing 4 / 6 / 8 px small / medium / large values. Do not accept different generated defaults merely because a shadcn preset supplies them. The exact CSS declaration format follows the installed shadcn/ui and Tailwind versions.
 
@@ -151,8 +188,8 @@ Runtime/model controls changed during a run show 下次执行生效. Runtime han
 - **Direct manipulation:** draggable content follows the pointer 1:1 with its original grab offset, capture, and cancellation handling. Gesture-driven motion needs interruptible springs / motion values rather than fixed CSS transitions or keyframes. Transfer release velocity and project a snap destination only for interactions that actually support momentum and snapping.
 - **Spatial consistency:** enter and exit along the same path; anchor menus and popovers to their trigger. Small, non-gesture opacity / color feedback may use CSS transitions. The old blanket `120–180 ms ease-out` rule is superseded by these interaction-specific requirements.
 - Apply motion through shared presets or variants; reconcile shadcn component animations so the same properties are not animated twice. Prefer `transform` / `opacity` for animated effects; actual pane resizing remains direct layout manipulation.
-- **Accessibility:** `prefers-reduced-motion: reduce` replaces slides, scale, and springs with short cross-fades or static updates, without bounce. Keep meaningful feedback. Existing translucent surfaces respond to `prefers-reduced-transparency: reduce` with solid or more opaque fills; `prefers-contrast: more` uses defined contrasting boundaries. Preserve the dark palette in every fallback.
-- The skill's material and typography examples do not change the chosen static style. Do not introduce glass surfaces, bright backgrounds, or different fonts as a side effect of applying its motion guidance.
+- **Accessibility:** `prefers-reduced-motion: reduce` replaces slides, scale, and springs with short cross-fades or static updates, without bounce. Keep meaningful feedback. Existing translucent surfaces respond to `prefers-reduced-transparency: reduce` with solid or more opaque fills; `prefers-contrast: more` uses defined contrasting boundaries. Preserve the user's resolved palette in every fallback.
+- The skill's material and typography examples do not change the chosen static style. Do not introduce glass surfaces, a competing palette, or different fonts as a side effect of applying its motion guidance.
 
 ### Motion in this product
 
@@ -181,8 +218,8 @@ Use ONLY the fonts, colors, spacing, and component styles defined in this design
 ## Global toast notifications
 
 - Every floating toast is centered against the full window at `top: 56px` (40 px title bar plus 16 px gap). Never position it at the bottom or center it against only the conversation pane.
-- Use the raised neutral surface `#202222`, strong neutral border `#454B47`, primary text `#EAECE8`, 6 px corners, and the existing overlay shadow. Keep compact 13 px / 21 px text, a 16 px semantic icon, and a 28 px labeled close control. Maximum width is 560 px, constrained to the viewport minus 32 px; long text wraps.
-- Success uses a green `#89B99A` circle-check icon. Information uses a neutral `#B1B7AE` info icon. Error uses a red `#D58D83` circle-alert icon. The surface stays neutral across these states. Warm sand is for selection and actions, never the default successful toast fill.
+- Use the current theme's raised neutral surface, strong neutral border, primary text, 6 px corners, and the shared overlay shadow. In dark mode these remain `#202222`, `#454B47`, and `#EAECE8`. Keep compact 13 px / 21 px text, a 16 px semantic icon, and a 28 px labeled close control. Maximum width is 560 px, constrained to the viewport minus 32 px; long text wraps.
+- Success uses the current theme's green circle-check icon; information uses secondary text for its info icon; error uses the failure color for its circle-alert icon. Dark values remain `#89B99A`, `#B1B7AE`, and `#D58D83`. The surface stays neutral across these states. Warm sand is for selection and actions, never the default successful toast fill.
 - Type is supplied explicitly by the action result. Do not infer success from arbitrary text, and never render caught errors with a success icon. “任务已更新” is success; “下次执行生效” is information; failed saves are errors.
 - Render one latest notification in the shared host. Retriggers update the current content and timeout, preserving the current opacity instead of replaying an entrance. Toasts never delay the operation or move focus on appearance.
 - This occasional feedback uses the shared short opacity transition only, with the same entrance/exit path and no positional movement or bounce. Preserve the node through exit so closing/reopening reverses from its current opacity. Reduced motion updates statically. Solid surfaces already satisfy reduced transparency; increased contrast strengthens the border.

@@ -33,7 +33,9 @@ Open the DMG, drag **Goalward.app** into **Applications**, and launch it. If you
 
 A finished agent process does not automatically mean a task is accepted. You can also create goals and tasks for work you will do manually.
 
-Goalward starts in Chinese or English based on your Mac's language; other system languages use English. To choose manually or return to the system default, use **Settings → Appearance → Language** and save.
+Choose **System**, **Dark**, or **Light** in **Settings → Appearance → Theme**. System is the default and follows changes to your operating system's appearance while Goalward is open. An explicit Dark or Light choice remains fixed until you change it. Theme, font, and language changes apply immediately and save automatically; they persist across restarts and apply throughout the app.
+
+Goalward starts in Chinese or English based on your Mac's language; other system languages use English. To choose manually or return to the system default, use **Settings → Appearance → Language**. Runtime, model, execution, and storage configuration changes still use **Save Changes**. Changing appearance saves only appearance preferences and leaves other unsaved configuration edits in your draft.
 
 ## Data
 

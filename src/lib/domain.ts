@@ -29,7 +29,7 @@ export function createInitialState(): AppState {
       { id: 'deepseek-harness', name: 'DeepSeek Harness', executable: 'dsh', adapter: 'generic', enabled: false, args: [], defaultModel: '', description: translate('启用前确认本机 Harness 的可执行路径、参数和输入方式。', 'Confirm the local Harness executable, arguments, and input method before enabling.') },
     ],
     models: [], providers: [], defaultRuntime: 'codex', defaultMode: 'solo',
-    maxParallel: 3, defaultDirectory: '',
+    maxParallel: 3, defaultDirectory: '', theme: 'system',
   }
   const demo = createTask(settings, translate('为工作台增加全局命令面板', 'Add a global command palette to the workbench'), '', 'team')
   demo.demo = true
