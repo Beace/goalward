@@ -19,6 +19,41 @@ function fixture(adapter: Adapter = 'codex') {
 }
 
 describe('trace types', () => {
+  it('classifies public app-server metadata, deltas and camelCase tool wrappers without changing trace bytes', () => {
+    const f = fixture()
+    const events = [
+      f.json({ type: 'codex.app_server.thread_ready', threadId: 'thread', model: 'actual-model', modelProvider: 'provider', reasoningEffort: 'high' }),
+      f.json({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn', status: 'inProgress' } } }),
+      f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '公开答复' } }),
+      f.json({ method: 'item/reasoning/summaryTextDelta', params: { threadId: 'thread', turnId: 'turn', itemId: 'thinking', summaryIndex: 0, delta: '公开摘要' } }),
+      f.json({ type: 'codex.app_server.item', threadId: 'thread', turnId: 'turn', eventType: 'item.started', item: { id: 'tool', type: 'mcpToolCall', server: 'docs', tool: 'search', status: 'inProgress', arguments: { query: 'API' } } }),
+      f.json({ type: 'codex.app_server.item', threadId: 'thread', turnId: 'turn', eventType: 'item.completed', item: { id: 'command', type: 'commandExecution', command: 'false', exitCode: 1, aggregatedOutput: 'failed' } }),
+      f.json({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread', turnId: 'turn', tokenUsage: { last: { totalTokens: 30 } } } }),
+      f.json({ method: 'model/rerouted', params: { threadId: 'thread', turnId: 'turn', fromModel: 'requested', toModel: 'actual', reason: 'capacity' } }),
+    ]
+    const entries = f.append(...events)
+    expect(entries.map(entry => [entry.category, entry.title])).toEqual([
+      ['session', '模型配置'], ['turn', '执行轮次'], ['message', '生成回复'], ['reasoning', '思考摘要'], ['tool', '调用 MCP 工具'], ['command', '执行命令'], ['turn', '模型用量'], ['turn', '模型切换'],
+    ])
+    expect(entries[0].summary).toBe('actual-model · provider · high')
+    expect(entries[4]).toMatchObject({ eventType: 'item.started / mcp_tool_call', summary: 'docs · search', phase: '开始' })
+    expect(entries[5]).toMatchObject({ severity: 'error', phase: '失败' })
+    expect(entries.map(entry => entry.text)).toEqual(events.map(event => event.text))
+  })
+
+  it('summarizes only public app-server reasoning summaries and leaves private and unknown frames raw', () => {
+    const f = fixture()
+    const entries = f.append(
+      f.json({ type: 'codex.app_server.item', eventType: 'item.completed', item: { type: 'reasoning', id: 'thinking', summary: ['公开摘要'], content: ['PRIVATE_REASONING'], signature: 'PRIVATE_SIGNATURE' } }),
+      f.json({ method: 'item/reasoning/textDelta', params: { delta: 'PRIVATE_RAW' } }),
+      f.json({ method: 'future/notification', params: { text: 'unknown preserved' } }),
+    )
+    expect(entries[0]).toMatchObject({ category: 'reasoning', summary: '公开摘要' })
+    expect(entries[1]).toMatchObject({ category: 'unknown', eventType: 'item/reasoning/textDelta', summary: undefined })
+    expect(entries[2]).toMatchObject({ category: 'unknown', eventType: 'future/notification' })
+    expect(entries[0].text).toContain('PRIVATE_REASONING')
+  })
+
   it('classifies the reported Codex search start and completion from historical JSON without changing raw records', () => {
     const f = fixture()
     const events = [

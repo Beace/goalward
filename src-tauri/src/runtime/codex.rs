@@ -219,6 +219,81 @@ impl CodexSession {
             true
         }
     }
+    fn current_turn(inner: &Inner, params: &Value) -> bool {
+        inner.stage >= 3
+            && inner.session.is_some()
+            && inner.turn.is_some()
+            && params["threadId"].as_str() == inner.session.as_deref()
+            && params["turnId"].as_str() == inner.turn.as_deref()
+    }
+    fn public_reasoning(item: &Value) -> Value {
+        let summary = item["summary"]
+            .as_array()
+            .map(|entries| entries.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+            .unwrap_or_default();
+        // Reasoning content is not a public summary. Never persist raw thought
+        // text through item snapshots or turn lifecycle notifications either.
+        json!({"type":"reasoning","id":item["id"].as_str(),"summary":summary})
+    }
+    fn public_token_usage(usage: &Value) -> Option<Value> {
+        if !usage.is_object() {
+            return None;
+        }
+        let mut result = serde_json::Map::new();
+        for scope in ["total", "last"] {
+            if !usage[scope].is_object() {
+                continue;
+            }
+            let mut counts = serde_json::Map::new();
+            for field in [
+                "totalTokens",
+                "inputTokens",
+                "cachedInputTokens",
+                "cacheWriteInputTokens",
+                "outputTokens",
+                "reasoningOutputTokens",
+            ] {
+                if let Some(count) = usage[scope][field].as_u64() {
+                    counts.insert(field.into(), count.into());
+                }
+            }
+            result.insert(scope.into(), counts.into());
+        }
+        if let Some(window) = usage["modelContextWindow"].as_u64() {
+            result.insert("modelContextWindow".into(), window.into());
+        } else if usage["modelContextWindow"].is_null() {
+            result.insert("modelContextWindow".into(), Value::Null);
+        }
+        Some(result.into())
+    }
+    fn emit_turn_started(&self, params: &Value) {
+        let source = &params["turn"];
+        let items = source["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        if item["type"] == "reasoning" {
+                            Self::public_reasoning(item)
+                        } else {
+                            item.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        // Keep the public protocol envelope and fields. Do not forward future
+        // configuration or authentication fields attached to a turn response.
+        let turn = json!({
+            "id":source["id"].as_str(), "status":source["status"].as_str(), "items":items,
+            "startedAt":source["startedAt"].as_u64(), "completedAt":source["completedAt"].as_u64(),
+            "durationMs":source["durationMs"].as_u64(),
+        });
+        self.emit(
+            json!({"method":"turn/started","params":{"threadId":params["threadId"],"turn":turn}}),
+        );
+    }
     fn receive(&self, value: Value) -> Result<(), String> {
         let mut inner = self
             .inner
@@ -255,7 +330,9 @@ impl CodexSession {
                     if !Self::same_turn(&mut inner, params, params["turn"]["id"].as_str()) {
                         return Ok(());
                     }
-                    if method == "turn/completed" {
+                    if method == "turn/started" {
+                        self.emit_turn_started(params);
+                    } else {
                         let turn = &params["turn"];
                         // The completed item is authoritative, even if a server
                         // coalesced or omitted some deltas at the end.
@@ -309,6 +386,62 @@ impl CodexSession {
                             "item.completed"
                         },
                     )?;
+                }
+                "thread/tokenUsage/updated" => {
+                    if !Self::current_turn(&inner, params) {
+                        return Ok(());
+                    }
+                    if let Some(usage) = Self::public_token_usage(&params["tokenUsage"]) {
+                        self.emit(json!({"method":method,"params":{
+                            "threadId":params["threadId"],"turnId":params["turnId"],"tokenUsage":usage
+                        }}));
+                    }
+                }
+                "model/rerouted" => {
+                    if !Self::current_turn(&inner, params) {
+                        return Ok(());
+                    }
+                    if params["fromModel"].is_string() && params["toModel"].is_string() {
+                        let reason = params["reason"]
+                            .as_str()
+                            .filter(|reason| *reason == "highRiskCyberActivity");
+                        self.emit(json!({"method":method,"params":{
+                            "threadId":params["threadId"],"turnId":params["turnId"],
+                            "fromModel":params["fromModel"],"toModel":params["toModel"],"reason":reason
+                        }}));
+                    }
+                }
+                "item/reasoning/summaryTextDelta" | "item/reasoning/summaryPartAdded" => {
+                    if !Self::current_turn(&inner, params) {
+                        return Ok(());
+                    }
+                    if let (Some(item), Some(index)) =
+                        (params["itemId"].as_str(), params["summaryIndex"].as_u64())
+                    {
+                        let mut summary = json!({
+                            "threadId":params["threadId"],"turnId":params["turnId"],
+                            "itemId":item,"summaryIndex":index,
+                        });
+                        if method == "item/reasoning/summaryTextDelta" {
+                            let Some(delta) = params["delta"].as_str() else {
+                                return Ok(());
+                            };
+                            summary["delta"] = delta.into();
+                        }
+                        self.emit(json!({"method":method,"params":summary}));
+                    }
+                }
+                "item/mcpToolCall/progress" => {
+                    if !Self::current_turn(&inner, params) {
+                        return Ok(());
+                    }
+                    if let (Some(item), Some(message)) =
+                        (params["itemId"].as_str(), params["message"].as_str())
+                    {
+                        self.emit(json!({"method":method,"params":{
+                            "threadId":params["threadId"],"turnId":params["turnId"],"itemId":item,"message":message
+                        }}));
+                    }
                 }
                 "error" => {
                     if !Self::same_turn(&mut inner, params, params["turnId"].as_str()) {
@@ -389,6 +522,11 @@ impl CodexSession {
                 }
                 inner.session = Some(session.to_owned());
                 self.emit(json!({"type":"thread.started","thread_id":session}));
+                self.emit(json!({
+                    "type":"codex.app_server.thread_ready","threadId":session,
+                    "model":result["model"].as_str(),"modelProvider":result["modelProvider"].as_str(),
+                    "reasoningEffort":result["reasoningEffort"].as_str()
+                }));
                 let params = json!({
                     "threadId":session, "input":[{"type":"text","text":self.sink.request.prompt,"text_elements":[]}],
                     "cwd":self.sink.request.directory,"model":self.model(),
@@ -426,10 +564,19 @@ impl CodexSession {
             }
             inner.messages.insert(id.to_owned(), text.to_owned());
             self.emit(
-                json!({"type":event_type,"item":{"id":id,"type":"agent_message","text":text}}),
+                json!({"type":event_type,"threadId":inner.session,"turnId":inner.turn,
+                "item":{"id":id,"type":"agent_message","text":text}}),
             );
         } else {
-            self.emit(json!({"type":"codex.app_server.item","eventType":event_type,"item":item}));
+            let public_item = if item["type"] == "reasoning" {
+                Self::public_reasoning(item)
+            } else {
+                item.clone()
+            };
+            self.emit(
+                json!({"type":"codex.app_server.item","eventType":event_type,
+                "threadId":inner.session,"turnId":inner.turn,"item":public_item}),
+            );
         }
         Ok(())
     }

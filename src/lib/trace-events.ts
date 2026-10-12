@@ -31,7 +31,7 @@ function parse(text: string): { valid: boolean; value?: JsonObject } {
   try { return { valid: true, value: object(JSON.parse(text)) } } catch { return { valid: false } }
 }
 function failed(value?: JsonObject) {
-  return Boolean(value && (value.is_error === true || value.status === 'failed' || value.status === 'error'
+  return Boolean(value && (value.is_error === true || value.success === false || value.status === 'failed' || value.status === 'error'
     || value.status === 'errored' || (typeof value.exit_code === 'number' && value.exit_code !== 0)
     || (typeof value.exitCode === 'number' && value.exitCode !== 0)))
 }
@@ -53,17 +53,47 @@ function errorDescription(payload: JsonObject, eventType: string): Description {
   return { category: 'diagnostic', title: 'Runtime 错误', phase: '失败', severity: 'error', eventType,
     summary: detail(payload.message, object(payload.error)?.message, typeof payload.error === 'string' ? payload.error : '') }
 }
+/** Normalize only the public app-server item schema. Raw trace bytes stay intact. */
+export function getCodexItemEvent(payload: JsonObject): { type: string; item: JsonObject; threadId: string; turnId: string; appServer: boolean } | undefined {
+  const appServer = payload.type === 'codex.app_server.item'
+  const type = string(appServer ? payload.eventType : payload.type)
+  const source = object(payload.item)
+  if (!source || !['item.started', 'item.updated', 'item.completed', 'item.failed'].includes(type)) return undefined
+  const names: Record<string, string> = { agentMessage: 'agent_message', commandExecution: 'command_execution', fileChange: 'file_change', mcpToolCall: 'mcp_tool_call', dynamicToolCall: 'dynamic_tool_call', collabAgentToolCall: 'collab_tool_call', webSearch: 'web_search', plan: 'plan' }
+  let item: JsonObject = { ...source, type: names[string(source.type)] ?? source.type }
+  if (appServer && source.type === 'reasoning') {
+    // The summary is public. Never project raw content or signatures as reasoning.
+    item = { id: source.id, type: 'reasoning', summary: Array.isArray(source.summary) ? source.summary.filter(part => typeof part === 'string') : [] }
+  } else if (appServer) {
+    const fields: Record<string, string> = { aggregatedOutput: 'aggregated_output', exitCode: 'exit_code', durationMs: 'duration_ms', receiverThreadIds: 'receiver_thread_ids', agentsStates: 'agents_states' }
+    for (const [from, to] of Object.entries(fields)) if (source[from] !== undefined) item[to] = source[from]
+  }
+  return { type, item, threadId: string(payload.threadId), turnId: string(payload.turnId), appServer }
+}
 function codex(payload: JsonObject): Description {
+  const method = string(payload.method)
+  const params = object(payload.params)
+  if (method === 'item/agentMessage/delta') return { category: 'message', title: '生成回复', phase: '进行中', severity: 'neutral', eventType: method, summary: concise(string(params?.delta)) }
+  if (method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/summaryPartAdded') return { category: 'reasoning', title: '思考摘要', phase: '进行中', severity: 'neutral', eventType: method, summary: concise(string(params?.delta)) }
+  if (method === 'turn/started') return { category: 'turn', title: '执行轮次', phase: '开始', severity: 'neutral', eventType: method }
+  if (method === 'thread/tokenUsage/updated') return { category: 'turn', title: '模型用量', severity: 'neutral', eventType: method }
+  if (method === 'model/rerouted') return { category: 'turn', title: '模型切换', severity: 'neutral', eventType: method, summary: detail(params?.fromModel, params?.toModel, params?.reason) }
+  if (method === 'item/mcpToolCall/progress') return { category: 'tool', title: '工具进度', phase: '进行中', severity: 'neutral', eventType: method, summary: concise(string(params?.message)) }
+  if (payload.type === 'codex.app_server.thread_ready') return { category: 'session', title: '模型配置', severity: 'neutral', eventType: string(payload.type), summary: detail(payload.model, payload.modelProvider, payload.reasoningEffort) }
+  if (payload.type === 'codex.app_server.turn_completed') return { category: 'turn', title: '执行轮次', eventType: string(payload.type), ...(payload.status === 'interrupted' ? { phase: '已停止', severity: 'neutral' as const } : phase(payload.status === 'completed' ? 'turn.completed' : 'turn.failed', payload)), summary: detail(object(payload.error)?.message) }
+  if (payload.type === 'codex.app_server.error') return errorDescription(params ?? payload, string(payload.type))
+  if (payload.type === 'codex.app_server.request_rejected') return { category: 'diagnostic', title: '客户端请求被拒绝', severity: 'error', phase: '失败', eventType: string(payload.type), summary: concise(string(payload.method)) }
   const type = string(payload.type)
-  const item = object(payload.item)
-  if (type.startsWith('item.') && item) {
+  const normalized = getCodexItemEvent(payload)
+  const item = normalized?.item
+  if (normalized && item) {
     const itemType = string(item.type)
-    const eventType = [type, itemType].filter(Boolean).join(' / ')
-    const state = phase(type, item)
+    const eventType = [normalized.type, itemType].filter(Boolean).join(' / ')
+    const state = phase(normalized.type, item)
     const base = { ...state, eventType }
     if (itemType === 'error') return errorDescription(item, eventType)
     if (itemType === 'agent_message') return { ...base, category: 'message', title: '生成回复', summary: concise(string(item.text)) }
-    if (itemType === 'reasoning') return { ...base, category: 'reasoning', title: '思考状态' }
+    if (itemType === 'reasoning') return { ...base, category: 'reasoning', title: normalized.appServer ? '思考摘要' : '思考状态', summary: normalized.appServer ? concise((item.summary as string[]).join('\n')) : undefined }
     if (itemType === 'web_search') {
       const action = object(item.action)
       const queries = Array.isArray(action?.queries) ? action.queries.map(string).filter(Boolean).join('；') : ''
@@ -74,15 +104,15 @@ function codex(payload: JsonObject): Description {
       const changes = Array.isArray(item.changes) ? item.changes.map(object).filter((change): change is JsonObject => Boolean(change)) : []
       return { ...base, category: 'file-change', title: '文件变更', summary: concise(changes.map(change => string(change.path)).filter(Boolean).join('、')) }
     }
-    if (itemType === 'mcp_tool_call') return { ...base, category: 'tool', title: '调用 MCP 工具', summary: detail(item.server, item.tool) }
+    if (itemType === 'mcp_tool_call' || itemType === 'dynamic_tool_call') return { ...base, category: 'tool', title: itemType === 'mcp_tool_call' ? '调用 MCP 工具' : '调用工具', summary: detail(item.server ?? item.namespace, item.tool) }
     if (itemType === 'collab_tool_call') return { ...base, category: 'tool', title: 'Agent 协作', summary: detail(item.tool) }
-    if (itemType === 'todo_list') return { ...base, category: 'tool', title: '更新计划' }
+    if (itemType === 'todo_list' || itemType === 'plan') return { ...base, category: 'tool', title: '更新计划', summary: concise(string(item.text)) }
     return { ...unknown(item, eventType), ...state }
   }
   if (type === 'thread.started') return { category: 'session', title: '创建会话', eventType: type, ...phase(type) }
   if (['turn.started', 'turn.completed', 'turn.failed'].includes(type)) return { category: 'turn', title: '执行轮次', eventType: type, ...phase(type, payload), summary: detail(object(payload.error)?.message) }
   if (type === 'error') return errorDescription(payload, type)
-  return unknown(payload)
+  return unknown(payload, method || undefined)
 }
 function toolDescription(name: string, input?: JsonObject): Pick<Description, 'category' | 'title' | 'summary'> {
   if (/^(WebSearch|WebFetch|web_search|web_fetch)$/.test(name)) return { category: 'web-search', title: /fetch/i.test(name) ? '读取网页' : '网页搜索', summary: detail(name, input?.query || input?.url) }
@@ -222,6 +252,7 @@ const TRACE_LABELS_EN: Record<string, string> = {
   'Kimi 工具调用': 'Kimi tool call', '更新执行计划': 'Update execution plan', 'Kimi 会话状态': 'Kimi session status', 'Pi 会话': 'Pi session',
   'Pi 请求失败': 'Pi request failed', '思考过程': 'Reasoning', '工具消息': 'Tool message', '用户输入': 'User input', 'Pi 执行轮次': 'Pi run turn',
   '启动 Runtime': 'Start runtime', '执行完成': 'Run completed', '执行失败': 'Run failed', '停止执行': 'Stop run',
+  '思考摘要': 'Reasoning summary', '模型配置': 'Model configuration', '模型用量': 'Model usage', '模型切换': 'Model rerouted', '工具进度': 'Tool progress', '客户端请求被拒绝': 'Client request rejected',
 }
 function localizeTraceLabel(label: string | undefined) {
   if (!label || getCurrentLanguage() === 'zh') return label

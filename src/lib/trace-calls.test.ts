@@ -21,6 +21,92 @@ const search = (type: string, id: string, details: object = {}) => ({ type, item
 const use = (id: string, name: string, input: unknown) => ({ type: 'tool_use', id, name, input })
 const result = (id: string, content: unknown, is_error = false) => ({ type: 'tool_result', tool_use_id: id, content, is_error })
 
+describe('Codex app-server call and stream projection', () => {
+  it('groups thousands of real public deltas into one stable row and reconciles an authoritative completion', () => {
+    const f = fixture()
+    const first = f.json({ type: 'item.started', item: { id: 'answer', type: 'agent_message', text: '' } })
+    const initial = f.append(first)[0]
+    const deltas = Array.from({ length: 1200 }, () => f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '字' } }))
+    const streamed = f.append(...deltas)
+    expect(streamed).toHaveLength(1)
+    expect(streamed[0]).toMatchObject({ id: initial.id, phase: '进行中' })
+    expect(streamed[0].message).toMatchObject({ text: '字'.repeat(1200), status: 'running' })
+    expect(streamed[0].message?.records).toHaveLength(1201)
+    const done = f.json({ type: 'item.completed', threadId: 'thread', turnId: 'turn', item: { id: 'answer', type: 'agent_message', text: '最终公开答复' } })
+    const completed = f.append(done)
+    expect(completed).toHaveLength(1)
+    expect(completed[0].message).toMatchObject({ text: '最终公开答复', status: 'completed' })
+    expect(completed[0].message?.records.map(record => record.text)).toEqual([first, ...deltas, done].map(event => event.text))
+    expect(initial.message?.text).toBe('')
+  })
+
+  it('isolates identical item IDs across native threads and turns and preserves stopped partial streams', () => {
+    const f = fixture()
+    const frame = (threadId: string, turnId: string, delta: string) => f.json({ method: 'item/agentMessage/delta', params: { threadId, turnId, itemId: 'same', delta } })
+    const entries = f.append(frame('thread-a', 'turn-a', 'A'), frame('thread-b', 'turn-a', 'B'), frame('thread-a', 'turn-b', 'C'), frame('thread-a', 'turn-a', '2'))
+    expect(entries.map(entry => entry.message?.text)).toEqual(['A2', 'B', 'C'])
+    const stopped = f.append(f.event('stopped'))
+    expect(stopped.filter(entry => entry.message).map(entry => entry.message?.status)).toEqual(['stopped', 'stopped', 'stopped'])
+    expect(stopped.filter(entry => entry.message).map(entry => entry.message?.text)).toEqual(['A2', 'B', 'C'])
+  })
+
+  it('groups indexed public reasoning summaries and uses only summary snapshots, never raw reasoning or signatures', () => {
+    const f = fixture()
+    const raw = (method: string, extra: object) => f.json({ method, params: { threadId: 'thread', turnId: 'turn', itemId: 'thinking', ...extra } })
+    const first = raw('item/reasoning/summaryPartAdded', { summaryIndex: 0 })
+    const entries = f.append(first, raw('item/reasoning/summaryTextDelta', { summaryIndex: 0, delta: '先核对' }), raw('item/reasoning/summaryTextDelta', { summaryIndex: 0, delta: '约束' }), raw('item/reasoning/summaryPartAdded', { summaryIndex: 1 }), raw('item/reasoning/summaryTextDelta', { summaryIndex: 1, delta: '再安排步骤' }))
+    expect(entries).toHaveLength(1)
+    expect(entries[0].reasoning).toMatchObject({ text: '先核对约束\n\n再安排步骤', status: 'running' })
+    const done = f.append(f.json({ type: 'codex.app_server.item', threadId: 'thread', turnId: 'turn', eventType: 'item.completed', item: { id: 'thinking', type: 'reasoning', summary: ['已核对约束', '再安排步骤'], content: ['PRIVATE_CONTENT'], signature: 'PRIVATE_SIGNATURE' } }))
+    expect(done).toHaveLength(1)
+    expect(done[0].reasoning).toMatchObject({ text: '已核对约束\n\n再安排步骤', status: 'completed' })
+    expect(done[0].id).toBe(entries[0].id)
+    expect(done[0].reasoning?.records).toHaveLength(6)
+    expect(done[0].summary).not.toContain('PRIVATE')
+    expect(done[0].reasoning?.text).not.toContain('PRIVATE')
+    const unknown = f.append(raw('item/reasoning/textDelta', { delta: 'PRIVATE_RAW' }))
+    expect(unknown).toHaveLength(2)
+    expect(unknown[1].reasoning).toBeUndefined()
+  })
+
+  it('pairs typed app-server tool input, progress and output by item identity, retaining observed failures', () => {
+    const f = fixture()
+    const item = (eventType: string, data: object) => f.json({ type: 'codex.app_server.item', threadId: 'thread', turnId: 'turn', eventType, item: data })
+    const start = item('item.started', { id: 'mcp', type: 'mcpToolCall', server: 'docs', tool: 'search', status: 'inProgress', arguments: { query: 'API' } })
+    const entries = f.append(start, f.json({ method: 'item/mcpToolCall/progress', params: { threadId: 'thread', turnId: 'turn', itemId: 'mcp', message: '读取资料中' } }), item('item.completed', { id: 'mcp', type: 'mcpToolCall', server: 'docs', tool: 'search', status: 'completed', arguments: { query: 'API' }, result: { text: '找到资料' }, durationMs: 500 }))
+    expect(entries).toHaveLength(1)
+    expect(entries[0].call).toMatchObject({ id: 'mcp', status: 'completed', input: { query: 'API' }, output: { result: { text: '找到资料' } }, startedAt: start.timestamp })
+    expect(entries[0].call?.records).toHaveLength(3)
+    const failed = f.append(item('item.started', { id: 'cmd', type: 'commandExecution', command: 'false', cwd: '/tmp' }), item('item.completed', { id: 'cmd', type: 'commandExecution', command: 'false', cwd: '/tmp', status: 'completed', exitCode: 1, aggregatedOutput: 'command failed' }))
+    expect(failed[1].call).toMatchObject({ status: 'failed', input: { command: 'false', cwd: '/tmp' }, output: { aggregated_output: 'command failed', exit_code: 1 } })
+    expect(failed[1]).toMatchObject({ severity: 'error', phase: '失败' })
+  })
+
+  it('keeps model metadata and token usage visible as raw records alongside grouped replies', () => {
+    const f = fixture()
+    const ready = f.json({ type: 'codex.app_server.thread_ready', threadId: 'thread', model: 'actual-model', modelProvider: 'provider', reasoningEffort: 'high' })
+    const usage = f.json({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread', turnId: 'turn', tokenUsage: { last: { inputTokens: 100, outputTokens: 20 }, total: { inputTokens: 500, outputTokens: 200 } } } })
+    const entries = f.append(ready, f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '收到答复' } }), usage)
+    expect(entries).toHaveLength(3)
+    expect(entries[0]).toMatchObject({ title: '模型配置', text: ready.text })
+    expect(entries[1].message).toMatchObject({ text: '收到答复', status: 'running' })
+    expect(entries[2]).toMatchObject({ title: '模型用量', text: usage.text })
+  })
+
+  it('labels retained partial content stopped after the server reports interruption and the native stop drains', () => {
+    const f = fixture()
+    const entries = f.append(
+      f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '部分答复' } }),
+      f.json({ method: 'item/reasoning/summaryTextDelta', params: { threadId: 'thread', turnId: 'turn', itemId: 'reasoning', summaryIndex: 0, delta: '公开摘要' } }),
+      f.json({ type: 'codex.app_server.turn_completed', threadId: 'thread', turnId: 'turn', status: 'interrupted' }),
+      f.event('stopped'),
+    )
+    expect(entries[0].message).toMatchObject({ text: '部分答复', status: 'stopped' })
+    expect(entries[1].reasoning).toMatchObject({ text: '公开摘要', status: 'stopped' })
+    expect(entries[2]).toMatchObject({ phase: '已停止', severity: 'neutral' })
+  })
+})
+
 describe('shared trace projection', () => {
   it('reuses the same history for artifacts and run views, invalidating for new events and recovered status', () => {
     const f = fixture()
@@ -119,7 +205,7 @@ describe('Codex tool call projection', () => {
     expect(getTraceDisplayEntries(f.task, f.task.runs[0])).toHaveLength(3)
   })
 
-  it('leaves missing IDs and non-tool item events ungrouped', () => {
+  it('leaves missing IDs ungrouped and combines identified message snapshots', () => {
     const f = fixture()
     const entries = f.append(
       f.json({ type: 'item.started', item: { type: 'web_search', query: 'AI' } }),
@@ -127,8 +213,9 @@ describe('Codex tool call projection', () => {
       f.json({ type: 'item.started', item: { id: 'message', type: 'agent_message', text: 'hello' } }),
       f.json({ type: 'item.completed', item: { id: 'message', type: 'agent_message', text: 'hello world' } }),
     )
-    expect(entries).toHaveLength(4)
+    expect(entries).toHaveLength(3)
     expect(entries.every(entry => entry.call === undefined)).toBe(true)
+    expect(entries[2].message).toMatchObject({ text: 'hello world', status: 'completed' })
   })
 
   it('groups fragmented JSON frames losslessly and keeps first-byte IDs', () => {

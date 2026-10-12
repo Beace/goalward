@@ -366,6 +366,161 @@ fn codex_large_public_delta_is_chunked_without_cumulative_snapshots() {
 }
 
 #[test]
+fn codex_public_progress_and_metadata_are_emitted_before_completion_and_sanitized() {
+    let directory = tempfile::tempdir().unwrap();
+    let notifications = [
+        serde_json::json!({"method":"turn/started","params":{"threadId":"fixture-thread","turn":{
+            "id":"fixture-turn","status":"inProgress","startedAt":100,
+            "items":[{"id":"reasoning-start","type":"reasoning","summary":["Public opening"],"content":["PRIVATE_STARTED_THOUGHT"],"config":"PRIVATE_ITEM_CONFIG"}],
+            "config":"PRIVATE_TURN_CONFIG"
+        },"credentials":"PRIVATE_START_CREDENTIALS"}}),
+        serde_json::json!({"method":"item/reasoning/summaryPartAdded","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"reasoning","summaryIndex":0,"secret":"PRIVATE_PART_FIELD"}}),
+        serde_json::json!({"method":"item/reasoning/summaryTextDelta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"reasoning","summaryIndex":0,"delta":"Public planning summary","secret":"PRIVATE_SUMMARY_FIELD"}}),
+        serde_json::json!({"method":"item/reasoning/textDelta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"reasoning","delta":"PRIVATE_RAW_THOUGHT"}}),
+        serde_json::json!({"method":"item/completed","params":{"threadId":"fixture-thread","turnId":"fixture-turn","item":{"id":"reasoning","type":"reasoning","summary":["Public planning summary"],"content":["PRIVATE_COMPLETED_THOUGHT"],"secret":"PRIVATE_REASONING_FIELD"}}}),
+        serde_json::json!({"method":"thread/tokenUsage/updated","params":{"threadId":"fixture-thread","turnId":"fixture-turn","tokenUsage":{
+            "total":{"totalTokens":120,"inputTokens":80,"cachedInputTokens":30,"cacheWriteInputTokens":0,"outputTokens":40,"reasoningOutputTokens":20,"secret":"PRIVATE_COUNT_FIELD"},
+            "last":{"totalTokens":60,"inputTokens":40,"cachedInputTokens":0,"cacheWriteInputTokens":0,"outputTokens":20,"reasoningOutputTokens":10},
+            "modelContextWindow":200000,"config":"PRIVATE_USAGE_CONFIG"
+        },"secret":"PRIVATE_USAGE_FIELD"}}),
+        serde_json::json!({"method":"model/rerouted","params":{"threadId":"fixture-thread","turnId":"fixture-turn","fromModel":"fixture-model","toModel":"rerouted-model","reason":"highRiskCyberActivity","config":"PRIVATE_MODEL_CONFIG"}}),
+        serde_json::json!({"method":"item/mcpToolCall/progress","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"tool","message":"Inspecting public reference","credentials":"PRIVATE_TOOL_CREDENTIALS"}}),
+    ];
+    let prelude = notifications
+        .iter()
+        .map(|value| format!("printf '%s\\n' '{value}'\n"))
+        .collect::<String>();
+    let ending = format!("{prelude}\nwhile [ ! -e release-turn ]; do sleep 0.02; done\n{COMPLETE}");
+    let request = fixture(directory.path(), &ending, false);
+    let script = fs::read_to_string(&request.runtime.executable).unwrap().replace(
+        "\"approvalPolicy\":\"never\",\"sandbox\":",
+        "\"model\":\"fixture-model\",\"modelProvider\":\"fixture-provider\",\"reasoningEffort\":\"medium\",\"config\":\"PRIVATE_THREAD_CONFIG\",\"credentials\":\"PRIVATE_THREAD_CREDENTIALS\",\"approvalPolicy\":\"never\",\"sandbox\":",
+    );
+    fs::write(&request.runtime.executable, script).unwrap();
+    let (manager, rx) = manager(directory.path(), request);
+    let mut frames = Vec::new();
+    loop {
+        let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            !matches!(event.kind.as_str(), "completed" | "failed" | "stopped"),
+            "{}",
+            event.text
+        );
+        if event.kind != "stdout" {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(&event.text).unwrap();
+        let last = value["method"] == "item/mcpToolCall/progress";
+        frames.push(value);
+        if last {
+            break;
+        }
+    }
+    assert!(
+        manager.while_idle(|| Ok(())).is_err(),
+        "Progress must be emitted while server turn is still running"
+    );
+    let metadata = frames
+        .iter()
+        .find(|value| value["type"] == "codex.app_server.thread_ready")
+        .unwrap();
+    assert_eq!(
+        metadata,
+        &serde_json::json!({"type":"codex.app_server.thread_ready","threadId":"fixture-thread","model":"fixture-model","modelProvider":"fixture-provider","reasoningEffort":"medium"})
+    );
+    for method in [
+        "turn/started",
+        "item/reasoning/summaryPartAdded",
+        "item/reasoning/summaryTextDelta",
+        "thread/tokenUsage/updated",
+        "model/rerouted",
+        "item/mcpToolCall/progress",
+    ] {
+        assert!(
+            frames.iter().any(|value| value["method"] == method),
+            "Missing public event {method}"
+        );
+    }
+    let reasoning = frames
+        .iter()
+        .find(|value| {
+            value["type"] == "codex.app_server.item" && value["item"]["id"] == "reasoning"
+        })
+        .unwrap();
+    assert_eq!(reasoning["threadId"], "fixture-thread");
+    assert_eq!(reasoning["turnId"], "fixture-turn");
+    assert_eq!(
+        reasoning["item"],
+        serde_json::json!({"id":"reasoning","type":"reasoning","summary":["Public planning summary"]})
+    );
+    let usage = frames
+        .iter()
+        .find(|value| value["method"] == "thread/tokenUsage/updated")
+        .unwrap();
+    assert_eq!(usage["params"]["tokenUsage"]["total"]["totalTokens"], 120);
+    assert_eq!(usage["params"]["tokenUsage"]["modelContextWindow"], 200000);
+    assert!(
+        !frames
+            .iter()
+            .any(|value| value.to_string().contains("PRIVATE_")),
+        "Private/unknown fields entered public trace output"
+    );
+    fs::write(directory.path().join("release-turn"), "release").unwrap();
+    let events = terminal(&rx);
+    manager.shutdown();
+    assert_eq!(
+        events.last().unwrap().kind,
+        "completed",
+        "{}",
+        events.last().unwrap().text
+    );
+}
+
+#[test]
+fn codex_public_progress_requires_the_exact_current_thread_and_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let notifications = [
+        serde_json::json!({"method":"thread/tokenUsage/updated","params":{"threadId":"fixture-thread","turnId":"fixture-turn","tokenUsage":{"total":{"totalTokens":99},"last":{"totalTokens":99},"modelContextWindow":1000}}}),
+        serde_json::json!({"method":"model/rerouted","params":{"threadId":"fixture-thread","turnId":"fixture-turn","fromModel":"old","toModel":"new","reason":"highRiskCyberActivity"}}),
+        serde_json::json!({"method":"item/reasoning/summaryPartAdded","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"reasoning","summaryIndex":0}}),
+        serde_json::json!({"method":"item/reasoning/summaryTextDelta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"reasoning","summaryIndex":0,"delta":"FOREIGN_PROGRESS"}}),
+        serde_json::json!({"method":"item/mcpToolCall/progress","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"tool","message":"FOREIGN_PROGRESS"}}),
+    ];
+    let mut prelude = String::new();
+    for value in &notifications {
+        for field in ["threadId", "turnId"] {
+            let mut foreign = value.clone();
+            foreign["params"][field] = "foreign".into();
+            prelude.push_str(&format!("printf '%s\\n' '{foreign}'\n"));
+        }
+    }
+    prelude.push_str("printf '%s\\n' '{\"method\":\"turn/started\",\"params\":{\"threadId\":\"fixture-thread\",\"turn\":{\"id\":\"foreign\",\"status\":\"inProgress\",\"items\":[]}}}'\n");
+    let (manager, rx) = manager(
+        directory.path(),
+        fixture(directory.path(), &format!("{prelude}{COMPLETE}"), false),
+    );
+    let events = terminal(&rx);
+    manager.shutdown();
+    assert_eq!(
+        events.last().unwrap().kind,
+        "completed",
+        "{}",
+        events.last().unwrap().text
+    );
+    let wire = events
+        .iter()
+        .filter(|event| event.kind == "stdout")
+        .map(|event| event.text.as_str())
+        .collect::<String>();
+    assert!(!wire.contains("foreign"));
+    assert!(!wire.contains("FOREIGN_PROGRESS"));
+    assert!(!wire.contains("thread/tokenUsage/updated"));
+    assert!(!wire.contains("model/rerouted"));
+    assert!(!wire.contains("item/reasoning/summary"));
+    assert!(!wire.contains("item/mcpToolCall/progress"));
+}
+
+#[test]
 fn codex_streaming_defaults_off_and_rejects_non_readonly_or_custom_arguments() {
     let directory = tempfile::tempdir().unwrap();
     let mut request = fixture(directory.path(), COMPLETE, false);
@@ -411,6 +566,13 @@ fn installed_codex_goal_assistant_streams_real_model_and_resumes() {
         let mut deltas = 0;
         let mut public_text = String::new();
         let mut session = None;
+        let mut metadata_reports = 0;
+        let mut metadata_thread = None;
+        let mut model_confirmed = false;
+        let mut turn_started_reports = 0;
+        let mut usage_reports = 0;
+        let mut last_usage_tokens = None;
+        let mut summary_deltas = 0;
         loop {
             let event =
                 match rx.recv_timeout(Duration::from_secs(180).saturating_sub(start.elapsed())) {
@@ -424,6 +586,24 @@ fn installed_codex_goal_assistant_streams_real_model_and_resumes() {
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(&event.text) {
                     if value["type"] == "thread.started" {
                         session = value["thread_id"].as_str().map(str::to_owned);
+                    }
+                    if value["type"] == "codex.app_server.thread_ready" {
+                        metadata_reports += 1;
+                        metadata_thread = value["threadId"].as_str().map(str::to_owned);
+                        model_confirmed = value["model"]
+                            .as_str()
+                            .is_some_and(|model| !model.trim().is_empty());
+                    }
+                    if value["method"] == "turn/started" {
+                        turn_started_reports += 1;
+                    }
+                    if value["method"] == "thread/tokenUsage/updated" {
+                        usage_reports += 1;
+                        last_usage_tokens =
+                            value["params"]["tokenUsage"]["last"]["totalTokens"].as_u64();
+                    }
+                    if value["method"] == "item/reasoning/summaryTextDelta" {
+                        summary_deltas += 1;
                     }
                     if value["method"] == "item/agentMessage/delta" {
                         deltas += 1;
@@ -443,6 +623,22 @@ fn installed_codex_goal_assistant_streams_real_model_and_resumes() {
             deltas >= 2,
             "Expected multiple public deltas before completion, received {deltas}"
         );
+        assert_eq!(
+            metadata_reports, 1,
+            "Expected one server-confirmed thread metadata report"
+        );
+        assert!(
+            model_confirmed,
+            "Codex did not confirm a nonempty model in thread metadata"
+        );
+        assert_eq!(
+            metadata_thread, session,
+            "Thread metadata must describe the native conversation"
+        );
+        assert!(
+            turn_started_reports > 0,
+            "Codex did not report the current turn starting"
+        );
         assert!(
             public_text.contains("GOALWARD_STREAM_FIRST"),
             "Model did not preserve the synthetic conversation token"
@@ -453,7 +649,9 @@ fn installed_codex_goal_assistant_streams_real_model_and_resumes() {
         } else {
             assert_eq!(session, request.session_id);
         }
-        println!("Installed Codex round {round}: {deltas} public deltas before completion; native thread {}", if round == 0 { "created" } else { "resumed exactly" });
+        // Token usage and public reasoning summaries remain provider/runtime
+        // dependent. Report what arrived rather than manufacture required data.
+        println!("Installed Codex round {round}: {deltas} public deltas; metadata_reports={metadata_reports}, model_confirmed={model_confirmed}, turn_started_reports={turn_started_reports}, token_usage_reports={usage_reports}, last_usage_tokens={last_usage_tokens:?}, public_summary_deltas={summary_deltas}; native thread {}", if round == 0 { "created" } else { "resumed exactly" });
     }
     manager.shutdown();
     assert!(manager.processes.lock().unwrap().is_empty());

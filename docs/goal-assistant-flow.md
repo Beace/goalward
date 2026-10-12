@@ -68,6 +68,12 @@ Codex goal conversations use `codex app-server --listen stdio://`: `initialize`,
 
 The internal `goalward` action block stays hidden, including a partially streamed opening fence. Goal drafts and task proposals are processed only after the run completes successfully; partial, failed, or stopped replies do not publish suggestions. / 内部结构化建议保持隐藏，包括分片到达的代码块开头。目标草案与任务建议只在本轮成功结束后解析，部分输出、失败或停止均不发布建议。
 
+### Task proposal invocation details / 任务建议的调用详情
+
+The Tasks tab shows the planning run's live phase, saved Runtime/model selection, elapsed time, and latest public activity. **Invocation details** expands the selected run's metadata, server-confirmed model/provider when provided, native session and turn IDs, latest reported and conversation token usage, app-recorded instructions, readable streamed reply, and the existing execution inspector. Public reasoning summaries, tool input/output, and raw records are available through the inspector. Details load when opened and retain a stable message/trace identity during streaming; the shared disclosure spring respects reduced motion. / 任务页在生成建议时显示本轮实时阶段、Runtime 与模型、耗时和最近公开活动。点击“调用详情”可展开执行快照、Runtime 回报的模型与供应商、会话与轮次 ID、最近一次回报与会话累计 Token 用量、应用记录的本轮指令、流式可读回复及既有执行检查器。检查器可查看公开思考摘要、工具入参与出参，以及原始记录。详情按展开加载，流式更新保留消息与事件身份，折叠动效复用共享弹簧并响应减少动态效果。
+
+The requested turn reasoning setting and the server's thread-default reasoning setting are labeled separately. Missing model/usage fields stay unspecified; public Runtime records are not a complete inventory of provider HTTP requests. The task pane picks the latest assistant run before checking its captured planning phase, so a newer clarification cannot reveal an older planning run as current progress. Required tool approval stays outside the collapsed details. History recovery blocks adoption/retry until it succeeds, with a visible recovery retry on failure. Model completion and validation/publication of task proposals remain separate states. / 本轮请求的思考强度与 Runtime 会话默认强度分别标注。未回报的模型或用量显示未提供；Runtime 公开记录不能代表全部供应商 HTTP 请求。任务页先选择最新助手执行，再核对其快照中的规划阶段，避免在新的澄清对话期间把旧规划展示成当前进度。待用户处理的工具授权保持可见；历史恢复期间暂停采用和再次提议，恢复失败可重试。模型回复结束与任务建议解析、发布分别呈现。
+
 ## Developer notes / 开发说明
 
 | Source | Responsibility / 职责 |
@@ -95,3 +101,5 @@ cargo test --manifest-path src-tauri/Cargo.toml installed_codex_goal_assistant_s
 ```
 
 These checks cover domain logic, rendered controls, build integrity, and native directory/storage behavior. They do not establish successful CLI authentication, a real remote-model clarification-to-adoption conversation, or end-to-end enforcement of each Runtime's restrictions. Real-model E2E is still unverified. / 这些检查验证领域逻辑、组件、构建和原生目录存储，不证明真实 CLI 登录、远端模型完成澄清到采用的完整对话或各 Runtime 权限限制的端到端执行效果；真实模型 E2E 仍未验证。
+
+Token usage follows the public app-server fields: `last` is the latest reported increment, while `total` is the cumulative thread snapshot. It is not labeled as the aggregate usage of every model response within a user turn. See [OpenAI token accounting documentation](https://github.com/openai/symphony/blob/main/elixir/docs/token_accounting.md). / 用量沿用 Runtime 的公开口径：`last` 为最近一次回报的增量，`total` 为会话累计快照，不将前者误标为本轮全部模型响应的总量。
