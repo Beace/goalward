@@ -77,6 +77,10 @@ pub struct StartRequest {
     pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    /// The goal assistant opts in to Codex's token-level app-server protocol.
+    /// Ordinary task runtimes retain their existing CLI execution mode.
+    #[serde(default)]
+    pub codex_streaming: bool,
     pub directory: String,
     pub prompt: String,
 }

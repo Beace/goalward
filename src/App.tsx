@@ -328,7 +328,7 @@ export default function App() {
         })
         const context=captureRunContext(s,current,step)
         const run: Run = { id, createdAt: new Date().toISOString(), directory: current.directory, prompt, members, context, stepId:step?.id }
-        requests.push(...members.map(member => ({ taskId: current.id, runId: id, memberId: member.id, runtime: member.runtime, model: member.model, reasoningEffort: member.effectiveReasoningEffort, sessionId: member.sessionId, directory: run.directory, prompt: buildPrompt(current, prompt, member, Boolean(member.sessionId))+contextPrompt(context) })))
+        requests.push(...members.map(member => ({ taskId: current.id, runId: id, memberId: member.id, runtime: member.runtime, model: member.model, reasoningEffort: member.effectiveReasoningEffort, sessionId: member.sessionId, codexStreaming: current.kind === 'goal_assistant' && member.runtime.adapter === 'codex', directory: run.directory, prompt: buildPrompt(current, prompt, member, Boolean(member.sessionId))+contextPrompt(context) })))
         reserved = true
         return { ...s, tasks: s.tasks.map(t => t.id !== current.id ? t : { ...t, businessStatus:'in_progress', plan:step?t.plan?.map(entry=>entry.id===step.id?{...entry,status:'running',runId:id}:entry):t.plan, runs: [...t.runs, run], messages: [...t.messages, { id: crypto.randomUUID(), role: 'user', text: displayPrompt ?? prompt, createdAt: run.createdAt, runId: id }] }) }
       })

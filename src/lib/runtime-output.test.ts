@@ -22,6 +22,42 @@ const textBlock = (index = 0) => ({ type: 'content_block_start', index, content_
 const delta = (text: string, index = 0) => ({ type: 'content_block_delta', index, delta: { type: 'text_delta', text } })
 
 describe('public streaming output', () => {
+  it('appends Codex app-server deltas across transport fragments and reconciles the final item without duplicates', () => {
+    const f = fixture('codex')
+    const item = (type: string, text: string) => f.json({ type, item: { id: 'answer', type: 'agent_message', text } })
+    const change = (delta: string) => f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta } })
+    let state = applyRuntimeEvent(f.state, item('item.started', ''))
+    state = applyRuntimeEvent(state, change('先确定'))
+    const first = state.tasks[0].messages[0]
+    expect(first).toMatchObject({ text: '先确定', streaming: true })
+    const frame = change('成功标准。')
+    for (let offset = 0; offset < frame.text.length; offset += 7) {
+      state = applyRuntimeEvent(state, f.event('stdout', frame.text.slice(offset, offset + 7)))
+    }
+    expect(state.tasks[0].messages).toHaveLength(1)
+    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '先确定成功标准。', streaming: true })
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('responding')
+    // Replaying a cache-less persisted trace must append each frame only once.
+    const restored = JSON.parse(JSON.stringify(state)) as AppState
+    const final = item('item.completed', '先确定成功标准。再核对现状。')
+    const replayed = applyRuntimeEvent(restored, final)
+    expect(replayed).toEqual(applyRuntimeEvent(state, final))
+    expect(replayed.tasks[0].messages).toHaveLength(1)
+    expect(replayed.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '先确定成功标准。再核对现状。', streaming: false })
+    expect(first.text).toBe('先确定')
+  })
+
+  it.each(['failed', 'stopped'] as const)('retains a Codex delta-only partial reply after %s and journal recovery', kind => {
+    const f = fixture('codex')
+    const delta = f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '未完成的回复' } })
+    let state = applyRuntimeEvent(f.state, delta)
+    state = applyRuntimeEvent(state, f.event(kind))
+    expect(state.tasks[0].messages[0]).toMatchObject({ text: '未完成的回复', streaming: false })
+    const restored = JSON.parse(JSON.stringify(state)) as AppState
+    restored.tasks[0].messages = []
+    expect(recoverInterruptedState(restored).tasks[0].messages[0]).toMatchObject({ text: '未完成的回复', streaming: false })
+  })
+
   it('shows Claude text before the final message, then replaces the same message without duplicate result text', () => {
     const f = fixture()
     let state = applyRuntimeEvent(f.state, f.stream(start('message-1')))

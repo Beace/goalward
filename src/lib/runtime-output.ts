@@ -142,6 +142,18 @@ function readClaude(state: Projection, payload: JsonObject, timestamp: string) {
 }
 
 function readCodex(state: Projection, payload: JsonObject, timestamp: string) {
+  // Goal assistant's app-server supplies genuine public deltas. Persist only
+  // each delta in the trace; growing item snapshots would amplify it quadratically.
+  if (payload.method === 'item/agentMessage/delta') {
+    const params = object(payload.params)
+    const itemId = string(params?.itemId)
+    if (!itemId || typeof params?.delta !== 'string') return
+    const key = `codex:${itemId}`
+    const previous = state.outputs.find(output => output.key === key)?.text ?? ''
+    upsert(state, key, previous + params.delta, timestamp, true)
+    activity(state, 'responding', '正在生成回答')
+    return
+  }
   const type = string(payload.type)
   const item = object(payload.item)
   if (['item.started', 'item.updated', 'item.completed'].includes(type) && item) {

@@ -45,6 +45,7 @@ case "$line" in *'"method":"session/prompt"'*) ;; *) exit 15;; esac
         model: "fixture-model".into(),
         reasoning_effort: None,
         session_id: None,
+        codex_streaming: false,
         directory: directory.to_string_lossy().into(),
         prompt: "literal $(do not execute) 中文".into(),
     }

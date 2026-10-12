@@ -18,6 +18,7 @@ vi.mock('@/components/TracePanel', () => ({ TracePanel: () => null }))
 vi.mock('@/components/ui/resizable', () => ({ ResizablePanelGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>, ResizablePanel: ({ children }: { children: ReactNode }) => <div>{children}</div>, ResizableHandle: () => null }))
 vi.mock('@/components/GoalsPage', () => ({ GoalsPage: ({ state, selectedGoalId, onSendAssistant, onStopAssistant, onOpenTask, onViewChange, viewRequest }: GoalsPageProps) => {
   const goal = state.goals.find(item => item.id === selectedGoalId) ?? state.goals[0]
+  const assistant = state.tasks.find(item => item.id === goal?.assistant?.taskId && item.kind === 'goal_assistant' && item.goalId === goal.id)
   const [error, setError] = useState('')
   const tab = viewRequest?.tab ?? 'tasks'
   useEffect(() => { if (goal) onViewChange?.(goal.id, tab) }, [goal?.id, tab])
@@ -26,11 +27,12 @@ vi.mock('@/components/GoalsPage', () => ({ GoalsPage: ({ state, selectedGoalId, 
     <button onClick={() => void onSendAssistant?.(goal.id, '我想改善这个流程', 'clarify', 'codex').catch(cause => setError(String(cause)))}>发送目标澄清</button>
     <button onClick={() => void onSendAssistant?.(goal.id, '根据目标整理任务', 'plan', 'codex').catch(cause => setError(String(cause)))}>发送任务提议</button>
     <button onClick={() => void onStopAssistant?.(goal.id)}>停止目标助手</button>
+    <div aria-label="目标助手消息">{assistant?.messages.filter(message => message.role === 'assistant' && message.kind !== 'reasoning').map(message => <span key={message.id} data-streaming={Boolean(message.streaming)}>{message.text}</span>)}</div>
     {state.tasks.filter(item => item.kind !== 'goal_assistant' && item.goalId === goal?.id).map(item => <button key={item.id} onClick={() => onOpenTask(item.id)}>目标内打开：{item.title}</button>)}
     {error && <span role="alert">{error}</span>}
   </section>
 } }))
-vi.mock('@/components/Workbench', () => ({ Workbench: ({ task, onGoal, onGoalProgress }: { task: Task; onGoal: () => void; onGoalProgress: () => void }) => <section aria-label="任务执行工作台"><span>{task.title}</span><div>{task.messages.map(message => <span key={message.id}>{message.text}</span>)}</div><button onClick={onGoal}>返回所属目标</button><button onClick={onGoalProgress}>检查目标条件</button></section> }))
+vi.mock('@/components/Workbench', () => ({ Workbench: ({ task, onGoal, onGoalProgress, onSend }: { task: Task; onGoal: () => void; onGoalProgress: () => void; onSend: (prompt: string, recipient: string) => Promise<void> }) => <section aria-label="任务执行工作台"><span>{task.title}</span><div>{task.messages.map(message => <span key={message.id}>{message.text}</span>)}</div><button onClick={onGoal}>返回所属目标</button><button onClick={onGoalProgress}>检查目标条件</button><button onClick={() => void onSend('执行业务任务', 'all')}>发送业务任务</button></section> }))
 
 let stored: AppState, emit: (event: RuntimeEvent) => void
 const draft: GoalAssistantDraft = { title: '优化产品流程', intent: '减少操作负担', expected: '试用者能顺利完成主流程', constraints: '只处理主流程', deadline: '2026-10-30', currentSummary: '流程尚未验收', criteria: [{ text: '主流程试用', baseline: '尚未验收', target: '约定流程全部通过试用', method: '保存试用记录' }] }
@@ -67,6 +69,11 @@ async function event(request: StartRequest, kind: RuntimeEvent['kind'], text = '
   await act(async () => emit({ id: crypto.randomUUID(), taskId: request.taskId, runId: request.runId, memberId: request.memberId, timestamp: new Date().toISOString(), kind, text, exitCode: kind === 'completed' ? 0 : undefined }))
 }
 async function reply(request: StartRequest, text: string) { await event(request, 'stdout', `${JSON.stringify({ type: 'item.completed', item: { id: 'answer', type: 'agent_message', text } })}\n`) }
+async function snapshot(request: StartRequest, type: 'item.started' | 'item.updated' | 'item.completed', text: string) {
+  await event(request, 'stdout', `${JSON.stringify({ type, item: { id: 'answer', type: 'agent_message', text } })}\n`)
+}
+const deltaFrame = (request: StartRequest, delta: string) => `${JSON.stringify({ method: 'item/agentMessage/delta', params: { threadId: 'assistant-thread', turnId: request.runId, itemId: 'answer', delta } })}\n`
+async function delta(request: StartRequest, text: string) { await event(request, 'stdout', deltaFrame(request, text)) }
 
 describe('Goal assistant native dispatch integration', () => {
   it('dispatches a hidden durable Task in the app directory and restricts only its Runtime snapshot', async () => {
@@ -81,6 +88,7 @@ describe('Goal assistant native dispatch integration', () => {
     expect(request.directory).toBe(`/app-data/goal-assistant-workspaces/${stored.goals[0].id}`)
     expect(request.runtime.permissions?.codex).toEqual({ sandbox: 'read-only', network: 'inherit', additionalDirectories: [] })
     expect(request.runtime.args).toEqual([])
+    expect(request).toMatchObject({ codexStreaming: true })
     expect(request.prompt).toContain('不得修改用户项目')
     expect(stored.activeTaskId).toBe(activeId)
     expect(stored.settings).toEqual(settings)
@@ -91,6 +99,76 @@ describe('Goal assistant native dispatch integration', () => {
     const list = await screen.findByRole('complementary', { name: '任务列表' })
     expect(within(list).queryByRole('button', { name: `打开任务：${assistant.title}` })).toBeNull()
     expect(within(list).getByRole('button', { name: '打开任务：实际执行任务' })).toBeTruthy()
+  })
+
+  it('keeps business Task dispatch on its existing execution transport', async () => {
+    const businessId = stored.tasks[0].id
+    await mount()
+    fireEvent.click(screen.getByRole('button', { name: '目标内打开：实际执行任务' }))
+    await screen.findByRole('region', { name: '任务执行工作台' })
+    fireEvent.click(screen.getByRole('button', { name: '发送业务任务' }))
+    await waitFor(() => expect(bridge.startRun).toHaveBeenCalledTimes(1))
+    const request = bridge.startRun.mock.calls[0][0] as StartRequest
+    expect(request.taskId).toBe(businessId)
+    expect(request).not.toMatchObject({ codexStreaming: true })
+    expect(request.directory).toBe('/user/project')
+  })
+
+  it.each(['clarify', 'plan'] as const)('projects %s response deltas immediately and publishes structured suggestions only after successful completion', async phase => {
+    await mount()
+    const request = await dispatch(phase === 'clarify' ? '发送目标澄清' : '发送任务提议')
+    const goalBeforeReply = structuredClone(stored.goals[0])
+    const nextDraft = { ...draft, title: '从流式回答整理的新目标' }
+    const fullReply = block(phase === 'clarify'
+      ? { type: phase, baseGoalVersion: goalBeforeReply.version, draft: nextDraft }
+      : { type: phase, baseGoalVersion: goalBeforeReply.version, proposals: [proposal] })
+    await snapshot(request, 'item.started', '')
+    const firstFrame = deltaFrame(request, '可读的目标')
+    await event(request, 'stdout', firstFrame.slice(0, -4))
+    expect(screen.getByLabelText('目标助手消息').textContent).toBe('')
+    await event(request, 'stdout', firstFrame.slice(-4))
+    const transcript = screen.getByLabelText('目标助手消息')
+    expect(within(transcript).getByText('可读的目标').getAttribute('data-streaming')).toBe('true')
+    let messages = stored.tasks.find(item => item.id === request.taskId)!.messages.filter(message => message.role === 'assistant')
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({ text: '可读的目标', streaming: true })
+    expect(stored.goals[0].assistant?.draft).toEqual(goalBeforeReply.assistant?.draft)
+    expect(stored.goals[0].assistant?.proposals).toEqual(goalBeforeReply.assistant?.proposals)
+
+    await delta(request, fullReply.slice('可读的目标'.length))
+    messages = stored.tasks.find(item => item.id === request.taskId)!.messages.filter(message => message.role === 'assistant')
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({ text: fullReply, streaming: true })
+    expect(stored.goals[0].assistant?.draft).toEqual(goalBeforeReply.assistant?.draft)
+    expect(stored.goals[0].assistant?.proposals).toEqual(goalBeforeReply.assistant?.proposals)
+
+    await snapshot(request, 'item.completed', fullReply)
+    expect(stored.goals[0].assistant?.processedRunId).toBeUndefined()
+    expect(stored.goals[0].assistant?.draft).toEqual(goalBeforeReply.assistant?.draft)
+    expect(stored.goals[0].assistant?.proposals).toEqual(goalBeforeReply.assistant?.proposals)
+    await event(request, 'completed')
+    await waitFor(() => expect(stored.goals[0].assistant?.processedRunId).toBe(request.runId))
+    if (phase === 'clarify') expect(stored.goals[0].assistant?.draft).toEqual(nextDraft)
+    else expect(stored.goals[0].assistant?.proposals?.[0]).toMatchObject({ ...proposal, status: 'suggested' })
+    expect(stored.tasks.find(item => item.id === request.taskId)!.messages.filter(message => message.role === 'assistant')).toHaveLength(1)
+  })
+
+  it('retains a stopped partial stream without publishing a goal draft or task proposals', async () => {
+    await mount()
+    const request = await dispatch('发送目标澄清')
+    const goalBeforeReply = structuredClone(stored.goals[0])
+    await delta(request, '可以先')
+    await delta(request, '从你的现有条件')
+    expect(within(screen.getByLabelText('目标助手消息')).getByText('可以先从你的现有条件').getAttribute('data-streaming')).toBe('true')
+    await event(request, 'stopped')
+    await waitFor(() => expect(stored.tasks.find(item => item.id === request.taskId)!.runs[0].members[0].status).toBe('stopped'))
+    const messages = stored.tasks.find(item => item.id === request.taskId)!.messages.filter(message => message.role === 'assistant')
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({ text: '可以先从你的现有条件', streaming: false })
+    expect(within(screen.getByLabelText('目标助手消息')).getByText('可以先从你的现有条件').getAttribute('data-streaming')).toBe('false')
+    expect(stored.goals[0].assistant?.draft).toEqual(goalBeforeReply.assistant?.draft)
+    expect(stored.goals[0].assistant?.proposals).toEqual(goalBeforeReply.assistant?.proposals)
+    expect(stored.goals[0].assistant?.processedRunId).toBeUndefined()
   })
 
   it('waits for successful process completion, then publishes suggestions once without adopting or achieving them', async () => {

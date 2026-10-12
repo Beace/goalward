@@ -52,13 +52,21 @@ The app restricts a cloned Runtime configuration for each assistant request. Sha
 
 | Adapter | Assistant configuration / 助手配置 |
 | --- | --- |
-| `codex` | `read-only` sandbox, no extra writable directories, cleared extra arguments; network mode is inherited. / 只读沙箱、无额外可写目录、清空额外启动参数，网络模式继承。 |
+| `codex` | App-server stdio with public text deltas; `read-only` sandbox and `never` approval policy, no sandbox network access or extra writable directories, cleared extra arguments. / 使用 app-server stdio 接收公开文本增量；只读沙箱、不自动授权工具、不允许沙箱命令访问网络、无额外可写目录，清空额外启动参数。 |
 | `claude` | Plan mode; deny `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and `Bash`; no added directories or extra arguments. / 计划模式，禁止上述写入与命令工具，不附加目录或额外启动参数。 |
 | `pi` | Disable tools, extensions, skills, prompt templates, and context files. / 禁用工具、扩展、技能、提示词模板和上下文文件。 |
 | `kimi` | Manual approval mode with cleared extra arguments. Approval requests use the existing approval UI. / 手动审批模式并清空额外启动参数，请求沿用现有审批界面。 |
 | `generic` | Rejected for goal-assistant conversations; ordinary task execution remains a separate capability. / 目标助手暂不接受通用 CLI，普通任务执行能力另行保留。 |
 
 Assistant instructions limit clarification and planning to the conversation and explicitly supplied material; they prohibit project changes, implementation commands, installs, and executing proposed tasks. These are app-generated instructions and CLI configuration, not proof of a complete operating-system sandbox. 助手指令要求基于对话和明确提供的资料整理建议，不修改项目、不运行实现命令、不安装程序、不执行建议任务；指令与 CLI 配置不能作为完整操作系统沙箱已验证的证据。
+
+### Streaming and pending replies / 流式回复与等待反馈
+
+The conversation shows a pending reply immediately on send, then distinguishes waiting for public text from an ongoing reply. It updates the same Markdown message as text arrives; streaming does not replay message entry animations or move keyboard focus. The shared Spinner rotates normally and remains static with reduced motion. Scrolling up pauses automatic following; **Jump to latest** resumes it. Completion, failure, and stop all clear loading while retaining received text. / 发送后立即在对话流里显示等待反馈，运行中区分“正在思考”和“正在回复”。文字到达时原位更新同一条 Markdown 消息，不重播入场动画、不移动键盘焦点。共享 Spinner 在正常模式旋转，减少动态效果时保持静态。向上阅读暂停自动跟随，点击“回到最新”恢复；完成、失败或停止后清除 loading，保留已收到的文字。
+
+Codex goal conversations use `codex app-server --listen stdio://`: `initialize`, `thread/start` or exact `thread/resume`, and `turn/start`. Each `item/agentMessage/delta` is persisted once and appended to the current public message; the trace does not repeat the growing full response for every delta. Only a matching successful `turn/completed` completes the run; process exit alone does not. The app validates read-only permissions before sending the prompt and rejects server capability/approval requests. An incompatible CLI fails with a readable error rather than silently reverting to buffered output. Normal business-task Codex execution retains `exec --json`. / Codex 目标对话通过 app-server 初始化、创建或精确续接会话，再启动本轮消息；每个公开文本增量只持久化一次，并追加到当前消息；不会每次重复保存不断增长的完整回复。只有对应本轮的成功完成事件才算完成，不能仅凭进程退出判定。发送前核对只读权限，拒绝服务端工具授权和未支持能力请求。不兼容的 CLI 显示可读错误，不静默退回整段输出；普通业务任务仍使用既有 exec 协议。
+
+The internal `goalward` action block stays hidden, including a partially streamed opening fence. Goal drafts and task proposals are processed only after the run completes successfully; partial, failed, or stopped replies do not publish suggestions. / 内部结构化建议保持隐藏，包括分片到达的代码块开头。目标草案与任务建议只在本轮成功结束后解析，部分输出、失败或停止均不发布建议。
 
 ## Developer notes / 开发说明
 
@@ -67,7 +75,7 @@ Assistant instructions limit clarification and planning to the conversation and 
 | [GoalsPage.tsx](../src/components/GoalsPage.tsx), [GoalAssistant.tsx](../src/components/GoalAssistant.tsx) | Save the initial idea, edit and confirm definitions, celebrate only after persistence, show planning and adoption. / 保存想法、编辑确认、持久化后庆祝、展示任务建议与采用。 |
 | [goal-assistant.ts](../src/lib/goal-assistant.ts) | Runtime clones, prompts, strict response parsing, version/date/dependency validation, proposal adoption, persistence rollback. / 受限配置、提示词、严格回复解析、版本日期依赖校验、采用与失败回滚。 |
 | [App.tsx](../src/App.tsx) | Native dispatch, completed-run processing, independent Task navigation and owner return. / 原生执行调度、终态回复处理、独立任务导航与目标返回。 |
-| [goal_assistant.rs](../src-tauri/src/goal_assistant.rs), [permission.rs](../src-tauri/src/permission.rs) | App-managed directories and native CLI permission arguments. / 应用管理目录与原生 CLI 权限参数。 |
+| [goal_assistant.rs](../src-tauri/src/goal_assistant.rs), [permission.rs](../src-tauri/src/permission.rs), [runtime/codex.rs](../src-tauri/src/runtime/codex.rs) | App-managed directories, native CLI permission arguments, and restricted Codex app-server streaming. / 应用管理目录、原生 CLI 权限参数与受限 Codex app-server 流式协议。 |
 | [goal-progress.ts](../src/lib/goal-progress.ts), [GoalProgress.tsx](../src/components/GoalProgress.tsx) | Separate evidence-backed task and goal-criteria counts. / 分别计算有依据的任务与目标标准进度。 |
 | [workspace.ts](../src/lib/workspace.ts), [goals.ts](../src/lib/goals.ts) | Submit/review results, track requirements versions, record criterion evidence and goal achievement. / 提交验收结果、要求版本、标准依据与目标达成。 |
 
@@ -79,6 +87,11 @@ Run focused checks with:
 npm test -- src/lib/goal-assistant.test.ts src/lib/goal-progress.test.ts src/components/GoalAssistant.test.tsx src/components/GoalProgress.test.tsx src/components/GoalsPage.test.tsx src/components/DashboardPage.test.tsx
 npm run build
 cargo test --manifest-path src-tauri/Cargo.toml goal_assistant
+cargo test --manifest-path src-tauri/Cargo.toml codex
+# With Vite running; uses isolated synthetic Runtime events and real UI components:
+node scripts/goal-assistant-stream-smoke.mjs
+# Opt-in local Codex/model test, temporary workspace and synthetic prose only:
+cargo test --manifest-path src-tauri/Cargo.toml installed_codex_goal_assistant_streams_real_model_and_resumes -- --ignored --nocapture
 ```
 
 These checks cover domain logic, rendered controls, build integrity, and native directory/storage behavior. They do not establish successful CLI authentication, a real remote-model clarification-to-adoption conversation, or end-to-end enforcement of each Runtime's restrictions. Real-model E2E is still unverified. / 这些检查验证领域逻辑、组件、构建和原生目录存储，不证明真实 CLI 登录、远端模型完成澄清到采用的完整对话或各 Runtime 权限限制的端到端执行效果；真实模型 E2E 仍未验证。
