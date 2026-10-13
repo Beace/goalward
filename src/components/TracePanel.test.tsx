@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { hasSemanticText, semanticText } from '@/test/semantic-text'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TracePanel } from './TracePanel'
@@ -37,7 +38,7 @@ describe('trace inspector', () => {
   it('mounts only a window of a long trace and retains the full record count during streaming', () => {
     const events = Array.from({ length: 1000 }, (_, index) => event(`diagnostic-${index}`, 'stderr', `诊断记录 ${index}`))
     const view = render(<TracePanel task={task(events)} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
-    expect(screen.getByText('1000 条记录')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1000 条记录'))).toBeTruthy()
     const mounted = view.container.querySelectorAll('.trace-event').length
     expect(mounted).toBeGreaterThan(0)
     expect(mounted).toBeLessThan(25)
@@ -45,7 +46,7 @@ describe('trace inspector', () => {
     const first = view.container.querySelector('.trace-trigger')!
     fireEvent.click(first)
     view.rerender(<TracePanel task={task([...events, event('next', 'stderr', '继续输出')])} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
-    expect(screen.getByText('1001 条记录')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1001 条记录'))).toBeTruthy()
     expect(view.container.querySelector('.trace-trigger')).toBe(first)
     expect(first.getAttribute('aria-expanded')).toBe('true')
     expect(view.container.querySelectorAll('.trace-event').length).toBeLessThan(25)
@@ -69,9 +70,9 @@ describe('trace inspector', () => {
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     view.rerender(<TracePanel task={{ ...initial, events: chunks }} run={kimi} onClose={vi.fn()} onExport={vi.fn()} />)
     expect(screen.getByRole('button', { name: /生成回复/ })).toBe(original)
-    expect(screen.getByText('51–100 / 121')).toBeTruthy()
-    expect(screen.getByText('1 条记录')).toBeTruthy()
-    expect(screen.getByText('1 项执行中')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('51–100 / 121'))).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1 条记录'))).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1 项执行中'))).toBeTruthy()
     expect(view.container.querySelectorAll('.trace-raw-record')).toHaveLength(50)
     fireEvent.click(screen.getByRole('button', { name: '复制完整回复内容' }))
     await waitFor(() => expect(copy).toHaveBeenLastCalledWith(chunks.map((_, index) => `片段${index}\n`).join('')))
@@ -100,7 +101,7 @@ describe('trace inspector', () => {
   it('filters structured errors on stdout without treating all stderr as an error', () => {
     render(<TracePanel task={task([event('notice', 'stderr', 'Reading additional input from stdin...\n'), event('search', 'stdout', search), event('failure', 'stdout', failure)])} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: '仅显示错误' }))
-    expect(screen.getByText('1 条记录')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1 条记录'))).toBeTruthy()
     expect(screen.queryByText('网页搜索')).toBeNull()
     expect(screen.queryByText('诊断输出')).toBeNull()
     expect(screen.getByText('失败')).toBeTruthy()
@@ -130,7 +131,7 @@ describe('trace inspector', () => {
     const currentTrigger = screen.getByRole('button', { expanded: true })
     expect(currentTrigger).toBe(originalTrigger)
     expect(within(currentTrigger).getByText('网页搜索')).toBeTruthy()
-    expect(screen.getByText('1 条记录')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1 条记录'))).toBeTruthy()
     expect(screen.getByRole('region', { name: '入参' }).textContent).toContain('agent runtime')
     fireEvent.click(screen.getByRole('button', { name: /原始记录/ }))
     expect(JSON.parse(view.container.querySelector('.trace-raw-record pre')?.textContent ?? '')).toEqual(JSON.parse(search))
@@ -153,12 +154,12 @@ describe('trace inspector', () => {
     view.rerender(<TracePanel task={{ ...current, events: [start, done] }} run={running} onClose={vi.fn()} onExport={vi.fn()} />)
     expect(screen.getByRole('button', { expanded: true })).toBe(trigger)
     expect(screen.getAllByText('执行命令')).toHaveLength(1)
-    expect(screen.getByText('1 条记录')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1 条记录'))).toBeTruthy()
     expect(within(trigger).getByText('完成')).toBeTruthy()
     expect(view.container.querySelector('.trace-loading')).toBeNull()
     expect(screen.getByRole('region', { name: '出参' }).getAttribute('aria-busy')).toBe('false')
     expect(screen.getByRole('region', { name: '出参' }).textContent).toContain('hello')
-    expect(trigger.textContent).toContain('3.0 s')
+    expect(semanticText(trigger)).toContain('3.0 s')
     fireEvent.click(screen.getByRole('button', { name: '复制入参' }))
     await waitFor(() => expect(copy).toHaveBeenCalledTimes(1))
     expect(copy.mock.calls[0][0]).toContain('printf hello')
@@ -180,7 +181,7 @@ describe('trace inspector', () => {
     ]
     render(<TracePanel task={task(entries)} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: '仅显示错误' }))
-    expect(screen.getByText('1 条记录')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1 条记录'))).toBeTruthy()
     expect(screen.getByText('失败')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /执行命令/ }))
     expect(screen.getByRole('region', { name: '入参' }).textContent).toContain('false')
@@ -190,7 +191,7 @@ describe('trace inspector', () => {
   it('does not fabricate search output from completed query metadata', () => {
     const completed = event('end', 'stdout', JSON.stringify({ type: 'item.completed', item: { id: 'search', type: 'web_search', query: 'agent runtime', action: { type: 'search', queries: ['agent runtime'] } } }) + '\n')
     render(<TracePanel task={task([event('start', 'stdout', search), completed])} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
-    expect(screen.getByText('1 条记录')).toBeTruthy()
+    expect(screen.getByText(hasSemanticText('1 条记录'))).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /网页搜索/ }))
     expect(screen.getByRole('region', { name: '入参' }).textContent).toContain('agent runtime')
     expect(screen.getByRole('region', { name: '出参' }).textContent).not.toContain('agent runtime')

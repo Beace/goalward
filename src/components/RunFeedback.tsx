@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { useEffect, useState } from 'react'
 import { CheckCircle2, CircleAlert, CircleX, Clock3, LoaderCircle, MessageSquare, Search, Square, Terminal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -37,8 +38,8 @@ export function RunFeedback({ task, run, onStop, onInspector }: { task: Task; ru
   return <div className={'run-feedback phase-' + activity.phase} aria-label={t('当前执行状态', 'Current run status')}>
     <ActivityIcon phase={activity.phase} />
     <div className="run-feedback-copy"><span className="run-feedback-title" role="status" aria-live="polite">{activity.label}{owner && run.members.length > 1 ? ` · ${owner.role}` : ''}</span>{activity.summary && <span className="run-feedback-summary" title={activity.summary}>{activity.summary}</span>}</div>
-    {Number.isFinite(elapsed) && <time className="run-elapsed" title={t('从本次执行开始到当前或终止事件的时间', 'Time since this run started, until now or its final event')}>{duration(elapsed)}</time>}
-    {active && Number.isFinite(idleFor) && idleFor >= 15000 && <span className="run-last-event" title={t('最近一次 Runtime 事件距今的时间', 'Time since the most recent runtime event')}>{t(`最近事件 ${duration(idleFor)} 前`, `Last event ${duration(idleFor)} ago`)}</span>}
+    {Number.isFinite(elapsed) && <time className="run-elapsed" title={t('从本次执行开始到当前或终止事件的时间', 'Time since this run started, until now or its final event')}><AnimatedNumber value={elapsed} format={duration} animateUpdates={false} /></time>}
+    {active && Number.isFinite(idleFor) && idleFor >= 15000 && <span className="run-last-event" title={t('最近一次 Runtime 事件距今的时间', 'Time since the most recent runtime event')}>{t('最近事件 ', 'Last event ')}<AnimatedNumber value={idleFor} format={duration} animateUpdates={false} />{t(' 前', ' ago')}</span>}
     {active && onStop ? <Button variant="outline" size="sm" onClick={onStop} aria-label={t('停止当前执行', 'Stop current run')}><Square size={11} />{t('停止', 'Stop')}</Button> : <Button variant="ghost" size="sm" onClick={onInspector}>{t('查看执行', 'View run')}</Button>}
   </div>
 }

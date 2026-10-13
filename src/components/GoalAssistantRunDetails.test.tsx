@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { semanticText } from '@/test/semantic-text'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createInitialState } from '@/lib/domain'
@@ -137,13 +138,13 @@ describe('Goal assistant invocation details', () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-12T01:00:05Z'))
     const { task, run, event } = fixture()
     const view = render(<GoalAssistantRunDetails task={task} run={run} />)
-    expect(screen.getByTitle('本次调用耗时').textContent).toBe('00:05')
+    expect(semanticText(screen.getByTitle('本次调用耗时'))).toBe('00:05')
     act(() => { vi.advanceTimersByTime(2000) })
-    expect(screen.getByTitle('本次调用耗时').textContent).toBe('00:07')
+    expect(semanticText(screen.getByTitle('本次调用耗时'))).toBe('00:07')
     const completed = { ...run, members: run.members.map(member => ({ ...member, status: 'completed' as const })) }
     view.rerender(<GoalAssistantRunDetails task={{ ...task, runs: [completed], events: [{ ...event({}, 'completed'), timestamp: '2026-10-12T01:00:06Z' }] }} run={completed} />)
     act(() => { vi.advanceTimersByTime(3000) })
-    expect(screen.getByTitle('本次调用耗时').textContent).toBe('00:06')
+    expect(semanticText(screen.getByTitle('本次调用耗时'))).toBe('00:06')
   })
   it('separates requested turn reasoning, native session defaults and latest reported token evidence', () => {
     const { task, run, event } = fixture()
@@ -156,8 +157,8 @@ describe('Goal assistant invocation details', () => {
     expect(within(detail).getByText('本轮思考强度').nextElementSibling?.textContent).toBe('high')
     expect(within(detail).getByText('会话默认思考强度').nextElementSibling?.textContent).toBe('medium')
     const turn = within(detail).getByText('最近一次 token 用量').parentElement!
-    expect(turn.textContent).toContain('15')
-    expect(turn.textContent).not.toContain('99')
-    expect(within(detail).getByText('会话累计 token 用量').parentElement!.textContent).toContain('99')
+    expect(semanticText(turn)).toContain('15')
+    expect(semanticText(turn)).not.toContain('99')
+    expect(semanticText(within(detail).getByText('会话累计 token 用量').parentElement!)).toContain('99')
   })
 })

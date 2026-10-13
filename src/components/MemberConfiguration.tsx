@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import type { ReactNode } from 'react'
 import { Plus, Settings2, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -45,7 +46,7 @@ export function MemberConfiguration({ task, settings, selectedRun, historic, run
     {(task.mode === 'team' || members.length > 1) && <div className="configuration-member-row">
       <span>{t('配置成员', 'Configure member')}</span>
       <Select value={member.id} onValueChange={onSelectMember}><SelectTrigger aria-label={t('配置成员', 'Configure member')} className="configuration-member-select"><Users size={12} /><SelectValue /></SelectTrigger><SelectContent>{members.map(item => <SelectItem key={item.id} value={item.id}>{item.role} · {historic ? selectedRun?.members.find(saved => saved.id === item.id)?.runtime.name : settings.runtimes.find(saved => saved.id === item.runtimeId)?.name ?? item.name}</SelectItem>)}</SelectContent></Select>
-      <span className="configuration-count">{t(`${members.length} 位成员 · 各自配置`, `${members.length} members · Individually configured`)}</span>
+      <span className="configuration-count"><AnimatedNumber value={members.length} /> {t('位成员 · 各自配置', 'members · Individually configured')}</span>
       {!historic && <><Button variant="ghost" size="icon-sm" className="configuration-add-member" aria-label={t('添加成员', 'Add member')} title={running ? t('停止执行后添加成员', 'Stop the run before adding a member') : t(`添加成员（最多 ${settings.maxParallel} 位）`, `Add member (up to ${settings.maxParallel})`)} disabled={running || task.members.length >= settings.maxParallel} onClick={onAdd}><Plus size={14} /></Button><Button variant="ghost" size="icon-sm" aria-label={`${t('移除', 'Remove')} ${member.role}`} title={t('移除配置中的成员', 'Remove member from configuration')} disabled={running || task.members.findIndex(item => item.id === member.id) === 0} onClick={() => onRemove(member.id)}><Trash2 size={13} /></Button></>}
     </div>}
     <div className="configuration-controls">

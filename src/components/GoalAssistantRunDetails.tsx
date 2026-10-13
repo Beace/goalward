@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, CheckCircle2, CircleAlert, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,7 @@ function TokenUsage({ usage, label }: { usage?: GoalAssistantTokenUsage; label: 
   const { t } = useI18n()
   if (!usage) return <div className="goal-run-usage"><strong>{label}</strong><span>{t('Runtime 未提供', 'Not provided by runtime')}</span></div>
   const values: Array<[string, number | undefined]> = [[t('输入', 'Input'), usage.input], [t('缓存输入', 'Cached input'), usage.cachedInput], [t('输出', 'Output'), usage.output], [t('推理输出', 'Reasoning output'), usage.reasoningOutput], [t('合计', 'Total'), usage.total]]
-  return <div className="goal-run-usage"><strong>{label}</strong>{values.filter(([, value]) => value !== undefined).map(([name, value]) => <span key={name}>{name} <code>{value!.toLocaleString()}</code></span>)}</div>
+  return <div className="goal-run-usage"><strong>{label}</strong>{values.filter(([, value]) => value !== undefined).map(([name, value]) => <span key={name}>{name} <code><AnimatedNumber value={value!} format={value => Math.round(value).toLocaleString()} animateUpdates={false} /></code></span>)}</div>
 }
 
 export function GoalAssistantRunDetails({ task, run, onStop, onPrepare, error }: { task: Task; run: Run; onStop?: () => Promise<void>; onPrepare?: (taskId: string) => Promise<void>; error?: string }) {
@@ -85,7 +86,7 @@ export function GoalAssistantRunDetails({ task, run, onStop, onPrepare, error }:
       {active || task.historyPending ? <Spinner aria-hidden="true" role="presentation" /> : <Icon size={14} aria-hidden="true" />}
       <span className="goal-run-state" role="status" aria-live="polite">{stateLabel}</span>
       {first && <span className="goal-run-identity" title={`${first.member.runtime.name} · ${firstModel || unspecified}`}><RuntimeLogo runtime={first.member.runtime} size={14} /><span>{first.member.runtime.name} · {firstModel || t('Runtime 默认模型', 'Runtime default model')}</span></span>}
-      {!task.historyPending && Number.isFinite(elapsed) && <time className="goal-run-elapsed" title={t('本次调用耗时', 'Elapsed time for this invocation')}>{duration(elapsed)}</time>}
+      {!task.historyPending && Number.isFinite(elapsed) && <time className="goal-run-elapsed" title={t('本次调用耗时', 'Elapsed time for this invocation')}><AnimatedNumber value={elapsed} format={duration} animateUpdates={false} /></time>}
       <CollapsibleTrigger asChild><Button variant="ghost" size="sm" aria-label={t('调用详情', 'Invocation details')}><CollapsibleIndicator size={14} />{t('调用详情', 'Invocation details')}</Button></CollapsibleTrigger>
       {active && onStop && <Button variant="outline" size="sm" disabled={stopping} aria-label={t('停止生成建议', 'Stop generating suggestions')} onClick={() => {
         if (stopping) return
@@ -94,7 +95,7 @@ export function GoalAssistantRunDetails({ task, run, onStop, onPrepare, error }:
       }}><Square size={12} />{t('停止', 'Stop')}</Button>}
     </div>
     {!task.historyPending && (activity.summary || response || activity.lastEventAt) && <div className="goal-run-activity">
-      <span title={activity.summary}>{activity.summary || (response ? t(`已收到 ${Array.from(response).length} 字回复`, `${Array.from(response).length} response characters received`) : t('等待模型返回公开活动', 'Waiting for public model activity'))}</span>
+      <span title={activity.summary}>{activity.summary || (response ? <>{t('已收到 ', '')}<AnimatedNumber value={Array.from(response).length} animateUpdates={false} />{t(' 字回复', ' response characters received')}</> : t('等待模型返回公开活动', 'Waiting for public model activity'))}</span>
       {activity.lastEventAt && <time title={t('最近公开活动', 'Latest public activity')}>{new Date(activity.lastEventAt).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US', { hour12: false })}</time>}
     </div>}
     {visibleError && <div className="goal-run-error" role="alert"><span>{visibleError}</span>{task.historyPending && onPrepare && <Button variant="outline" size="sm" disabled={preparing} onClick={() => {
@@ -112,7 +113,7 @@ export function GoalAssistantRunDetails({ task, run, onStop, onPrepare, error }:
         </dl>
         <TokenUsage usage={invocation.latestUsage} label={t('最近一次 token 用量', 'Latest reported token usage')} />
         {invocation.conversationUsage && <TokenUsage usage={invocation.conversationUsage} label={t('会话累计 token 用量', 'Conversation cumulative token usage')} />}
-        {invocation.modelContextWindow !== undefined && <p className="goal-run-context-window">{t('模型上下文窗口', 'Model context window')} <code>{invocation.modelContextWindow.toLocaleString()}</code></p>}
+        {invocation.modelContextWindow !== undefined && <p className="goal-run-context-window">{t('模型上下文窗口', 'Model context window')} <code><AnimatedNumber value={invocation.modelContextWindow} format={value => Math.round(value).toLocaleString()} /></code></p>}
       </div>)}
       <Collapsible className="goal-run-instructions"><CollapsibleTrigger asChild><Button variant="ghost" size="sm"><CollapsibleIndicator size={14} />{t('本轮指令（应用记录）', 'This-turn instructions (app record)')}</Button></CollapsibleTrigger><CollapsibleContent unmountOnExit><pre tabIndex={0} aria-label={t('本轮指令（应用记录）', 'This-turn instructions (app record)')}>{run.prompt}</pre></CollapsibleContent></Collapsible>
       <div className="goal-run-response-heading"><strong>{t('实时回复', 'Live response')}</strong>{!following && <Button variant="ghost" size="sm" onClick={() => { follow.current = true; setFollowing(true); if (responseArea.current) responseArea.current.scrollTop = responseArea.current.scrollHeight }}><ArrowDown size={13} />{t('回到最新', 'Jump to latest')}</Button>}</div>

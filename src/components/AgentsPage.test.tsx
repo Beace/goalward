@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { hasSemanticText } from '@/test/semantic-text'
 import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,7 +46,7 @@ describe('Agents page', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择 Agent 实现' }))
     fireEvent.click(screen.getByRole('button', { name: '选择 Agent 研究' }))
     expect((screen.getByLabelText('说明') as HTMLTextAreaElement).value).toBe('未保存的草稿')
-    expect(screen.getAllByText('0 个活动执行').length).toBe(2)
+    expect(screen.getAllByText(hasSemanticText('0 个活动执行')).length).toBe(2)
     fireEvent.change(screen.getByLabelText('搜索 Agent'), { target: { value: '不存在' } })
     expect(screen.getByText('没有匹配的 Agent。')).toBeTruthy()
   })

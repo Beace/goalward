@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { useState } from 'react'
 import { FolderOpen, Plus, Star, X } from 'lucide-react'
 import type { AppState } from '@/lib/types'
@@ -41,7 +42,7 @@ export function GoalWorkspaceDirectories({ state, goal, onChange }: { state: App
     <CollapsibleTrigger asChild><Button variant="ghost" className="goal-workspaces-trigger" aria-label={t('管理目标工作目录', 'Manage goal working directories')}>
       <FolderOpen size={14} /><span>{busy ? t('保存中…', 'Saving…') : t('工作目录', 'Working directories')}</span>
       <span className="goal-workspace-summary" title={roots.join('\n')}>{roots[0] || t('自动使用目标专属目录', 'Use a dedicated goal directory automatically')}</span>
-      {roots.length > 1 && <Badge variant="outline">+{roots.length - 1}</Badge>}<CollapsibleIndicator size={13} />
+      {roots.length > 1 && <Badge variant="outline">+<AnimatedNumber value={roots.length - 1} /></Badge>}<CollapsibleIndicator size={13} />
     </Button></CollapsibleTrigger>
     <CollapsibleContent><div className="goal-workspaces-body">
       {roots.map((directory, index) => <div className="goal-workspace-row" key={directory}>
