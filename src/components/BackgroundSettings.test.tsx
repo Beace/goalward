@@ -106,7 +106,7 @@ it('ignores older import completions and completions after unmount', async () =>
   expect(onChange).toHaveBeenCalledTimes(1)
 })
 
-it('changes both opacity values through keyboard sliders and bounded numeric inputs', () => {
+it('changes both opacity values through keyboard sliders without visible numeric inputs', () => {
   const changes = vi.fn()
   function Harness() {
     const [settings, setSettings] = useState({ backgroundImageOpacity: 100, backgroundSurfaceOpacity: 85 })
@@ -118,33 +118,27 @@ it('changes both opacity values through keyboard sliders and bounded numeric inp
   const surfaceSlider = screen.getByRole('slider', { name: '界面背景不透明度' })
   expect(imageSlider.getAttribute('aria-valuenow')).toBe('100')
   expect(surfaceSlider.getAttribute('aria-valuenow')).toBe('85')
+  expect(screen.queryByRole('spinbutton')).toBeNull()
   fireEvent.keyDown(imageSlider, { key: 'ArrowLeft' })
   expect(changes).toHaveBeenLastCalledWith({ backgroundImageOpacity: 99 })
+  expect(imageSlider.getAttribute('aria-valuetext')).toBe('99%')
   fireEvent.keyDown(surfaceSlider, { key: 'Home' })
   expect(changes).toHaveBeenLastCalledWith({ backgroundSurfaceOpacity: 0 })
   fireEvent.keyDown(surfaceSlider, { key: 'End' })
   expect(changes).toHaveBeenLastCalledWith({ backgroundSurfaceOpacity: 100 })
-  const imageNumber = screen.getByRole('spinbutton', { name: '背景图不透明度' }) as HTMLInputElement
-  fireEvent.change(imageNumber, { target: { value: '25' } })
-  expect(changes).toHaveBeenLastCalledWith({ backgroundImageOpacity: 25 })
-  expect(imageSlider.getAttribute('aria-valuenow')).toBe('25')
-  fireEvent.change(imageNumber, { target: { value: '125' } })
-  fireEvent.blur(imageNumber)
-  expect(imageNumber.value).toBe('100')
-  fireEvent.change(imageNumber, { target: { value: '' } })
-  const beforeBlur = changes.mock.calls.length
-  fireEvent.blur(imageNumber)
-  expect(imageNumber.value).toBe('100')
-  expect(changes).toHaveBeenCalledTimes(beforeBlur)
+  expect(surfaceSlider.getAttribute('aria-valuenow')).toBe('100')
+  expect(surfaceSlider.getAttribute('aria-valuetext')).toBe('100%')
+  const beforeBoundary = changes.mock.calls.length
+  fireEvent.keyDown(surfaceSlider, { key: 'ArrowRight' })
+  expect(changes).toHaveBeenCalledTimes(beforeBoundary)
 })
 
 it('disables opacity controls without an image and during import or external loading', async () => {
   const { rerender, onChange } = renderSettings()
-  expect(screen.getByRole('spinbutton', { name: '背景图不透明度' }).hasAttribute('disabled')).toBe(true)
   expect(screen.getByRole('slider', { name: '背景图不透明度' }).getAttribute('aria-disabled')).toBe('true')
   rerender(<BackgroundSettings image={original} onChange={onChange} disabled={false} loading />)
   expect(screen.getByRole('status').textContent).toBe('正在读取背景图…')
-  expect(screen.getByRole('spinbutton', { name: '界面背景不透明度' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.getByRole('slider', { name: '界面背景不透明度' }).getAttribute('aria-disabled')).toBe('true')
   rerender(<BackgroundSettings image={original} onChange={onChange} disabled={true} />)
   expect(screen.getByRole('button', { name: '更换背景图' }).hasAttribute('disabled')).toBe(true)
   expect(screen.getByRole('button', { name: '移除背景图' }).hasAttribute('disabled')).toBe(true)

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ImagePlus, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Spinner } from '@/components/ui/spinner'
@@ -27,23 +26,11 @@ function opacityValue(value: number | undefined, fallback: number) {
 }
 
 function OpacityControl({ id, label, help, value, disabled, onChange }: { id: string; label: string; help: string; value: number; disabled: boolean; onChange: (value: number) => void }) {
-  const [draft, setDraft] = useState(String(value))
-  useEffect(() => setDraft(String(value)), [value])
-  const update = (raw: string) => {
-    setDraft(raw)
-    if (raw.trim() && Number.isFinite(Number(raw))) onChange(opacityValue(Number(raw), value))
-  }
-  const commit = () => {
-    const next = draft.trim() ? opacityValue(Number(draft), value) : value
-    setDraft(String(next))
-    if (next !== value) onChange(next)
-  }
   return <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">
-    <Label htmlFor={id} className="pt-2 text-xs leading-5 text-muted-foreground">{label}</Label>
+    <Label id={`${id}-label`} className="pt-2 text-xs leading-5 text-muted-foreground">{label}</Label>
     <div className="min-w-0 space-y-1">
-      <div className="flex min-h-8 items-center gap-3">
-        <Slider value={[value]} min={0} max={100} step={1} disabled={disabled} onValueChange={values => onChange(values[0])} thumbProps={{ 'aria-label': label, 'aria-describedby': `${id}-help`, 'aria-valuetext': `${value}%` }} />
-        <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Input id={id} type="number" min={0} max={100} step={1} inputMode="numeric" value={draft} disabled={disabled} aria-label={label} aria-describedby={`${id}-help`} className="w-[68px] px-2 text-right tabular-nums" onChange={event => update(event.target.value)} onBlur={commit} /><span aria-hidden="true">%</span></div>
+      <div className="flex min-h-8 items-center">
+        <Slider value={[value]} min={0} max={100} step={1} disabled={disabled} onValueChange={values => onChange(values[0])} thumbProps={{ id, 'aria-labelledby': `${id}-label`, 'aria-describedby': `${id}-help`, 'aria-valuetext': `${value}%` }} />
       </div>
       <p id={`${id}-help`} className="text-[11px] leading-5 text-muted-foreground">{help}</p>
     </div>

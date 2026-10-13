@@ -21,8 +21,16 @@ async function assertSaved(page, patch, dirty = false) {
   await expect(page.getByText(dirty ? '外观已自动保存 · 其他设置有未保存的更改' : '外观已自动保存', { exact: true })).toBeVisible()
 }
 async function setOpacity(page, label, value, key, dirty = false) {
-  await page.getByRole('spinbutton', { name: label, exact: true }).fill(String(value))
-  await page.getByRole('spinbutton', { name: label, exact: true }).blur()
+  const slider = page.getByRole('slider', { name: label, exact: true })
+  if (value === 100) await slider.press('End')
+  else {
+    await slider.press('Home')
+    for (let step = 0; step < Math.floor(value / 10); step++) await slider.press('Shift+ArrowRight')
+    for (let step = 0; step < value % 10; step++) await slider.press('ArrowRight')
+  }
+  await expect(slider).toHaveAttribute('aria-valuenow', String(value))
+  await expect(slider).toHaveAttribute('aria-valuetext', `${value}%`)
+  await expect(slider).toBeFocused()
   await assertSaved(page, { [key]: value }, dirty)
 }
 async function snapshot(page, selectors) {
@@ -118,8 +126,13 @@ try {
       const file = { name: longName, mimeType: 'image/png', buffer }
       await page.reload()
       await enterAppearance(page)
-      await expect(page.getByRole('spinbutton', { name: '背景图不透明度', exact: true })).toBeDisabled()
+      await expect(page.getByRole('slider', { name: '背景图不透明度', exact: true })).toHaveAttribute('aria-disabled', 'true')
       await expect(page.getByRole('slider', { name: '界面背景不透明度', exact: true })).toHaveAttribute('aria-disabled', 'true')
+      const backgroundRegion = page.getByRole('region', { name: '背景图', exact: true })
+      await expect(backgroundRegion.getByRole('spinbutton')).toHaveCount(0)
+      await expect(backgroundRegion.locator('input[type=number], output')).toHaveCount(0)
+      expect(await backgroundRegion.evaluate(element => [...element.querySelectorAll('span')].some(span => span.textContent.trim() === '%'))).toBe(false)
+      run.sliderOnlyControls = true
       await page.getByLabel('背景图片文件', { exact: true }).setInputFiles(file)
       await expect(page.locator('html')).toHaveAttribute('data-app-background', 'ready')
       const selected = (await settings(page)).backgroundImage
@@ -218,14 +231,15 @@ try {
         await expect(page.locator('[data-slot=popover-content]')).toHaveCSS('opacity', '1')
         const popover = await snapshot(page, ['[data-slot=popover-content]']); expectAlpha(popover, 1)
         await page.keyboard.press('Escape'); await expect(page.getByRole('combobox', { name: '界面字体', exact: true })).toBeFocused()
-        expectAlpha(await snapshot(page, ['#app-background-image-opacity', '#app-background-surface-opacity', '#app-theme']), 1)
+        expectAlpha(await snapshot(page, ['#app-theme']), 1)
         const thumbSurfaces = await snapshot(page, ['[data-slot=slider-thumb] > span']); expectAlpha(thumbSurfaces, 1)
         const settingsGeometry = await geometry(page)
         await page.locator('.settings-page main > [data-slot=scroll-area] [data-slot=scroll-area-viewport]').evaluate(viewport => { viewport.scrollTop = 0 })
         await page.screenshot({ path: `${output}/appearance-${width}-${reducedMotion}-${theme}.png` })
         await page.reload(); await expect(page.locator('html')).toHaveAttribute('data-app-background', 'ready'); await enterAppearance(page)
         expect((await settings(page)).backgroundImage).toEqual(selected)
-        await expect(page.getByRole('spinbutton', { name: '界面背景不透明度', exact: true })).toHaveValue('55')
+        await expect(page.getByRole('slider', { name: '界面背景不透明度', exact: true })).toHaveAttribute('aria-valuenow', '55')
+        await expect(page.getByRole('slider', { name: '界面背景不透明度', exact: true })).toHaveAttribute('aria-valuetext', '55%')
         await page.getByRole('button', { name: '返回工作台', exact: true }).click()
         await page.getByRole('button', { name: /为工作台增加全局命令面板/ }).click()
         await expect(page.locator('.workbench')).toBeVisible()
@@ -274,15 +288,17 @@ try {
       expect(replaced.path).not.toBe(selected.path)
       await assertSaved(page, { backgroundImage: replaced }, true)
       await injectSaveFailure(page)
-      await page.getByRole('spinbutton', { name: '背景图不透明度', exact: true }).fill('64')
-      await page.getByRole('spinbutton', { name: '背景图不透明度', exact: true }).blur()
+      // One real keyboard event produces one failed save, avoiding repeated
+      // errors from a multi-step adjustment while persistence is unavailable.
+      await page.getByRole('slider', { name: '背景图不透明度', exact: true }).press('Home')
       await expect(page.getByRole('alert').filter({ hasText: '自动保存失败' }).first()).toBeVisible()
-      await expect(page.getByRole('spinbutton', { name: '背景图不透明度', exact: true })).toHaveValue('100')
+      await expect(page.getByRole('slider', { name: '背景图不透明度', exact: true })).toHaveAttribute('aria-valuenow', '100')
       await expect(page.locator('.app-background img')).toHaveCSS('opacity', '1')
       await page.evaluate(() => window.restoreBackgroundSmokeStorage())
       await page.locator('.settings-page main > footer').getByRole('button', { name: '重试', exact: true }).click()
-      await assertSaved(page, { backgroundImageOpacity: 64 }, true)
-      await expect(page.locator('.app-background img')).toHaveCSS('opacity', '0.64')
+      await assertSaved(page, { backgroundImageOpacity: 0 }, true)
+      await expect(page.locator('.app-background img')).toHaveCSS('opacity', '0')
+      await setOpacity(page, '背景图不透明度', 64, 'backgroundImageOpacity', true)
       await setOpacity(page, '界面背景不透明度', 42, 'backgroundSurfaceOpacity', true)
       expect((await settings(page)).runtimes[0].name).toBe(runtimeName)
       const retainedOldImage = await page.evaluate(async image => { const { loadBackgroundImage } = await import('/src/lib/background-image.ts'); const src = await loadBackgroundImage(image); const img = new Image(); img.src = src; await img.decode(); URL.revokeObjectURL(src); return img.naturalWidth > 0 }, selected)
@@ -349,7 +365,7 @@ try {
       await expect.poll(async () => (await settings(page)).backgroundImage).toBe(undefined)
       expectAlpha(await snapshot(page, ['.settings-page', '.settings-page > header']), 1)
       await page.reload(); await enterAppearance(page)
-      await expect(page.getByRole('spinbutton', { name: '背景图不透明度', exact: true })).toBeDisabled()
+      await expect(page.getByRole('slider', { name: '背景图不透明度', exact: true })).toHaveAttribute('aria-disabled', 'true')
       await expect(page.locator('.app-background')).toHaveCount(0)
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
       expect(errors).toEqual([])
