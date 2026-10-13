@@ -1,34 +1,34 @@
-# Runtime 会话连续性
+# Runtime session continuity
 
-## 修复行为
+## Corrected behavior
 
-Run 继续表示一次调用、配置快照与 Trace；原生会话由同一任务的同一成员复用。工作目录、Runtime ID、适配器、可执行文件和高级启动参数保持一致时，后续调用使用已保存的原生会话 ID。模型、思考强度和权限按新调用配置传入。
+A Run still represents one invocation, its configuration snapshot, and Trace. The same member of the same task reuses its native session. Subsequent invocations use the saved native session ID while the working directory, Runtime ID, adapter, executable, and advanced launch arguments remain unchanged. Model, reasoning effort, and permissions follow the new invocation's configuration.
 
-- Codex：从 `thread.started.thread_id` 记录会话，使用明确 ID 的 `exec resume`。
-- Claude：从顶层 `system/init` 或 `result` 的 `session_id` 记录会话，使用 `--resume`。
-- Kimi：从 ACP 新建响应保存 `sessionId`，续接时协商 `loadSession` 并调用 `session/load`。加载阶段的旧消息回放不重复追加到新 Run；成功结束后在支持时等待 `session/close` 确认，再退出进程。
+- Codex: record the session from `thread.started.thread_id` and use `exec resume` with an explicit ID.
+- Claude: record the session from top-level `system/init` or `result` `session_id`, then use `--resume`.
+- Kimi: save `sessionId` from the ACP creation response, negotiate `loadSession` when resuming, and call `session/load`. Old-message replay during loading is not appended again to the new Run. After successful completion, wait for `session/close` acknowledgement when supported before exiting the process.
 
-会话 ID 在 RunMember 快照及原始 Trace 中保留，已有 Codex/Claude trace 可恢复 ID。新 Run 不改写旧 Run；任务、成员、Runtime、工作目录之间不会通过 `--last` 或 `--continue` 隐式共用会话。恢复失败报错，重试沿用同一 ID，不自动新建空会话。
+Session IDs remain in RunMember snapshots and raw Trace, and can be recovered from existing Codex/Claude traces. New Runs do not rewrite older Runs. Tasks, members, Runtimes, and working directories do not share sessions implicitly through `--last` or `--continue`. Recovery failures produce errors; retry uses the same ID without automatically creating an empty session.
 
-## 旧记录与通用适配器
+## Legacy records and generic adapters
 
-原实现每次调用新建会话，交接仅取最后 8 条消息，每条最多 1200 字；用户指令也截断到 12000 字。现在没有原生 ID 的旧记录、切换运行环境及 Generic 适配器均传入已保存的完整公开对话和完整用户指令。原生隐藏状态、从未保存或旧版已截断的数据无法凭空补回。
+The original implementation created a new session for every invocation, handed off only the last 8 messages with at most 1,200 characters each, and truncated user instructions to 12,000 characters. Legacy records without a native ID, changes of execution environment, and Generic adapters now receive the complete saved public conversation and full user instructions. Native hidden state, never-saved data, and data already truncated by older versions cannot be reconstructed.
 
-Codex / Claude 通过 stdin 接收内容，避免长历史触及操作系统 argv 长度上限。原生请求超过 1 MiB 会拒绝启动并显示错误，不静默截断历史。Generic 继续遵循其自定义参数协议，没有统一原生会话恢复保证。
+Codex / Claude receive content through stdin to avoid operating-system argv length limits for long histories. Native requests exceeding 1 MiB are rejected before launch with a visible error; history is not silently truncated. Generic adapters retain their custom argument protocol and have no uniform native-session recovery guarantee.
 
-## 验证（2026-09-17）
+## Validation (2026-09-17)
 
-- `npm run build`：通过。
-- `npm test`：36 个文件、418 项测试通过。包含会话 ID 分片解析、持久化/重载、App 第二轮发送、Runtime / 目录 / 成员隔离、旧记录回填、完整交接和恢复失败重试。
-- Rust 全量：85 项通过、4 项选择性检查默认忽略；随后新增的完整 stdin 大文本与 Kimi 关闭确认两项定向测试均通过。常规测试合计 87 项。
-- Kimi 0.43.1：使用实际 RuntimeManager 和本机 CLI，隔离配置和环境，以回环 HTTP 服务替代远程模型。每种 low / high / max 强度跑两轮，中间关闭进程并重新创建 RuntimeManager；第二轮 provider 请求明确包含第一轮用户消息、第一轮回答和新的用户消息，原生会话 ID 相同，新 Run 只收到一次新的回复。
-- 上述 Kimi 三档续接检查重复 3 次全部通过。日志位于 `test-results/runtime-session/installed-kimi-{1,2,3}.log`。
-- 验证过程中曾复现收到 `end_turn` 后立即结束进程导致下一轮上下文为空；改为等待关闭确认后重复检查通过，并增加确定性的关闭时序测试。
-- Codex resume 参数层级已对照本机 CLI 帮助核验；Codex / Claude 原生参数、权限保留、完整 stdin 内容及前端发送关联均有测试。未调用真实远程模型服务，不能据此声称云端模型 E2E 通过。
-- 本次没有修改用户桌面数据库或重新打包安装包。
+- `npm run build`: passed.
+- `npm test`: 36 files and 418 tests passed, covering fragmented session-ID parsing, persistence/reload, second-turn sending in App, Runtime / directory / member isolation, legacy-record backfill, complete handoff, and retry after recovery failure.
+- Full Rust suite: 85 passed and 4 opt-in checks ignored by default. Two subsequent targeted tests for complete large stdin text and Kimi close acknowledgement also passed, bringing the standard total to 87.
+- Kimi 0.43.1: used the real RuntimeManager and local CLI with isolated configuration/environment and a loopback HTTP service replacing the remote model. Each low / high / max effort ran two turns, closing the process and recreating RuntimeManager between them. The second provider request explicitly contained the first user message, first reply, and new user message. The native session ID stayed the same, and the new Run received only one new reply.
+- All three Kimi effort-resumption checks passed across 3 repetitions. Logs are at `test-results/runtime-session/installed-kimi-{1,2,3}.log`.
+- Validation reproduced an empty next-turn context when the process exited immediately after `end_turn`. Repeated checks passed after waiting for close acknowledgement, and a deterministic close-ordering test was added.
+- Codex resume argument nesting was checked against local CLI help. Tests cover Codex / Claude native arguments, permission preservation, complete stdin content, and frontend send correlation. No real remote model service was invoked; this does not establish cloud-model E2E success.
+- The user's desktop database was not modified, and installation packages were not rebuilt.
 
-## 协议来源
+## Protocol sources
 
-- [Kimi ACP：加载、回放与关闭会话](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp)
-- [Claude 非交互调用、stdin 与指定会话续接](https://code.claude.com/docs/en/headless)
-- Codex：本机 `codex exec --help`、`codex exec resume --help` 和本机官方源码 `codex-rs/exec/src/cli.rs`。
+- [Kimi ACP: session loading, replay, and closing](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp)
+- [Claude non-interactive invocation, stdin, and exact-session resumption](https://code.claude.com/docs/en/headless)
+- Codex: local `codex exec --help`, `codex exec resume --help`, and the local official source `codex-rs/exec/src/cli.rs`.

@@ -22,7 +22,7 @@ case "$line" in *'"method":"{method}"'*'"approvalPolicy":"never"'*'"model":"fixt
 {resume_assertion}
 printf '%s\n' '{{"id":2,"result":{{"thread":{{"id":"fixture-thread","turns":[{{"items":[{{"type":"agentMessage","id":"old","text":"OLD_REPLAY"}}]}}]}},"approvalPolicy":"never","sandbox":{{"type":"readOnly","networkAccess":false}}}}}}'
 read -r line
-case "$line" in *'"method":"turn/start"'*'"approvalPolicy":"never"'*'"effort":"high"'*'literal $(do not execute) 中文'*'"model":"fixture-model"'*'"networkAccess":false'*'"type":"readOnly"'*'"threadId":"fixture-thread"'*) ;; *) exit 14;; esac
+case "$line" in *'"method":"turn/start"'*'"approvalPolicy":"never"'*'"effort":"high"'*'literal $(do not execute) café'*'"model":"fixture-model"'*'"networkAccess":false'*'"type":"readOnly"'*'"threadId":"fixture-thread"'*) ;; *) exit 14;; esac
 printf '%s\n' '{{"id":3,"result":{{"turn":{{"id":"fixture-turn","status":"inProgress","items":[]}}}}}}'
 {ending}
 "##,
@@ -39,7 +39,7 @@ printf '%s\n' '{{"id":3,"result":{{"turn":{{"id":"fixture-turn","status":"inProg
         "runtime":{"id":"codex","name":"Codex fixture","executable":executable,"adapter":"codex","enabled":true,"args":[],"defaultModel":"", "permissions":{"codex":{"sandbox":"read-only"}}},
         "codexStreaming":true,"model":"fixture-model", "reasoningEffort":"high",
         "sessionId":if resume { Some("fixture-thread") } else { None },
-        "directory":directory,"prompt":"literal $(do not execute) 中文"
+        "directory":directory,"prompt":"literal $(do not execute) café"
     })).unwrap()
 }
 
@@ -74,9 +74,9 @@ fn terminal(rx: &mpsc::Receiver<RuntimeEvent>) -> Vec<RuntimeEvent> {
     }
 }
 
-const DELTA: &str = r#"printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"message","delta":"公开"}}'
+const DELTA: &str = r#"printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"message","delta":"Public"}}'
 "#;
-const COMPLETE: &str = r#"printf '%s\n' '{"method":"item/completed","params":{"threadId":"fixture-thread","turnId":"fixture-turn","item":{"type":"agentMessage","id":"message","text":"公开回答"}}}'
+const COMPLETE: &str = r#"printf '%s\n' '{"method":"item/completed","params":{"threadId":"fixture-thread","turnId":"fixture-turn","item":{"type":"agentMessage","id":"message","text":"Public answer"}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"fixture-thread","turn":{"id":"fixture-turn","status":"completed","items":[]}}}'
 while read -r line; do :; done
 "#;
@@ -96,7 +96,7 @@ fn codex_streams_partial_before_the_live_server_turn_completes() {
         );
         if event.text.contains("item/agentMessage/delta") {
             let value: serde_json::Value = serde_json::from_str(&event.text).unwrap();
-            assert_eq!(value["params"]["delta"], "公开");
+            assert_eq!(value["params"]["delta"], "Public");
             assert!(
                 manager.while_idle(|| Ok(())).is_err(),
                 "App-server must still be alive during the delta"
@@ -122,7 +122,7 @@ fn codex_streams_partial_before_the_live_server_turn_completes() {
     )
     .unwrap();
     assert!(trace.contains("item/agentMessage/delta"));
-    assert!(trace.contains("公开回答"));
+    assert!(trace.contains("Public answer"));
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn codex_resumes_exact_thread_without_replaying_old_responses() {
         .collect::<String>();
     assert!(!text.contains("OLD_REPLAY"));
     assert!(text.contains("\"thread_id\":\"fixture-thread\""));
-    assert!(text.contains("公开回答"));
+    assert!(text.contains("Public answer"));
 }
 
 #[test]
@@ -273,10 +273,10 @@ fn codex_notifications_before_turn_response_and_other_threads_are_correlated() {
     let directory = tempfile::tempdir().unwrap();
     let request = fixture(directory.path(), COMPLETE, false);
     let script = fs::read_to_string(&request.runtime.executable).unwrap();
-    let premature = DELTA.replace("公开", "early");
+    let premature = DELTA.replace("Public", "early");
     let foreign = DELTA
         .replace("fixture-thread", "foreign-thread")
-        .replace("公开", "foreign");
+        .replace("Public", "foreign");
     let script = script
         .lines()
         .map(|line| {
@@ -331,7 +331,7 @@ printf '%s\n' '{{"method":"error","params":{{"threadId":"fixture-thread","turnId
 #[test]
 fn codex_large_public_delta_is_chunked_without_cumulative_snapshots() {
     let directory = tempfile::tempdir().unwrap();
-    let text = "中文public".repeat(2000);
+    let text = "café public".repeat(2000);
     let value = serde_json::json!({"method":"item/agentMessage/delta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"large-message","delta":text}});
     let ending = format!("printf '%s\\n' '{value}'\n{COMPLETE}");
     let (manager, rx) = manager(directory.path(), fixture(directory.path(), &ending, false));
@@ -993,7 +993,7 @@ fn native_manager_does_not_replay_a_disconnected_or_unresponsive_turn() {
 fn codex_native_stdin_preserves_large_unicode_prompt_without_argv_or_truncation() {
     let directory = tempfile::tempdir().unwrap();
     let mut request = persistent_fixture(directory.path(), "first");
-    request.prompt = "历史记录 中文\n".repeat(20_000);
+    request.prompt = "Conversation history café\n".repeat(20_000);
     let expected = request.prompt.clone();
     let (manager, rx) = manager(directory.path(), request);
     assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
@@ -1226,7 +1226,7 @@ fn codex_steering_ack_timeout_preserves_turn_and_ignores_late_acknowledgement() 
             "bounded acknowledgement",
         )
         .unwrap_err();
-    assert!(error.contains("5 秒"), "{error}");
+    assert!(error.contains("5 seconds"), "{error}");
     assert!(since.elapsed() < Duration::from_secs(7));
     assert!(
         manager.while_idle(|| Ok(())).is_err(),

@@ -5,7 +5,7 @@ import type { Adapter, RuntimeEvent } from './types'
 
 function fixture(adapter: Adapter = 'codex') {
   const initial = createInitialState()
-  const task = createTask(initial.settings, 'Trace 分类', '/tmp/trace', 'solo')
+  const task = createTask(initial.settings, 'Trace categories', '/tmp/trace', 'solo')
   const member = task.members[0]
   task.runs = [{ id: 'run', createdAt: task.createdAt, prompt: 'test', directory: task.directory, members: [{ ...member, runtime: { ...initial.settings.runtimes[0], adapter }, model: '', status: 'running' }] }]
   let sequence = 0
@@ -24,8 +24,8 @@ describe('trace types', () => {
     const events = [
       f.json({ type: 'codex.app_server.thread_ready', threadId: 'thread', model: 'actual-model', modelProvider: 'provider', reasoningEffort: 'high' }),
       f.json({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn', status: 'inProgress' } } }),
-      f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '公开答复' } }),
-      f.json({ method: 'item/reasoning/summaryTextDelta', params: { threadId: 'thread', turnId: 'turn', itemId: 'thinking', summaryIndex: 0, delta: '公开摘要' } }),
+      f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: 'Public answer' } }),
+      f.json({ method: 'item/reasoning/summaryTextDelta', params: { threadId: 'thread', turnId: 'turn', itemId: 'thinking', summaryIndex: 0, delta: 'Public summary' } }),
       f.json({ type: 'codex.app_server.item', threadId: 'thread', turnId: 'turn', eventType: 'item.started', item: { id: 'tool', type: 'mcpToolCall', server: 'docs', tool: 'search', status: 'inProgress', arguments: { query: 'API' } } }),
       f.json({ type: 'codex.app_server.item', threadId: 'thread', turnId: 'turn', eventType: 'item.completed', item: { id: 'command', type: 'commandExecution', command: 'false', exitCode: 1, aggregatedOutput: 'failed' } }),
       f.json({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread', turnId: 'turn', tokenUsage: { last: { totalTokens: 30 } } } }),
@@ -44,11 +44,11 @@ describe('trace types', () => {
   it('summarizes only public app-server reasoning summaries and leaves private and unknown frames raw', () => {
     const f = fixture()
     const entries = f.append(
-      f.json({ type: 'codex.app_server.item', eventType: 'item.completed', item: { type: 'reasoning', id: 'thinking', summary: ['公开摘要'], content: ['PRIVATE_REASONING'], signature: 'PRIVATE_SIGNATURE' } }),
+      f.json({ type: 'codex.app_server.item', eventType: 'item.completed', item: { type: 'reasoning', id: 'thinking', summary: ['Public summary'], content: ['PRIVATE_REASONING'], signature: 'PRIVATE_SIGNATURE' } }),
       f.json({ method: 'item/reasoning/textDelta', params: { delta: 'PRIVATE_RAW' } }),
       f.json({ method: 'future/notification', params: { text: 'unknown preserved' } }),
     )
-    expect(entries[0]).toMatchObject({ category: 'reasoning', summary: '公开摘要' })
+    expect(entries[0]).toMatchObject({ category: 'reasoning', summary: 'Public summary' })
     expect(entries[1]).toMatchObject({ category: 'unknown', eventType: 'item/reasoning/textDelta', summary: undefined })
     expect(entries[2]).toMatchObject({ category: 'unknown', eventType: 'future/notification' })
     expect(entries[0].text).toContain('PRIVATE_REASONING')
@@ -68,7 +68,7 @@ describe('trace types', () => {
   })
 
   it.each([
-    ['agent_message', { text: '**答复**' }, 'message', '生成回复', '**答复**'],
+    ['agent_message', { text: '**Answer**' }, 'message', '生成回复', '**Answer**'],
     ['reasoning', { text: 'DO_NOT_SUMMARIZE' }, 'reasoning', '思考状态', undefined],
     ['command_execution', { command: 'pwd', exit_code: 0 }, 'command', '执行命令', 'pwd'],
     ['file_change', { changes: [{ path: 'src/main.ts', kind: 'update' }] }, 'file-change', '文件变更', 'src/main.ts'],
@@ -227,12 +227,12 @@ describe('Claude trace classification', () => {
       f.stream({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'PRIVATE' } }),
       f.stream({ type: 'content_block_stop', index: 0 }),
       f.stream({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }),
-      f.stream({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '公开答复' } }),
+      f.stream({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Public answer' } }),
       f.stream({ type: 'message_stop' }),
     )
     expect(entries[0]).toMatchObject({ title: '初始化会话', eventType: 'system / init' })
     expect(entries.slice(2, 6).every(entry => entry.category === 'reasoning' && entry.summary === undefined)).toBe(true)
-    expect(entries[7]).toMatchObject({ title: '生成回复', phase: '进行中', summary: '公开答复' })
+    expect(entries[7]).toMatchObject({ title: '生成回复', phase: '进行中', summary: 'Public answer' })
     expect(entries[8]).toMatchObject({ phase: '完成' })
     expect(entries.map(entry => entry.summary).join('')).not.toContain('PRIVATE')
     expect(entries.some(entry => entry.text.includes('PRIVATE'))).toBe(true)

@@ -6,7 +6,7 @@ import type { Member, ModelConfig, RuntimeConfig } from './types'
 const runtimes = createInitialState().settings.runtimes
 const codex = runtimes[0]
 const model = (patch: Partial<ModelConfig> = {}): ModelConfig => ({ id: 'model', name: 'Astra', modelId: 'gpt-6-astra', runtimeIds: ['codex'], enabled: true, providerId: '', ...patch })
-const member = (patch: Partial<Member> = {}): Member => ({ id: 'member', name: 'Codex', role: '执行', modelId: 'gpt-6-astra', runtimeId: 'codex', ...patch })
+const member = (patch: Partial<Member> = {}): Member => ({ id: 'member', name: 'Codex', role: 'Implementation', modelId: 'gpt-6-astra', runtimeId: 'codex', ...patch })
 
 describe('reasoning configuration', () => {
   it('preserves old configurations and resolves member > model > runtime defaults', () => {

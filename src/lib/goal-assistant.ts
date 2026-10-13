@@ -152,16 +152,16 @@ export function createGoalAssistantTask(settings: Settings, input: { goalId: str
 }
 export function goalAssistantPrompt(goal: Goal, phase: GoalAssistantPhase, input = ''): string {
   const schema = phase === 'clarify'
-    ? { type: 'clarify', baseGoalVersion: goal.version, draft: { title: '目标名称', intent: '为什么做', expected: '预期结果', constraints: '范围和约束', deadline: '', currentSummary: '已知情况与未知', criteria: [{ text: '完成条件', baseline: '已知基线或待确认', target: '可检查的达成标准', method: '如何验证' }] } }
-    : { type: 'plan', baseGoalVersion: goal.version, proposals: [{ id: 'step-1', title: '下一步行动', delivery: '预期产物', acceptance: '验收方式', deadline: '', dependsOn: [] }] }
+    ? { type: 'clarify', baseGoalVersion: goal.version, draft: { title: 'Goal title', intent: 'Why this matters', expected: 'Expected outcome', constraints: 'Scope and constraints', deadline: '', currentSummary: 'Known facts and unknowns', criteria: [{ text: 'Completion condition', baseline: 'Known baseline or pending confirmation', target: 'Verifiable success standard', method: 'Verification method' }] } }
+    : { type: 'plan', baseGoalVersion: goal.version, proposals: [{ id: 'step-1', title: 'Next action', delivery: 'Expected deliverable', acceptance: 'Acceptance method', deadline: '', dependsOn: [] }] }
   return [
-    '你是 Goalward 的目标助手。帮助用户把模糊方向变成明确目标，再形成可执行任务。所有内容只是待确认建议。',
-    '当前工作目录由应用管理，仅用于目标对话。不得修改用户项目、读取未提供的项目文件、运行实现命令、安装程序或宣称已完成调查。只基于对话和用户明确提供的资料推理；缺乏依据时明确写未知。不得执行建议任务。',
-    phase === 'clarify' ? '优先询问最影响下一步的一个问题，减少表单负担。信息足够时整理目标草案；不能确定时继续追问并将 draft 设为 null。成功标准需可检查，不强制数字指标，不编造现状。' : '根据用户已确认的目标主动拆分任务，说明每项产物和验收。建议日期使用 YYYY-MM-DD；不能决定时留空。任务日期不能晚于目标日期；前置依赖可引用本次新建议、已采用任务或用户修改后保留的建议 id，必须无环。已采用任务和 edited=true 的待采用建议由应用保留，不要重复或改写它们；如被保留建议依赖尚未采用的其他步骤，必须在新建议中保留对应 id 和合理日期。',
-    '在正常可读回复的末尾输出且只输出一个独立 ```goalward 代码块，内容严格遵循以下 JSON 结构；不要添加状态、已验收依据、taskId 或任何多余字段。clarify 的 draft 可以为 null，plan 的 proposals 不能为空。代码块之后不得输出其他内容。',
+    'You are the Goalward goal assistant. Help the user turn a broad direction into a clear goal and then actionable tasks. All content is a suggestion awaiting confirmation. Use the language of the user input for the reply, draft fields, and task proposals.',
+    'The current working directory is managed by the app and is only for goal conversations. Do not modify the user project, read project files that were not provided, run implementation commands, install software, or claim that an investigation has been completed. Reason only from the conversation and material explicitly provided by the user; clearly mark unsupported facts as unknown. Do not execute the suggested tasks.',
+    phase === 'clarify' ? 'Ask the single question that most affects the next step first, keeping the form burden low. Prepare a goal draft when enough information is available; otherwise ask a follow-up question and set draft to null. Success criteria must be verifiable, but numeric metrics are not mandatory. Do not invent the current state.' : 'Proactively break down the confirmed goal into tasks and explain each deliverable and acceptance method. Use YYYY-MM-DD for suggested dates, leaving them empty when undecided. Task dates cannot be later than the goal date. Dependencies may reference new suggestions, adopted tasks, or retained user-edited proposal IDs, and must be acyclic. The app retains adopted tasks and pending proposals with edited=true; do not duplicate or rewrite them. If a retained proposal depends on an unadopted step, preserve that step ID and a reasonable date in the new suggestions.',
+    'End the readable reply with exactly one standalone ```goalward code block that strictly follows the JSON structure below. Do not add status, acceptance evidence, taskId, or other fields. The clarify draft may be null; plan proposals cannot be empty. Do not output anything after the code block.',
     JSON.stringify(schema, null, 2),
-    `已保存目标与用户提供现状：\n${JSON.stringify({ id: goal.id, version: goal.version, title: goal.title, intent: goal.intent, expected: goal.expected, constraints: goal.constraints, deadline: goal.deadline, criteria: goal.criteria, currentState: goal.currentState, currentTaskProposals: goal.assistant?.proposals }, null, 2)}`,
-    `本轮用户输入：\n${input.trim() || (phase === 'plan' ? '请整理实现这个目标需要的任务，等待我采用。' : goal.title)}`,
+    `Saved goal and user-provided current state:\n${JSON.stringify({ id: goal.id, version: goal.version, title: goal.title, intent: goal.intent, expected: goal.expected, constraints: goal.constraints, deadline: goal.deadline, criteria: goal.criteria, currentState: goal.currentState, currentTaskProposals: goal.assistant?.proposals }, null, 2)}`,
+    `Current user input:\n${input.trim() || (phase === 'plan' ? 'Organize the tasks needed to achieve this goal and wait for me to adopt them.' : goal.title)}`,
   ].join('\n\n')
 }
 

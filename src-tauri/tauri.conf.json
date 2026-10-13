@@ -30,7 +30,7 @@
     "targets": ["app"],
     "resources": {
       "../assets/branding/runtime-source-*.md": "runtime-branding/",
-      "../docs/install-macos-trial.txt": "installation/安装说明.txt"
+      "../docs/install-macos-trial.txt": "installation/INSTALL.txt"
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
     "category": "DeveloperTool",

@@ -1,42 +1,44 @@
-# Kimi CLI 原生接入
+# Native Kimi CLI integration
 
-2026-09-17。第五种 Runtime 已由参考原型落实为 React / Tauri 适配器。采用 Kimi Code CLI 的 `kimi acp` 子进程，通过标准输入 / 输出交换 ACP JSON-RPC，避免将非交互 `-p` 的自动权限策略误称为手动审批。
+2026-09-17. The fifth Runtime has moved from reference prototype to a React / Tauri adapter. It uses a Kimi Code CLI `kimi acp` subprocess and exchanges ACP JSON-RPC over stdin / stdout, avoiding any claim that non-interactive `-p` automatic permissions provide manual approval.
 
-## 行为
+## Behavior
 
-- 检测可执行文件时包含 `~/.kimi-code/bin`，沿用既有有界 `--version` 检测。自动检测读取 `KIMI_CODE_HOME/config.toml` 或 `~/.kimi-code/config.toml` 的模型别名、显示名称、默认模型；不导入 Provider 密钥，也不执行配置中的 hooks。模型标识是模型别名，不替换成底层 Provider 的 wire ID。
-- 执行先协商 ACP v1，确认 `agentInfo.name = Kimi Code CLI`，创建目标工作目录的会话，默认设置 Runtime 实际公开的 `yolo` 自动批准模式；不提供 `yolo` 的版本使用 `default` 模式，并由应用自动选择请求中的 `allow_always` / `allow_once`。手动模式可在设置中显式选择。选择显式模型时，通过 `session/set_config_option` 设置模型别名。模式设置或模型选择失败时，在发送 prompt 前停止。
-- 模型留空时继承 Runtime 默认模型。自动检测按每个模型的 `support_efforts` 导入思考档位，`overrides.support_efforts` 优先（包括空数组）；缺失或没有可识别档位时只提供继承。重新导入更新已有模型能力，保留用户设置的默认强度、显示名和启用状态。Kimi 的 `default_effort` 与全局 `thinking` 不复制成应用显式默认值。
-- 模型设置、Agent 档案和任务成员共用思考强度选择器。显式强度在模型选择后按当前 ACP `configOptions` 校验，再调用 `session/set_config_option` 设置 `thinking`，核对返回的 `currentValue` 后才发送 prompt；能力消失、拒绝设置或返回不同值时停止，不静默降档。继承不发送思考覆盖。ACP 适配器不接受任意额外命令行参数。
-- 公开 `agent_message_chunk` 实时更新聊天，工具开始 / 更新 / 结束通过调用 ID 汇总到 Trace。隐藏 thought chunk 不向前端转发或写入原始 Trace；握手中的 authMethods 元数据不写入 Trace。
-- 手动模式的 Runtime 权限请求通过工作台控件响应。原生层将请求映射为不透明一次性 ID，并验证 Run、成员和当前请求允许的选项；自动模式只选择协议中的允许选项，未知或仅拒绝的选项仍交给用户。手动选择 `allow_always` 后，应用保存会话授权并自动处理已排队及后续允许请求；同一原生会话跨进程恢复仍有效，不跨任务、成员、Runtime 配置或工作目录复用。Runtime 自身的静态允许 / 拒绝规则仍然有效，已允许的工具可能不再发出请求。
-- 停止先发送 `session/cancel`，再按有界宽限期清理整个子进程组。应用退出同样取消并回收。不将进程启动或单独 exit 0 视为成功；只有收到 `session/prompt` 的 `end_turn` 结果才标记完成。中断、缺失终态、协议错误、上下文上限等保留明确失败 / 停止状态。
-- 浏览器仅管理界面与本地预览数据，不执行 Runtime。
+- Executable detection includes `~/.kimi-code/bin` and retains the existing bounded `--version` check. Automatic detection reads model aliases, display names, and the default model from `KIMI_CODE_HOME/config.toml` or `~/.kimi-code/config.toml`. It neither imports Provider keys nor executes configuration hooks. Model IDs remain aliases rather than being replaced by underlying Provider wire IDs.
+- Execution negotiates ACP v1, confirms `agentInfo.name = Kimi Code CLI`, and creates a session in the goal working directory. It defaults to the Runtime's actually exposed `yolo` automatic approval mode. Versions without `yolo` use `default`, with the application selecting `allow_always` / `allow_once` from each request automatically. Manual mode can be selected explicitly in settings. An explicitly selected model alias is set through `session/set_config_option`. Mode or model-setting failures stop before prompt submission.
+- An empty model inherits the Runtime default. Detection imports reasoning levels from each model's `support_efforts`, prioritizing `overrides.support_efforts`, including an empty array. Missing or unrecognized levels expose inheritance only. Reimport updates existing model capabilities while preserving the user's default effort, display name, and enabled state. Kimi's `default_effort` and global `thinking` are not copied into explicit app defaults.
+- Model settings, Agent profiles, and task members share the effort selector. After model selection, explicit effort is validated against current ACP `configOptions`, then set as `thinking` through `session/set_config_option`. Prompt submission occurs only after checking the returned `currentValue`. Lost capabilities, rejected settings, and mismatched values stop without silent downgrading. Inheritance sends no effort override. The ACP adapter does not accept arbitrary extra CLI arguments.
+- Public `agent_message_chunk` events update chat in real time. Tool start / update / end events aggregate into Trace by call ID. Hidden thought chunks are neither forwarded to the frontend nor saved in raw Trace. Handshake authMethods metadata is not written to Trace.
+- Manual Runtime permission requests are answered through workbench controls. The native layer maps requests to opaque one-time IDs and validates the Run, member, and currently allowed options. Automatic mode selects only protocol allow options; unknown or deny-only options still go to the user. After manual `allow_always`, the app persists session authorization and handles already queued and later allow requests automatically. It remains valid across process resumption of the same native session, but is never reused across tasks, members, Runtime configurations, or working directories. The Runtime's own static allow / deny rules still apply, and previously allowed tools may stop issuing requests.
+- Stopping sends `session/cancel` before reclaiming the entire subprocess group after a bounded grace period. App shutdown also cancels and reclaims. Process startup or exit 0 alone is not success. Only a `session/prompt` `end_turn` result marks completion. Interruptions, missing terminal states, protocol errors, context limits, and other failures retain explicit failed / stopped states.
+- Browser previews manage only the UI and local preview data; they do not execute Runtimes.
 
-此适配器要求 **Kimi Code CLI** 的 ACP 协议，旧 Python **kimi-cli** 在身份协商时被明确拒绝。没有改写用户的 Kimi 配置、迁移其旧 CLI 数据或自动登录。
+This adapter requires the **Kimi Code CLI** ACP protocol. The older Python **kimi-cli** is explicitly rejected during identity negotiation. User Kimi configuration is not rewritten, old CLI data is not migrated, and login is not automated.
 
-## 验证
+## Validation
 
-- Rust fixture 测试覆盖：协议握手、手动模式、模型选择、权限等待与选项校验、重复响应拒绝、公开文本、隐藏 thought 排除、完成判定、等待权限时取消、错误与 exit 0 的区分、旧 CLI 拒绝，以及额外参数拒绝。
-- 前端测试覆盖：分片 JSON 恢复、流式文本、工具调用与输入输出合并、权限提示及异步失败重试、历史 / 已中断 Run 不出现可操作审批、思考继承与分模型档位、能力刷新保留用户选择、设置保存、成员覆盖与原生请求参数、历史 Run 快照隔离和首次检测回归。
-- 实际安装的 **Kimi Code CLI 0.39.1** 通过隔离临时配置和本机回环 HTTP 模型夹具执行了 initialize → session/new → set_mode → set_config_option → prompt → 文本流 → end_turn。只向 `127.0.0.1` 发送一次 fixture 请求，没有使用用户凭据或付费模型服务。[验证记录](../test-results/kimi-implementation/installed-acp-smoke.json)
-- 思考强度补充验证使用当前已安装的 **Kimi Code CLI 0.43.1**：应用原生 `RuntimeManager` 经 ACP 依次测试 `low / high / max`，回环模型服务实际收到 `thinking.effort` 与请求档位逐项一致，每次均收到公开回复和 `completed` 终态。测试使用清空继承环境的临时配置，没有用户凭据、hooks 或真实远端推理。[原生链路记录](../test-results/kimi-reasoning/native-runtime-smoke.json) · [ACP 回包记录](../test-results/kimi-reasoning/installed-acp-smoke.json)
-- 本次回归通过前端 332 项、Rust 71 项，以及 Clippy、格式检查与 macOS App 构建 / 签名校验。原生界面使用同源码、独立数据目录的验收应用，在 1536 × 960 和 1280 × 720 窗口检查 K3 的 `low / high / max`；验证选择持久化、键盘选择与菜单焦点恢复、切到 Highspeed 后清除显式档位，以及紧凑窗口的设置弹层。沿用共享选择器与即时状态反馈；没有新增动效，本次未切换系统减少动态效果偏好或做慢放动效审计。[完整验收记录](../test-results/kimi-reasoning/verification.json)
-- 真实账号登录、远端模型服务可调用性仍由用户本机 Kimi 配置决定；本次没有发起真实远端模型推理。
+The validation artifact paths below refer to historical local validation outputs that are not committed to this repository.
 
-权限提示使用统一 shadcn/ui Alert / Button，沿用项目主题和共享按压 / 禁用 / 焦点反馈。审批请求及流式状态即时更新，不新增布局移动或延迟真实响应；实现前读取了项目指定的 apple-design 与 animate SKILL.md。
+- Rust fixtures cover protocol negotiation, manual mode, model selection, permission waits and option validation, duplicate-response rejection, public text, hidden-thought exclusion, completion detection, cancellation during permission waits, errors versus exit 0, old-CLI rejection, and rejection of extra arguments.
+- Frontend tests cover fragmented JSON recovery, streaming text, merged tool calls and inputs/outputs, permission prompts and retries after asynchronous failure, no actionable approvals for historical / interrupted Runs, inherited and per-model effort levels, capability refresh preserving user choices, settings persistence, member overrides and native request parameters, isolation of historical Run snapshots, and initial-detection regressions.
+- Installed **Kimi Code CLI 0.39.1** ran initialize → session/new → set_mode → set_config_option → prompt → text stream → end_turn with temporary isolated configuration and a local loopback HTTP model fixture. It made one fixture request to `127.0.0.1` without user credentials or paid model services. Historical validation record: `test-results/kimi-implementation/installed-acp-smoke.json`.
+- Additional effort validation used installed **Kimi Code CLI 0.43.1**. The app's native `RuntimeManager` tested `low / high / max` through ACP. The loopback model service received `thinking.effort` matching each requested level, and every run returned a public reply and `completed`. Temporary configuration cleared inherited environment and used no user credentials, hooks, or real remote inference. Historical native routing record: `test-results/kimi-reasoning/native-runtime-smoke.json`; ACP responses: `test-results/kimi-reasoning/installed-acp-smoke.json`.
+- This regression passed 332 frontend tests and 71 Rust tests, Clippy, formatting, and macOS App build / signature checks. Native UI validation used an acceptance app with the same source and an independent data directory at 1536 × 960 and 1280 × 720, checking K3 `low / high / max`, persistence, keyboard selection, menu focus restoration, explicit-effort clearing after switching to Highspeed, and compact-window settings dialogs. Shared selectors and immediate state feedback were reused. No new motion was added; system reduced-motion preferences were not toggled, and no slow-motion audit was performed. Historical complete acceptance record: `test-results/kimi-reasoning/verification.json`.
+- Real account login and remote-model availability still depend on the user's local Kimi configuration. No real remote inference was requested.
 
-## 官方依据
+Permission prompts use the shared shadcn/ui Alert / Button components, project theme, and shared press / disabled / focus feedback. Approval and streaming states update immediately without new layout movement or response delays. The project-required apple-design and animate SKILL.md files were read before implementation.
+
+## Official references
 
 - [Kimi Code CLI ACP](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp.html)
-- [命令与非交互权限行为](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command)
-- [模型别名与配置](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/config-files)
+- [Commands and non-interactive permission behavior](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command)
+- [Model aliases and configuration](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/config-files)
 
-已发布的 `.superdesign` 原型仅作参考；本说明描述的是 `src` 和 `src-tauri` 的正式实现。
+The published `.superdesign` prototype is a reference only. This document describes the production implementation in `src` and `src-tauri`.
 
-## 2026-09-17 权限默认值与会话批准修复
+## Permission defaults and session-approval fix, 2026-09-17
 
-- 根因：每轮 `session/load` 后强制切回 `default`，且客户端仅透传批准选项，没有记录会话级授权。
-- 默认自动批准；手动模式的会话授权存于应用私有 `permissions/<task>/<member>/<session>.json`，不改写 Runtime 全局配置。
-- 本机 Kimi Code CLI 0.43.1 原生回归：low / high / max 各执行两轮，模型响应来自隔离回环服务，两个进程恢复同一会话；每轮 Bash 实际追加临时文件，最终校验两次写入。未使用用户凭据或真实远端推理。
-- 浏览器交互回归脚本：`node scripts/runtime-permissions-smoke.mjs`，覆盖默认选项、手动/自动切换、保存重载、键盘焦点、1536 × 960 / 1280 × 720，以及正常/减少动态效果。沿用共享 Select 的进出场与按压反馈，授权请求不受动画延迟。
+- Root cause: every `session/load` forced a switch back to `default`; the client only forwarded approval options without recording session-level authorization.
+- Automatic approval is now the default. Manual-mode session authorization is stored privately in `permissions/<task>/<member>/<session>.json` without rewriting global Runtime configuration.
+- Native regression with local Kimi Code CLI 0.43.1: each low / high / max effort ran two turns against an isolated loopback service. Two processes resumed the same session. Every turn's Bash tool appended to a temporary file, and both writes were verified. No user credentials or real remote inference were used.
+- Browser interaction regression script: `node scripts/runtime-permissions-smoke.mjs`, covering defaults, manual/automatic switching, save/reload, keyboard focus, 1536 × 960 / 1280 × 720, and normal/reduced motion. The shared Select's entry/exit and press feedback were reused; approval requests are not delayed by motion.

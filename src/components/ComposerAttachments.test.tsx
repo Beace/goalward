@@ -8,8 +8,8 @@ import type { AttachmentFile } from '@/lib/attachments'
 const mocks = vi.hoisted(() => ({ read: vi.fn() }))
 vi.mock('@/lib/bridge', async original => ({ ...await original<typeof import('@/lib/bridge')>(), isDesktop: true }))
 vi.mock('@/lib/attachments', async original => ({ ...await original<typeof import('@/lib/attachments')>(), readClipboardAttachments: mocks.read }))
-const first = { name: '报告 中文.pdf', path: '/tmp/中文 project/报告 中文.pdf' }
-const second = { name: '截图.png', path: '/tmp/attachments/unique/截图.png' }
+const first = { name: 'report résumé.pdf', path: '/tmp/café project/report résumé.pdf' }
+const second = { name: 'screenshot.png', path: '/tmp/attachments/unique/screenshot.png' }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -20,7 +20,7 @@ afterEach(cleanup)
 
 function mount(onSend = vi.fn(async (_prompt: string, _recipient: string) => {})) {
   const { settings } = createInitialState()
-  const task = createTask(settings, '附件测试', '/tmp', 'solo')
+  const task = createTask(settings, 'Attachment test', '/tmp', 'solo')
   const view = render(<Workbench task={task} settings={settings} selectedRunId="" onChange={vi.fn()} onSelectRun={vi.fn()} onSend={onSend} onStop={vi.fn()} onSettings={vi.fn()} onInspector={vi.fn()} inspectorOpen={false} onDuplicate={vi.fn()} />)
   return { ...view, onSend, input: screen.getByRole('textbox', { name: '任务指令' }) as HTMLTextAreaElement }
 }
@@ -38,7 +38,7 @@ it('deduplicates Finder files, displays names and sends only real paths, includi
   expect(screen.getAllByRole('listitem')).toHaveLength(2)
   fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
   await waitFor(() => expect(onSend).toHaveBeenCalledOnce())
-  expect(onSend.mock.calls[0][0]).toBe('附件（本地文件路径）：\n- "报告 中文.pdf": "/tmp/中文 project/报告 中文.pdf"\n- "截图.png": "/tmp/attachments/unique/截图.png"')
+  expect(onSend.mock.calls[0][0]).toBe('附件（本地文件路径）：\n- "report résumé.pdf": "/tmp/café project/report résumé.pdf"\n- "screenshot.png": "/tmp/attachments/unique/screenshot.png"')
   await waitFor(() => expect(screen.queryByLabelText('待发送附件')).toBeNull())
 })
 
@@ -47,28 +47,28 @@ it('blocks sending during import, keeps failed submissions and only removes the 
   mocks.read.mockReturnValueOnce(new Promise<AttachmentFile[]>(resolve => { imported = resolve }))
   let finish!: () => void
   const onSend = vi.fn<(prompt: string, recipient: string) => Promise<void>>()
-    .mockRejectedValueOnce(new Error('启动失败'))
+    .mockRejectedValueOnce(new Error('Startup failed'))
     .mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
   const { input } = mount(onSend)
-  fireEvent.change(input, { target: { value: '请查看' } })
+  fireEvent.change(input, { target: { value: 'Please inspect' } })
   paste(input)
   fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
   expect(onSend).not.toHaveBeenCalled()
   await act(async () => imported([first]))
   fireEvent.click(screen.getByRole('button', { name: '发送指令' }))
-  await screen.findByText('启动失败')
+  await screen.findByText('Startup failed')
   expect(screen.getByText(first.name)).toBeTruthy()
-  expect(input.value).toBe('请查看')
+  expect(input.value).toBe('Please inspect')
   fireEvent.click(screen.getByRole('button', { name: '发送指令' }))
   mocks.read.mockResolvedValueOnce([second])
   paste(input)
   await screen.findByRole('button', { name: `移除附件 ${second.name}` })
-  fireEvent.change(input, { target: { value: '下一轮草稿' } })
+  fireEvent.change(input, { target: { value: 'Next turn draft' } })
   await act(async () => finish())
   expect(screen.queryByText(first.name)).toBeNull()
   expect(screen.queryByRole('button', { name: `移除附件 ${first.name}` })).toBeNull()
   expect(screen.getByRole('button', { name: `移除附件 ${second.name}` })).toBeTruthy()
-  expect(input.value).toBe('下一轮草稿')
+  expect(input.value).toBe('Next turn draft')
 })
 
 it('removes attachments with focus restored, and surfaces import errors without losing text', async () => {
@@ -77,11 +77,11 @@ it('removes attachments with focus restored, and surfaces import errors without 
   fireEvent.click(await screen.findByRole('button', { name: `移除附件 ${first.name}` }))
   expect(document.activeElement).toBe(input)
   expect(screen.queryByLabelText('待发送附件')).toBeNull()
-  mocks.read.mockRejectedValueOnce(new Error('文件已经移动'))
-  fireEvent.change(input, { target: { value: '原草稿' } })
+  mocks.read.mockRejectedValueOnce(new Error('File moved'))
+  fireEvent.change(input, { target: { value: 'Original draft' } })
   paste(input)
-  await screen.findByText('文件已经移动')
-  expect(input.value).toBe('原草稿')
+  await screen.findByText('File moved')
+  expect(input.value).toBe('Original draft')
 })
 
 it('inserts ordinary desktop text at the selection and does not create an attachment', async () => {
@@ -89,8 +89,8 @@ it('inserts ordinary desktop text at the selection and does not create an attach
   const { input } = mount()
   fireEvent.change(input, { target: { value: 'before SELECT after' } })
   input.setSelectionRange(7, 13)
-  paste(input, '粘贴文字')
-  await waitFor(() => expect(input.value).toBe('before 粘贴文字 after'))
+  paste(input, 'Pasted text')
+  await waitFor(() => expect(input.value).toBe('before Pasted text after'))
   expect(screen.queryByLabelText('待发送附件')).toBeNull()
 })
 

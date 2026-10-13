@@ -9,14 +9,14 @@ const directory = 'test-results/collapsible-motion'
 const baseUrl = process.env.TRACE_SMOKE_URL ?? 'http://127.0.0.1:1420'
 const timestamp = new Date().toISOString()
 const runtime = { id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex', enabled: true, args: [], defaultModel: '', description: 'Isolated motion fixture' }
-const member = { id: 'motion-member', name: 'Codex', role: '执行', runtimeId: 'codex', modelId: '', model: '', status: 'running', runtime }
+const member = { id: 'motion-member', name: 'Codex', role: 'Implementation', runtimeId: 'codex', modelId: '', model: '', status: 'running', runtime }
 function record(id, type, item) {
   return { id, kind: 'stdout', taskId: 'motion-task', runId: 'motion-run', memberId: member.id, timestamp, text: JSON.stringify({ type, item }) + '\n' }
 }
 const start = record('motion-start', 'item.started', { id: 'motion-call', type: 'command_execution', command: 'printf "synthetic trace"', cwd: '/tmp/motion-fixture' })
 const end = record('motion-end', 'item.completed', { id: 'motion-call', type: 'command_execution', command: 'printf "synthetic trace"', aggregated_output: 'synthetic trace', exit_code: 0 })
 function fixture(events = [start, end]) {
-  return { id: 'motion-task', title: '折叠动效验收', directory: '/tmp/motion-fixture', mode: 'solo', members: [member], createdAt: timestamp, messages: [], runs: [{ id: 'motion-run', createdAt: timestamp, prompt: 'Animation QA', directory: '/tmp/motion-fixture', members: [member] }], events }
+  return { id: 'motion-task', title: 'Collapsible motion verification', directory: '/tmp/motion-fixture', mode: 'solo', members: [member], createdAt: timestamp, messages: [], runs: [{ id: 'motion-run', createdAt: timestamp, prompt: 'Animation QA', directory: '/tmp/motion-fixture', members: [member] }], events }
 }
 const history = Array.from({ length: 35 }, (_, index) => record(`history-${index}`, 'item.completed', { id: `history-call-${index}`, type: 'command_execution', command: `printf "fixture ${index}"`, aggregated_output: `fixture ${index}`, exit_code: 0 }))
 const report = { status: 'running', startedAt: timestamp, baseUrl, skill: '~/.agents/skills/apple-design/SKILL.md', scope: 'Real presentation-frame geometry, arrows, interruption, nested layout, keyboard/focus, reduced motion, streamed updates and Settings integration. Synthetic isolated browser state only.', scenarios: [], errors: [] }
@@ -38,17 +38,17 @@ function Harness(){
   window.__setTrace=setTask
   return <div style={{height:'100vh',display:'flex',minWidth:0}}>
     <main style={{width:360,maxWidth:'40vw',padding:24,overflow:'auto'}}>
-      <p style={{marginBottom:16,color:'var(--color-muted-foreground)'}}>折叠动画交互验收 · 合成数据</p>
+      <p style={{marginBottom:16,color:'var(--color-muted-foreground)'}}>Collapsible animation interaction verification · Synthetic data</p>
       <Collapsible id="controlled-root" open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger asChild><Button id="controlled-trigger" variant="secondary"><CollapsibleIndicator size={14}/>受控折叠</Button></CollapsibleTrigger>
+        <CollapsibleTrigger asChild><Button id="controlled-trigger" variant="secondary"><CollapsibleIndicator size={14}/>Controlled disclosure</Button></CollapsibleTrigger>
         <CollapsibleContent id="controlled-content"><div style={{padding:16,border:'1px solid var(--color-border)'}}>
-          <input id="controlled-input" aria-label="折叠内输入框" defaultValue="可聚焦内容"/>
-          {Array.from({length:lines},(_,index)=><p key={index} style={{height:32}}>内容第 {index+1} 行</p>)}
-          <Button id="inside-close" onClick={()=>setOpen(false)}>从内容关闭</Button>
+          <input id="controlled-input" aria-label="Input inside disclosure" defaultValue="Focusable content"/>
+          {Array.from({length:lines},(_,index)=><p key={index} style={{height:32}}>Content line {index+1}</p>)}
+          <Button id="inside-close" onClick={()=>setOpen(false)}>Close from content</Button>
         </div></CollapsibleContent>
       </Collapsible>
-      <Button id="outside-next" variant="ghost" style={{marginTop:20}}>下一个焦点</Button>
-      <div style={{marginTop:24,display:'flex',gap:8,flexWrap:'wrap'}}><Button variant="outline" onClick={()=>setOpen(value=>!value)}>外部切换</Button><Button variant="outline" onClick={()=>setLines(value=>value+2)}>增加内容</Button></div>
+      <Button id="outside-next" variant="ghost" style={{marginTop:20}}>Next focus target</Button>
+      <div style={{marginTop:24,display:'flex',gap:8,flexWrap:'wrap'}}><Button variant="outline" onClick={()=>setOpen(value=>!value)}>External toggle</Button><Button variant="outline" onClick={()=>setLines(value=>value+2)}>Add content</Button></div>
     </main>
     <div id="trace-fixture" style={{width:480,minWidth:280,maxWidth:'60vw',height:'100%',borderLeft:'1px solid var(--color-border)',borderRight:'1px solid var(--color-border)'}}><TracePanel task={task} run={task.runs[0]} onClose={()=>{}} onExport={()=>{}}/></div>
   </div>

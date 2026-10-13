@@ -8,22 +8,22 @@ const outputDirectory = 'test-results/trace-panel'
 const baseUrl = process.env.TRACE_SMOKE_URL ?? 'http://127.0.0.1:1420'
 const timestamp = new Date(Date.now() - 4000).toISOString()
 const runtime = { id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex', enabled: true, args: [], defaultModel: '', description: 'Trace browser fixture' }
-const member = { id: 'trace-member', name: 'Codex', role: '执行', runtimeId: 'codex', modelId: '', model: '', status: 'running', runtime }
+const member = { id: 'trace-member', name: 'Codex', role: 'Implementation', runtimeId: 'codex', modelId: '', model: '', status: 'running', runtime }
 const input = { path: 'src/components/TracePanel.tsx', filters: { include: ['tool_call', 'result'], enabled: true, limit: 3, cursor: null }, url: `https://example.invalid/trace/${'long-segment-'.repeat(20)}` }
-const result = { ok: true, files: [{ path: 'src/components/TracePanel.tsx', changes: 3 }], message: '已经读取执行过程配置。' }
+const result = { ok: true, files: [{ path: 'src/components/TracePanel.tsx', changes: 3 }], message: 'Trace configuration read.' }
 function record(id, type, item, second = 0) {
   return { id, kind: 'stdout', taskId: 'trace-task', runId: 'trace-run', memberId: member.id, timestamp: new Date(Date.parse(timestamp) + second * 1000).toISOString(), text: `${JSON.stringify({ type, item })}\n` }
 }
 const firstStart = record('start-1', 'item.started', { id: 'call-1', type: 'mcp_tool_call', server: 'local', tool: 'inspect_config', arguments: input })
 const firstEnd = record('end-1', 'item.completed', { id: 'call-1', type: 'mcp_tool_call', server: 'local', tool: 'inspect_config', result }, 3)
 const secondStart = record('start-2', 'item.started', { id: 'call-2', type: 'mcp_tool_call', server: 'local', tool: 'inspect_config', arguments: { path: 'src/lib/trace-calls.ts', limit: 1 } }, 1)
-const secondEnd = record('end-2', 'item.completed', { id: 'call-2', type: 'mcp_tool_call', server: 'local', tool: 'inspect_config', result: { ok: true, message: '第二个调用独立完成。' } }, 4)
+const secondEnd = record('end-2', 'item.completed', { id: 'call-2', type: 'mcp_tool_call', server: 'local', tool: 'inspect_config', result: { ok: true, message: 'The second call completed independently.' } }, 4)
 function fixtureTask(events, status = 'running') {
   const runMember = { ...member, status }
-  const run = { id: 'trace-run', createdAt: timestamp, prompt: '独立浏览器执行过程验收', directory: '/tmp/trace-panel-fixture', members: [runMember] }
-  return { id: 'trace-task', title: '执行过程 · 工具调用展示', directory: '/tmp/trace-panel-fixture', mode: 'solo', members: [member], createdAt: timestamp, runs: [run], events, messages: [
-    { id: 'user-message', role: 'user', text: '优化执行过程中的 JSON 展示，将工具开始与结束合并，并区分入参和出参。', createdAt: timestamp },
-    { id: 'assistant-message', role: 'assistant', text: '相同调用的生命周期会合并到同一条记录。参数和结果分区展示，JSON 使用缩进、层级线和语法高亮。', createdAt: timestamp },
+  const run = { id: 'trace-run', createdAt: timestamp, prompt: 'Trace verification in an isolated browser', directory: '/tmp/trace-panel-fixture', members: [runMember] }
+  return { id: 'trace-task', title: 'Trace · Tool call presentation', directory: '/tmp/trace-panel-fixture', mode: 'solo', members: [member], createdAt: timestamp, runs: [run], events, messages: [
+    { id: 'user-message', role: 'user', text: 'Improve trace JSON presentation, merge tool start and completion, and distinguish inputs from outputs.', createdAt: timestamp },
+    { id: 'assistant-message', role: 'assistant', text: 'Records from one call share a lifecycle. Inputs and results are shown separately; JSON uses indentation, hierarchy guides, and syntax highlighting.', createdAt: timestamp },
   ] }
 }
 const report = { baseUrl, startedAt: new Date().toISOString(), status: 'running', skill: '~/.agents/skills/apple-design/SKILL.md', scope: 'Real TracePanel and full App in isolated browser contexts, synthetic runtime frames only; no native runtime/storage.', scenarios: [], errors: [] }
@@ -51,9 +51,9 @@ function Harness() {
   const complete = () => setTask(current=>({...current,events:[current.events[0],{...standaloneResult,timestamp:new Date().toISOString()}],runs:current.runs.map(run=>({...run,members:run.members.map(member=>({...member,status:'completed'}))}))}))
   return <div style={{height:'100vh',display:'flex',flexDirection:'column',minWidth:0}}>
     {standalone && <header style={{display:'flex',alignItems:'center',justifyContent:'center',flexWrap:'wrap',gap:12,padding:12,borderBottom:'1px solid var(--color-border)'}}>
-      <span style={{color:'var(--color-muted-foreground)'}}>执行过程交互预览 · 合成数据</span>
-      <Button variant="secondary" size="sm" onClick={()=>setTask(newPreview())}>开始 / 重置</Button>
-      <Button size="sm" onClick={complete} disabled={task.events.length > 1}>返回结果</Button>
+      <span style={{color:'var(--color-muted-foreground)'}}>Trace interaction preview · Synthetic data</span>
+      <Button variant="secondary" size="sm" onClick={()=>setTask(newPreview())}>Start / Reset</Button>
+      <Button size="sm" onClick={complete} disabled={task.events.length > 1}>Return result</Button>
     </header>}
     <div style={{flex:1,minHeight:0,display:'flex',justifyContent:'center',minWidth:0}}><div id="trace-fixture" style={{width,maxWidth:'100vw',height:'100%',minWidth:0,borderLeft:'1px solid var(--color-border)',borderRight:'1px solid var(--color-border)'}}><TracePanel task={task} run={task.runs[0]} onClose={()=>{window.__closed=true}} onExport={()=>{window.__exported=true}} /></div></div>
   </div>
@@ -249,21 +249,21 @@ try {
     page.on('pageerror',error=>report.errors.push(error.message))
     try {
       await page.goto(`${baseUrl}/${outputDirectory}/harness.html`)
-      await expect(page.getByText('执行过程交互预览 · 合成数据',{exact:true})).toBeVisible()
+      await expect(page.getByText('Trace interaction preview · Synthetic data',{exact:true})).toBeVisible()
       const row=page.locator('.trace-event')
       await expect(row).toHaveCount(1)
       await expect(row).toHaveAttribute('data-call-status','running')
       await row.evaluate(node=>{window.__standaloneRow=node})
-      await page.getByRole('button',{name:'返回结果',exact:true}).click()
+      await page.getByRole('button',{name:'Return result',exact:true}).click()
       await expect(row).toHaveAttribute('data-call-status','completed')
       await expect(row.locator('.trace-call-output')).toContainText('Runtime reference')
       assert.equal(await row.evaluate(node=>node===window.__standaloneRow),true)
-      await expect(page.getByRole('button',{name:'返回结果',exact:true})).toBeDisabled()
+      await expect(page.getByRole('button',{name:'Return result',exact:true})).toBeDisabled()
       await page.screenshot({path:`${outputDirectory}/standalone-preview.png`})
-      await page.getByRole('button',{name:'开始 / 重置',exact:true}).click()
+      await page.getByRole('button',{name:'Start / Reset',exact:true}).click()
       await expect(row).toHaveCount(1)
       await expect(row).toHaveAttribute('data-call-status','running')
-      await expect(page.getByRole('button',{name:'返回结果',exact:true})).toBeEnabled()
+      await expect(page.getByRole('button',{name:'Return result',exact:true})).toBeEnabled()
       await expect(row.getByText('等待工具返回结果…',{exact:true})).toBeVisible()
       assert.equal(await page.evaluate(()=>Boolean(window.__TAURI_INTERNALS__)),false)
       report.scenarios.push({viewport:{width:1280,height:960},surface:'standalone-preview',checks:{directOpen:true,noInjectedFixture:true,startCompleteReset:true,sameRowOnCompletion:true}})

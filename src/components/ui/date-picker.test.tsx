@@ -28,7 +28,7 @@ function ControlledPicker({ initial = '2028-02-28', min, max, onChange = () => {
   initial?: string; min?: string; max?: string; onChange?: (value: string) => void
 }) {
   const [value, setValue] = useState(initial)
-  return <><DatePicker aria-label="目标日期" value={value} min={min} max={max} onValueChange={next => { onChange(next); setValue(next) }} /><output aria-label="保存的日期">{value}</output></>
+  return <><DatePicker aria-label="Target date" value={value} min={min} max={max} onValueChange={next => { onChange(next); setValue(next) }} /><output aria-label="Saved date">{value}</output></>
 }
 
 async function expectClosed() {
@@ -44,30 +44,30 @@ describe('DatePicker date-only storage and calendar behavior', () => {
   it('reads an existing date, selects a leap day without changing its calendar day, and clears it', async () => {
     const onChange = vi.fn()
     render(<ControlledPicker onChange={onChange} />)
-    const trigger = screen.getByRole('button', { name: '目标日期', description: '2028年2月28日' })
+    const trigger = screen.getByRole('button', { name: 'Target date', description: '2028年2月28日' })
     expect(trigger.textContent).toBe('2028年2月28日')
     await openPicker(trigger)
     expect(dayButton('2028-02-28').getAttribute('data-selected-single')).toBe('true')
     fireEvent.click(dayButton('2028-02-29'))
     await expectClosed()
     expect(onChange).toHaveBeenLastCalledWith('2028-02-29')
-    expect(screen.getByLabelText('保存的日期').textContent).toBe('2028-02-29')
+    expect(screen.getByLabelText('Saved date').textContent).toBe('2028-02-29')
     expect(trigger.textContent).toBe('2028年2月29日')
-    expect(screen.getByRole('button', { name: '目标日期', description: '2028年2月29日' })).toBe(trigger)
+    expect(screen.getByRole('button', { name: 'Target date', description: '2028年2月29日' })).toBe(trigger)
     await waitFor(() => expect(document.activeElement).toBe(trigger))
 
     await openPicker(trigger)
     fireEvent.click(screen.getByRole('button', { name: '清除日期' }))
     await expectClosed()
     expect(onChange).toHaveBeenLastCalledWith('')
-    expect(screen.getByLabelText('保存的日期').textContent).toBe('')
+    expect(screen.getByLabelText('Saved date').textContent).toBe('')
     expect(trigger.textContent).toBe('选择日期')
   })
 
   it('disables dates outside the inclusive min/max range and allows each boundary', async () => {
     const onChange = vi.fn()
     render(<ControlledPicker min="2028-02-28" max="2028-02-29" onChange={onChange} />)
-    const trigger = screen.getByRole('button', { name: '目标日期' })
+    const trigger = screen.getByRole('button', { name: 'Target date' })
     await openPicker(trigger)
     expect(dayButton('2028-02-27').disabled).toBe(true)
     expect(dayButton('2028-03-01').disabled).toBe(true)
@@ -89,26 +89,26 @@ describe('DatePicker date-only storage and calendar behavior', () => {
     const onSubmit = vi.fn()
     function DialogPicker() {
       const [open, setOpen] = useState(false)
-      return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button>编辑任务</Button></DialogTrigger><DialogContent><DialogTitle>编辑任务日期</DialogTitle><DialogDescription>修改任务的截止日期。</DialogDescription><form onSubmit={event => { event.preventDefault(); onSubmit() }}><ControlledPicker /><Button type="submit">保存</Button></form></DialogContent></Dialog>
+      return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button>Edit task</Button></DialogTrigger><DialogContent><DialogTitle>Edit task date</DialogTitle><DialogDescription>Change the task deadline.</DialogDescription><form onSubmit={event => { event.preventDefault(); onSubmit() }}><ControlledPicker /><Button type="submit">Save</Button></form></DialogContent></Dialog>
     }
     render(<DialogPicker />)
-    const opener = screen.getByRole('button', { name: '编辑任务' })
+    const opener = screen.getByRole('button', { name: 'Edit task' })
     fireEvent.click(opener)
-    const trigger = await screen.findByRole('button', { name: '目标日期' })
+    const trigger = await screen.findByRole('button', { name: 'Target date' })
     await openPicker(trigger)
     await waitFor(() => expect(document.activeElement).toBe(dayButton('2028-02-28')))
     fireEvent.keyDown(dayButton('2028-02-28'), { key: 'ArrowRight' })
     await waitFor(() => expect(document.activeElement).toBe(dayButton('2028-02-29')))
     fireEvent.keyDown(dayButton('2028-02-29'), { key: 'Escape' })
     await expectClosed()
-    expect(screen.getByRole('dialog', { name: '编辑任务日期' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: 'Edit task date' })).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(trigger))
     expect(onSubmit).not.toHaveBeenCalled()
 
     await openPicker(trigger)
     fireEvent.click(dayButton('2028-02-29'))
     await expectClosed()
-    expect(screen.getByLabelText('保存的日期').textContent).toBe('2028-02-29')
+    expect(screen.getByLabelText('Saved date').textContent).toBe('2028-02-29')
     expect(onSubmit).not.toHaveBeenCalled()
     await waitFor(() => expect(document.activeElement).toBe(trigger))
     fireEvent.keyDown(trigger, { key: 'Escape' })
@@ -118,17 +118,17 @@ describe('DatePicker date-only storage and calendar behavior', () => {
 
   it('closes when disabled and stays closed when re-enabled until the trigger is activated', async () => {
     const onChange = vi.fn()
-    const view = render(<DatePicker aria-label="目标日期" value="2028-02-28" onValueChange={onChange} />)
-    await openPicker(screen.getByRole('button', { name: '目标日期' }))
+    const view = render(<DatePicker aria-label="Target date" value="2028-02-28" onValueChange={onChange} />)
+    await openPicker(screen.getByRole('button', { name: 'Target date' }))
     expect(dayButton('2028-02-28')).toBeTruthy()
-    view.rerender(<DatePicker aria-label="目标日期" value="2028-02-28" onValueChange={onChange} disabled />)
+    view.rerender(<DatePicker aria-label="Target date" value="2028-02-28" onValueChange={onChange} disabled />)
     await expectClosed()
-    const trigger = screen.getByRole('button', { name: '目标日期' }) as HTMLButtonElement
+    const trigger = screen.getByRole('button', { name: 'Target date' }) as HTMLButtonElement
     expect(trigger.disabled).toBe(true)
     fireEvent.click(trigger)
     expect(document.querySelector('[data-slot="calendar"]')).toBeNull()
     expect(onChange).not.toHaveBeenCalled()
-    view.rerender(<DatePicker aria-label="目标日期" value="2028-02-28" onValueChange={onChange} />)
+    view.rerender(<DatePicker aria-label="Target date" value="2028-02-28" onValueChange={onChange} />)
     expect(document.querySelector('[data-slot="calendar"]')).toBeNull()
     await openPicker(trigger)
     expect(dayButton('2028-02-28')).toBeTruthy()
@@ -139,10 +139,10 @@ describe('DatePicker date-only storage and calendar behavior', () => {
     const onChange = vi.fn()
     function LanguagePicker() {
       const { setPreference } = useI18n()
-      return <><DatePicker aria-label="目标日期" value="2028-02-29" onValueChange={onChange} /><Button onClick={() => setPreference('en')}>English</Button></>
+      return <><DatePicker aria-label="Target date" value="2028-02-29" onValueChange={onChange} /><Button onClick={() => setPreference('en')}>English</Button></>
     }
     render(<I18nProvider><LanguagePicker /></I18nProvider>)
-    const trigger = await screen.findByRole('button', { name: '目标日期' })
+    const trigger = await screen.findByRole('button', { name: 'Target date' })
     expect(trigger.textContent).toBe('2028年2月29日')
     await openPicker(trigger)
     expect(screen.getByRole('button', { name: '清除日期' })).toBeTruthy()

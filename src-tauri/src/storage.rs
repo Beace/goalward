@@ -302,7 +302,7 @@ mod tests {
         let storage = Storage::new(directory.path().into()).unwrap();
         assert!(storage.load().unwrap_err().contains("preserved"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "broken");
-        let expected = serde_json::json!({"version":1,"tasks":[{"id":"task-1","text":"中文"}]});
+        let expected = serde_json::json!({"version":1,"tasks":[{"id":"task-1","text":"café"}]});
         fs::write(&path, serde_json::to_vec(&expected).unwrap()).unwrap();
         assert_eq!(storage.load().unwrap(), Some(expected));
     }
@@ -339,7 +339,7 @@ mod tests {
 
     fn sample_state() -> Value {
         serde_json::json!({"version":2,"settings":{"theme":"dark"},"tasks":[{
-            "id":"task", "title":"中文", "messages":[{"id":"message","text":"hello"}],
+            "id":"task", "title":"café", "messages":[{"id":"message","text":"hello"}],
             "runs":[{"id":"run"}],"artifacts":[], "events":[
                 {"id":"event-1","taskId":"task","runId":"run","memberId":"member","timestamp":"same","kind":"stdout","text":"first"},
                 {"id":"event-2","taskId":"task","runId":"run","memberId":"member","timestamp":"same","kind":"stdout","text":"second"}

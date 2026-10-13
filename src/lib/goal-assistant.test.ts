@@ -7,12 +7,12 @@ import type { AppState, Run, RuntimeEvent } from './types'
 import type { GoalAssistantDraft, GoalTaskProposal } from './goal-types'
 import { adoptGoalTaskProposal, adoptGoalTaskProposals, confirmGoalAssistantDraft, createGoalAssistantTask, dismissGoalTaskProposal, goalAssistantMessageText, goalAssistantPrompt, goalAssistantRuntime, parseGoalAssistantResponse, processGoalAssistantRun, rollbackGoalAssistantAction, validateGoalAssistantDate, validateGoalTaskProposals } from './goal-assistant'
 
-const draft: GoalAssistantDraft = { title: '形成可以验证的方案', intent: '减少后续返工', expected: '完成一个可试用方案并明确限制', constraints: '只处理已约定范围', deadline: '2026-10-30', currentSummary: '现有实现尚待调查', criteria: [{ text: '可试用方案', baseline: '尚无验证', target: '主要流程通过试用', method: '演示约定流程并保存检查记录' }] }
-const block = (action: unknown) => `可读回复。\n\n\`\`\`goalward\n${JSON.stringify(action)}\n\`\`\``
-const planInput = (overrides: Record<string, unknown> = {}) => ({ id: 'investigate', title: '调查边界', delivery: '边界与未知清单', acceptance: '清单覆盖约定模块并标记未知', deadline: '2026-10-20', dependsOn: [], ...overrides })
+const draft: GoalAssistantDraft = { title: 'Develop a verifiable plan', intent: 'Reduce future rework', expected: 'Complete a trial plan and identify limitations', constraints: 'Handle the agreed scope only', deadline: '2026-10-30', currentSummary: 'Existing implementation needs investigation', criteria: [{ text: 'Trial plan', baseline: 'No verification yet', target: 'Main workflow passes the trial', method: 'Demonstrate the agreed workflow and save check records' }] }
+const block = (action: unknown) => `Readable reply.\n\n\`\`\`goalward\n${JSON.stringify(action)}\n\`\`\``
+const planInput = (overrides: Record<string, unknown> = {}) => ({ id: 'investigate', title: 'Investigate boundaries', delivery: 'Boundaries and unknowns inventory', acceptance: 'Checklist covers the agreed modules and identifies unknowns', deadline: '2026-10-20', dependsOn: [], ...overrides })
 function stateWithGoal(): AppState {
   const state = createInitialState()
-  const goal = createGoal({ title: '我想改善这个产品' })
+  const goal = createGoal({ title: 'I want to improve this product' })
   return { ...state, goals: [{ ...goal, assistant: { input: goal.title } }] }
 }
 function responseState(response: string, phase: 'clarify' | 'plan' = 'clarify') {
@@ -22,25 +22,25 @@ function responseState(response: string, phase: 'clarify' | 'plan' = 'clarify') 
   const task = createGoalAssistantTask(state.settings, { goalId: goal.id, directory: '/app/goal-workspace' })
   goal = { ...goal, assistant: { ...goal.assistant, taskId: task.id, requestPhase: phase } }
   state = { ...state, goals: [goal], tasks: [...state.tasks, task] }
-  const run: Run = { id: 'run-assistant', createdAt: '2026-10-10T00:00:00Z', directory: task.directory, prompt: '帮助我澄清', context: captureRunContext(state, task), members: [{ ...task.members[0], runtime: goalAssistantRuntime(state.settings.runtimes[0]), model: '', status: 'completed' }] }
+  const run: Run = { id: 'run-assistant', createdAt: '2026-10-10T00:00:00Z', directory: task.directory, prompt: 'Help clarify the goal', context: captureRunContext(state, task), members: [{ ...task.members[0], runtime: goalAssistantRuntime(state.settings.runtimes[0]), model: '', status: 'completed' }] }
   state = { ...state, tasks: state.tasks.map(item => item.id === task.id ? { ...item, runs: [run], messages: [{ id: 'reply', role: 'assistant', text: response.replaceAll('VERSION', String(goal.version)), runId: run.id, createdAt: run.createdAt }] } : item) }
   return { state, goal, task, run }
 }
 describe('streamed goal assistant prose', () => {
   it('shows incomplete prose immediately while withholding every split of the internal action fence', () => {
-    expect(goalAssistantMessageText('先确定')).toBe('先确定')
-    const response = '先确定成功标准。\n\n```goalward\r\n{"draft":null}\n```'
+    expect(goalAssistantMessageText('Define ')).toBe('Define')
+    const response = 'Define success criteria first.\n\n```goalward\r\n{"draft":null}\n```'
     const start = response.indexOf('```')
     for (let end = start; end <= response.length; end++) {
-      expect(goalAssistantMessageText(response.slice(0, end))).toBe('先确定成功标准。')
+      expect(goalAssistantMessageText(response.slice(0, end))).toBe('Define success criteria first.')
     }
     expect(goalAssistantMessageText('```goalward\n{"draft":null}')).toBe('')
   })
   it('preserves ordinary Markdown code blocks and fences mentioned inline', () => {
-    const response = '使用 `goalward` 格式。\n```ts\nconst x = 1\n```\n继续说明。'
+    const response = 'Use the `goalward` format.\n```ts\nconst x = 1\n```\nContinue explaining.'
     expect(goalAssistantMessageText(response)).toBe(response)
     expect(goalAssistantMessageText('```ts\nconst x = 1\n```')).toBe('```ts\nconst x = 1\n```')
-    expect(goalAssistantMessageText('说明 ```goalward 示例')).toBe('说明 ```goalward 示例')
+    expect(goalAssistantMessageText('Example ```goalward block')).toBe('Example ```goalward block')
   })
 })
 describe('untrusted assistant action parsing', () => {
@@ -85,8 +85,8 @@ describe('real Runtime results remain suggestions', () => {
     task.messages = []
     task.runs[0].members[0] = { ...task.runs[0].members[0], runtime: { ...task.runs[0].members[0].runtime, adapter: 'claude' }, status: 'running' }
     const response = (latest: boolean) => block(phase === 'clarify'
-      ? { type: phase, baseGoalVersion: fixture.goal.version, draft: { ...draft, title: latest ? '追加约束后的目标' : '第一版目标' } }
-      : { type: phase, baseGoalVersion: fixture.goal.version, proposals: [planInput({ title: latest ? '追加约束后的任务' : '第一版任务' })] })
+      ? { type: phase, baseGoalVersion: fixture.goal.version, draft: { ...draft, title: latest ? 'Goal after adding constraints' : 'First goal version' } }
+      : { type: phase, baseGoalVersion: fixture.goal.version, proposals: [planInput({ title: latest ? 'Task after adding constraints' : 'First task version' })] })
     let state = fixture.state, sequence = 0
     const emit = (payload: unknown) => {
       const event: RuntimeEvent = { id: `follow-up-${++sequence}`, taskId: task.id, runId: fixture.run.id, memberId: task.members[0].id, timestamp: new Date(Date.parse(fixture.run.createdAt) + sequence * 1000).toISOString(), kind: 'stdout', text: JSON.stringify(payload) + '\n' }
@@ -107,8 +107,8 @@ describe('real Runtime results remain suggestions', () => {
     state = applyRuntimeEvent(state, { id: 'follow-ups-completed', taskId: task.id, runId: fixture.run.id, memberId: task.members[0].id, timestamp: '2026-10-10T00:01:00Z', kind: 'completed', text: '' })
     const next = processGoalAssistantRun(state, fixture.goal.id, fixture.run.id)
     expect(next.goals[0].assistant?.error).toBeUndefined()
-    if (phase === 'clarify') expect(next.goals[0].assistant?.draft?.title).toBe('追加约束后的目标')
-    else expect(next.goals[0].assistant?.proposals?.[0].title).toBe('追加约束后的任务')
+    if (phase === 'clarify') expect(next.goals[0].assistant?.draft?.title).toBe('Goal after adding constraints')
+    else expect(next.goals[0].assistant?.proposals?.[0].title).toBe('Task after adding constraints')
     expect(next.tasks).toBe(state.tasks)
     expect(next.tasks.find(item => item.id === task.id)!.messages.map(item => item.text)).toEqual([response(false), response(true)])
     expect(processGoalAssistantRun(next, fixture.goal.id, fixture.run.id)).toBe(next)
@@ -116,7 +116,7 @@ describe('real Runtime results remain suggestions', () => {
   it('does not fall back to a previous action when the final follow-up is malformed', () => {
     const fixture = responseState(block({ type: 'clarify', baseGoalVersion: 1, draft }))
     const task = fixture.state.tasks.find(item => item.id === fixture.task.id)!
-    task.messages.push({ ...task.messages[0], id: 'latest-reply', text: '最后一条回复缺少结构化结果。' })
+    task.messages.push({ ...task.messages[0], id: 'latest-reply', text: 'The final reply lacks structured results.' })
     const next = processGoalAssistantRun(fixture.state, fixture.goal.id, fixture.run.id)
     expect(next.goals[0].assistant?.draft).toBeUndefined()
     expect(next.goals[0].assistant?.error).toContain('goalward')
@@ -169,11 +169,11 @@ describe('real Runtime results remain suggestions', () => {
   })
   it('preserves edits made while replying and records format errors for explicit retry', () => {
     const fixture = responseState(block({ type: 'clarify', baseGoalVersion: 1, draft }))
-    const edited = { ...fixture.state, goals: [{ ...fixture.goal, assistant: { ...fixture.goal.assistant, draft: { ...draft, title: '我已修改' } } }] }
+    const edited = { ...fixture.state, goals: [{ ...fixture.goal, assistant: { ...fixture.goal.assistant, draft: { ...draft, title: 'I have made changes' } } }] }
     const kept = processGoalAssistantRun(edited, fixture.goal.id, fixture.run.id)
-    expect(kept.goals[0].assistant?.draft?.title).toBe('我已修改')
+    expect(kept.goals[0].assistant?.draft?.title).toBe('I have made changes')
     expect(kept.goals[0].assistant?.error).toContain('修改')
-    const broken = responseState('正常完成了对话，但没有有效的 action。')
+    const broken = responseState('The conversation completed normally without a valid action.')
     const result = processGoalAssistantRun(broken.state, broken.goal.id, broken.run.id)
     expect(result.goals[0].assistant?.error).toContain('goalward')
     expect(result.goals[0].assistant?.processedRunId).toBe(broken.run.id)
@@ -188,11 +188,11 @@ describe('real Runtime results remain suggestions', () => {
   })
   it('does not publish a draft from before a manual summary update', () => {
     const fixture = responseState(block({ type: 'clarify', baseGoalVersion: 1, draft }))
-    const newerGoal = updateGoalState(fixture.goal, { summary: '用户更新的真实现状', reason: '发现新情况' })
+    const newerGoal = updateGoalState(fixture.goal, { summary: 'Actual current state updated by the user', reason: 'New information found' })
     const next = processGoalAssistantRun({ ...fixture.state, goals: [newerGoal] }, fixture.goal.id, fixture.run.id)
     expect(next.goals[0].assistant?.draft).toBeUndefined()
     expect(next.goals[0].assistant?.error).toContain('现状已更新')
-    expect(next.goals[0].currentState.summary).toBe('用户更新的真实现状')
+    expect(next.goals[0].currentState.summary).toBe('Actual current state updated by the user')
   })
   function retryState(incoming: Array<ReturnType<typeof planInput>>, existing: (version: number) => GoalTaskProposal[]) {
     const fixture = responseState('', 'plan'), proposals = existing(fixture.goal.version)
@@ -202,11 +202,11 @@ describe('real Runtime results remain suggestions', () => {
     return { ...fixture, goal, state }
   }
   it('keeps user-edited suggestions while replacing untouched ones and adds valid new dependencies', () => {
-    const fixture = retryState([planInput({ title: '模型重写旧任务' }), planInput({ id: 'build', deadline: '2026-10-25', dependsOn: ['investigate'] })], version => [
-      { ...planInput({ title: '用户编辑的名称', delivery: '用户选择的交付', acceptance: '人工指定标准' }), edited: true, status: 'suggested', baseGoalVersion: version },
+    const fixture = retryState([planInput({ title: 'Model-rewritten old task' }), planInput({ id: 'build', deadline: '2026-10-25', dependsOn: ['investigate'] })], version => [
+      { ...planInput({ title: 'User-edited name', delivery: 'Delivery selected by the user', acceptance: 'Manually specified criteria' }), edited: true, status: 'suggested', baseGoalVersion: version },
       { ...planInput({ id: 'obsolete' }), status: 'suggested', baseGoalVersion: version },
     ])
-    expect(goalAssistantPrompt(fixture.goal, 'plan')).toContain('用户编辑的名称')
+    expect(goalAssistantPrompt(fixture.goal, 'plan')).toContain('User-edited name')
     const next = processGoalAssistantRun(fixture.state, fixture.goal.id, fixture.run.id)
     expect(next.goals[0].assistant?.error).toBeUndefined()
     expect(next.goals[0].assistant?.proposals).toHaveLength(2)
@@ -217,7 +217,7 @@ describe('real Runtime results remain suggestions', () => {
   it('keeps the original plan and reports errors if preserved edits make merged dependencies or dates invalid', () => {
     for (const invalid of ['missing', 'date'] as const) {
       const fixture = retryState([planInput({ id: 'build', deadline: '2026-10-22', dependsOn: invalid === 'date' ? ['investigate'] : [] })], version => [
-        { ...planInput({ title: '不可丢的手改任务', deadline: invalid === 'date' ? '2026-10-28' : '2026-10-20', dependsOn: invalid === 'missing' ? ['previous'] : [] }), edited: true, status: 'suggested', baseGoalVersion: version },
+        { ...planInput({ title: 'Manually edited task that must be retained', deadline: invalid === 'date' ? '2026-10-28' : '2026-10-20', dependsOn: invalid === 'missing' ? ['previous'] : [] }), edited: true, status: 'suggested', baseGoalVersion: version },
         ...(invalid === 'missing' ? [{ ...planInput({ id: 'previous' }), status: 'suggested' as const, baseGoalVersion: version }] : []),
       ])
       const next = processGoalAssistantRun(fixture.state, fixture.goal.id, fixture.run.id)
@@ -234,7 +234,7 @@ describe('explicit confirmation and task adoption', () => {
     const goal = confirmed.goals[0]
     const proposals: GoalTaskProposal[] = [
       { ...planInput(), status: 'suggested', baseGoalVersion: goal.version },
-      { ...planInput({ id: 'build', title: '制作方案', deadline: '2026-10-25', dependsOn: ['investigate'] }), status: 'suggested', baseGoalVersion: goal.version } as GoalTaskProposal,
+      { ...planInput({ id: 'build', title: 'Develop plan', deadline: '2026-10-25', dependsOn: ['investigate'] }), status: 'suggested', baseGoalVersion: goal.version } as GoalTaskProposal,
     ]
     return { ...confirmed, goals: [{ ...goal, assistant: { ...goal.assistant, proposals } }] }
   }
@@ -253,7 +253,7 @@ describe('explicit confirmation and task adoption', () => {
     const suggestions = next.goals[0].assistant!.proposals!
     const first = next.tasks.find(item => item.id === suggestions[0].taskId)!
     const second = next.tasks.find(item => item.id === suggestions[1].taskId)!
-    expect(first).toMatchObject({ delivery: '边界与未知清单', deadline: '2026-10-20', businessStatus: 'todo', requirementsVersion: 0, runs: [], results: [] })
+    expect(first).toMatchObject({ delivery: 'Boundaries and unknowns inventory', deadline: '2026-10-20', businessStatus: 'todo', requirementsVersion: 0, runs: [], results: [] })
     expect(second.dependencies).toEqual([first.id])
     expect(next.goals[0].criteria[0].status).toBe('unverified')
     expect(adoptGoalTaskProposals(next, state.goals[0].id)).toBe(next)
@@ -272,7 +272,7 @@ describe('explicit confirmation and task adoption', () => {
   })
   it('keeps adopted source history as a dependency when the confirmed goal is revised', () => {
     const initial = proposedState(), adopted = adoptGoalTaskProposal(initial, initial.goals[0].id, 'investigate'), original = adopted.goals[0]
-    const revised = confirmGoalAssistantDraft(adopted, original.id, { ...draft, title: '修订后的范围' })
+    const revised = confirmGoalAssistantDraft(adopted, original.id, { ...draft, title: 'Revised scope' })
     const goal = revised.goals[0], previous = goal.assistant!.proposals![0]
     const state = { ...revised, goals: [{ ...goal, assistant: { ...goal.assistant, proposals: [previous, { ...goal.assistant!.proposals![1], baseGoalVersion: goal.version }] } }] }
     const next = adoptGoalTaskProposal(state, goal.id, 'build')
@@ -283,23 +283,23 @@ describe('explicit confirmation and task adoption', () => {
   })
   it('invalidates acceptance after outcome or verification changes while archiving evidence', () => {
     let goal = createGoal({ title: draft.title, expected: draft.expected, criteria: draft.criteria })
-    goal = updateCriterion(goal, goal.criteria[0].id, 'satisfied', '用户验证记录')
+    goal = updateCriterion(goal, goal.criteria[0].id, 'satisfied', 'User verification records')
     goal = setGoalStatus(goal, 'achieved')
     const context = structuredClone(goal)
-    for (const change of [{ expected: '新的预期', criteria: draft.criteria }, { expected: draft.expected, criteria: [{ ...draft.criteria[0], method: '新的验证方法' }] }]) {
-      const next = reviseGoal(goal, { ...draft, ...change, reason: '用户改变验收范围' })
+    for (const change of [{ expected: 'New expectations', criteria: draft.criteria }, { expected: draft.expected, criteria: [{ ...draft.criteria[0], method: 'New verification method' }] }]) {
+      const next = reviseGoal(goal, { ...draft, ...change, reason: 'User changed the acceptance scope' })
       expect(next.criteria[0]).toMatchObject({ status: 'unverified', evidence: '' })
       expect(next.status).toBe('active')
-      expect(next.definitions[0].criteria[0].evidence).toBe('用户验证记录')
+      expect(next.definitions[0].criteria[0].evidence).toBe('User verification records')
       expect(goal).toEqual(context)
     }
   })
   it('rolls back a failed confirmation while preserving concurrent input, tasks and settings', () => {
     const before = stateWithGoal(), applied = confirmGoalAssistantDraft(before, before.goals[0].id, draft)
-    const current = { ...applied, settings: { ...applied.settings, maxParallel: 5 }, goals: [{ ...applied.goals[0], assistant: { ...applied.goals[0].assistant, input: '回复期间的新输入' } }] }
+    const current = { ...applied, settings: { ...applied.settings, maxParallel: 5 }, goals: [{ ...applied.goals[0], assistant: { ...applied.goals[0].assistant, input: 'New input during the reply' } }] }
     const restored = rollbackGoalAssistantAction(current, before, applied)
     expect(restored.goals[0]).toMatchObject({ title: before.goals[0].title, version: before.goals[0].version, status: 'clarifying' })
-    expect(restored.goals[0].assistant).toEqual({ input: '回复期间的新输入' })
+    expect(restored.goals[0].assistant).toEqual({ input: 'New input during the reply' })
     expect(restored.settings.maxParallel).toBe(5)
     expect(restored.tasks).toEqual(current.tasks)
     expect(confirmGoalAssistantDraft(restored, before.goals[0].id, draft).goals[0].assistant?.confirmedVersion).toBe(applied.goals[0].version)
@@ -309,27 +309,27 @@ describe('explicit confirmation and task adoption', () => {
     const before = proposedState(), applied = adoptGoalTaskProposals(before, before.goals[0].id)
     expect(rollbackGoalAssistantAction(applied, before, applied)).toEqual(before)
     const taskId = applied.goals[0].assistant!.proposals![0].taskId!
-    const current = { ...applied, tasks: applied.tasks.map(task => task.id === taskId ? { ...task, messages: [{ id: 'concurrent', role: 'user' as const, text: '已开始的任务', createdAt: '2026-10-10T00:00:00Z' }] } : task) }
+    const current = { ...applied, tasks: applied.tasks.map(task => task.id === taskId ? { ...task, messages: [{ id: 'concurrent', role: 'user' as const, text: 'Task already started', createdAt: '2026-10-10T00:00:00Z' }] } : task) }
     const restored = rollbackGoalAssistantAction(current, before, applied)
-    expect(restored.tasks.find(task => task.id === taskId)?.messages[0].text).toBe('已开始的任务')
+    expect(restored.tasks.find(task => task.id === taskId)?.messages[0].text).toBe('Task already started')
     expect(restored.tasks).toHaveLength(before.tasks.length + 1)
     expect(restored.goals[0].assistant!.proposals!.find(item => item.id === 'investigate')).toMatchObject({ status: 'adopted', taskId })
     expect(restored.goals[0].assistant!.proposals!.find(item => item.id === 'build')?.status).toBe('suggested')
     expect(before.goals[0].assistant!.proposals![0].status).toBe('suggested')
   })
   it('restores a failed new-goal action and exploration input without discarding later edits', () => {
-    const before = { ...stateWithGoal(), goalExplorationInput: '尚未提交的想法' }, newGoal = createGoal({ title: before.goalExplorationInput })
+    const before = { ...stateWithGoal(), goalExplorationInput: 'Unsubmitted idea' }, newGoal = createGoal({ title: before.goalExplorationInput })
     const applied = { ...before, goals: [...before.goals, newGoal], activeGoalId: newGoal.id, goalExplorationInput: '' }
     expect(rollbackGoalAssistantAction(applied, before, applied)).toEqual(before)
-    const current = { ...applied, goalExplorationInput: '新的想法', goals: [...before.goals, { ...newGoal, intent: '并发补充' }] }
+    const current = { ...applied, goalExplorationInput: 'New idea', goals: [...before.goals, { ...newGoal, intent: 'Concurrent addition' }] }
     const restored = rollbackGoalAssistantAction(current, before, applied)
-    expect(restored.goals.at(-1)?.intent).toBe('并发补充')
-    expect(restored.goalExplorationInput).toBe('新的想法')
+    expect(restored.goals.at(-1)?.intent).toBe('Concurrent addition')
+    expect(restored.goalExplorationInput).toBe('New idea')
   })
   it('invalidates a stale draft after formal revisions and rejects its captured source or unversioned retry', () => {
     const state = proposedState(), original = state.goals[0]
     const source = { goalVersion: original.version, stateVersion: original.currentState.version }
-    const revised = reviseGoal(original, { ...draft, title: '用户修订的新名称', expected: '用户修订的新结果', deadline: '2026-11-05', criteria: draft.criteria, reason: '明确新的交付范围' })
+    const revised = reviseGoal(original, { ...draft, title: 'New name revised by the user', expected: 'New result revised by the user', deadline: '2026-11-05', criteria: draft.criteria, reason: 'Clarify the new delivery scope' })
     expect(revised.assistant?.draft).toBeUndefined()
     expect(revised.assistant?.proposals).toBe(original.assistant?.proposals)
     expect(revised.assistant?.input).toBe(original.assistant?.input)
@@ -341,25 +341,25 @@ describe('explicit confirmation and task adoption', () => {
     expect(reconfirmed.goals[0]).toMatchObject({ title: revised.title, expected: revised.expected, deadline: revised.deadline })
     expect(reconfirmed.goals[0].assistant?.draftGoalVersion).toBe(reconfirmed.goals[0].version)
     expect(reconfirmed.tasks).toBe(state.tasks)
-    expect(revised.definitions.at(-1)?.title).toBe('用户修订的新名称')
+    expect(revised.definitions.at(-1)?.title).toBe('New name revised by the user')
   })
   it('invalidates legacy drafts on changed summary but preserves draft content on an unchanged summary', () => {
     const state = proposedState(), original = state.goals[0]
     const legacy = { ...original, assistant: { ...original.assistant, draftGoalVersion: undefined, draftStateVersion: undefined } }
-    const updated = updateGoalState(legacy, { summary: '用户补充的新现状', reason: '情况变化' })
+    const updated = updateGoalState(legacy, { summary: 'New current state supplied by the user', reason: 'Situation changed' })
     expect(updated.assistant?.draft).toBeUndefined()
     expect(updated.assistant?.draftStateVersion).toBe(legacy.currentState.version)
     expect(updated.assistant?.proposals).toBe(legacy.assistant?.proposals)
     expect(() => confirmGoalAssistantDraft({ ...state, goals: [updated] }, updated.id, draft)).toThrow('已更新')
     const source = { goalVersion: original.version, stateVersion: original.currentState.version }
     expect(() => confirmGoalAssistantDraft({ ...state, goals: [updated] }, updated.id, draft, source)).toThrow('已更新')
-    const identical = updateGoalState(original, { summary: original.currentState.summary, reason: '现状条目补充' })
+    const identical = updateGoalState(original, { summary: original.currentState.summary, reason: 'Current state entry addition' })
     expect(identical.assistant?.draft).toEqual(draft)
     expect(identical.assistant?.draftStateVersion).toBe(identical.currentState.version)
     const reconfirmed = confirmGoalAssistantDraft({ ...state, goals: [updated] }, updated.id, { ...draft, currentSummary: updated.currentState.summary }, { goalVersion: updated.version, stateVersion: updated.currentState.version })
-    expect(reconfirmed.goals[0].currentState.summary).toBe('用户补充的新现状')
+    expect(reconfirmed.goals[0].currentState.summary).toBe('New current state supplied by the user')
     expect(reconfirmed.goals[0].assistant?.draftStateVersion).toBe(reconfirmed.goals[0].currentState.version)
-    expect(updated.stateHistory.at(-1)?.summary).toBe('用户补充的新现状')
+    expect(updated.stateHistory.at(-1)?.summary).toBe('New current state supplied by the user')
   })
 })
 describe('additive state and limited assistant Runtime settings', () => {
@@ -368,7 +368,7 @@ describe('additive state and limited assistant Runtime settings', () => {
     const legacy = migrateWorkspace(JSON.parse(JSON.stringify(state)))
     expect(legacy.tasks).toEqual(state.tasks)
     const task = createGoalAssistantTask(state.settings, { goalId: state.goals[0].id, directory: '/app/goal-workspace' })
-    const extended = { ...legacy, goals: [{ ...legacy.goals[0], assistant: { taskId: task.id, draft, confirmedVersion: 1 } }], tasks: [...legacy.tasks, { ...task, delivery: '目标草案', deadline: draft.deadline, requirementsVersion: 2 }] }
+    const extended = { ...legacy, goals: [{ ...legacy.goals[0], assistant: { taskId: task.id, draft, confirmedVersion: 1 } }], tasks: [...legacy.tasks, { ...task, delivery: 'Goal draft', deadline: draft.deadline, requirementsVersion: 2 }] }
     const persistence = new StatePersistence()
     persistence.loaded(legacy)
     const restored = migrateWorkspace(JSON.parse(JSON.stringify(persistence.prepare(extended))))
@@ -388,8 +388,8 @@ describe('additive state and limited assistant Runtime settings', () => {
     expect(state.settings).toEqual(snapshot)
     expect(() => goalAssistantRuntime({ ...state.settings.runtimes[0], adapter: 'generic' })).toThrow('通用 CLI')
     expect(() => createGoalAssistantTask(state.settings, { goalId: '../project', directory: '/app/goal-workspace' })).toThrow('标识')
-    expect(goalAssistantPrompt(state.goals[0], 'clarify', '原始想法')).toContain('draft 设为 null')
-    expect(goalAssistantPrompt(state.goals[0], 'plan')).toContain('不得修改用户项目')
+    expect(goalAssistantPrompt(state.goals[0], 'clarify', 'Original idea')).toContain('set draft to null')
+    expect(goalAssistantPrompt(state.goals[0], 'plan')).toContain('Do not modify the user project')
   })
   it('validates edited task suggestions before adoption', () => {
     const invalid: GoalTaskProposal = { ...planInput(), status: 'suggested', baseGoalVersion: 1, deadline: '2026-10-31' }

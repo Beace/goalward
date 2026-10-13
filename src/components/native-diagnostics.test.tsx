@@ -43,9 +43,9 @@ function discovery(): LocalDiscoveryReport {
     runtimes: [{
       id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex',
       probe: { found: true, path: '/usr/local/bin/codex', version: '', error: 'Runtime 检测未能完成' },
-      models: [{ modelId: 'user/model', name: '用户模型', source: 'config.toml / 当前 profile · models_cache.json / 缓存', selected: true }],
-      configSources: ['/Users/example/中文配置/config.toml'],
-      warnings: ['配置不是有效 UTF-8：/Users/example/中文配置/config.toml', '模型来自配置、缓存或 CLI 列表，尚未验证实际可调用性'],
+      models: [{ modelId: 'user/model', name: 'User model', source: 'config.toml / 当前 profile · models_cache.json / 缓存', selected: true }],
+      configSources: ['/Users/example/café-config/config.toml'],
+      warnings: ['配置不是有效 UTF-8：/Users/example/café-config/config.toml', '模型来自配置、缓存或 CLI 列表，尚未验证实际可调用性'],
     }],
   }
 }
@@ -53,10 +53,10 @@ function discovery(): LocalDiscoveryReport {
 describe('native diagnostic presentation', () => {
   it('only translates known native text and keeps variable data and unknown output intact', () => {
     expect(localizeNativeDiagnostic('Runtime 检测未能完成', 'en')).toBe('Runtime detection could not complete.')
-    expect(localizeNativeDiagnostic('配置不是有效 UTF-8：/tmp/中文配置.toml', 'en')).toBe('Configuration is not valid UTF-8: /tmp/中文配置.toml')
+    expect(localizeNativeDiagnostic('配置不是有效 UTF-8：/tmp/café-config.toml', 'en')).toBe('Configuration is not valid UTF-8: /tmp/café-config.toml')
     expect(localizeNativeDiagnostic('TraeX 模型查询超时，尝试本机缓存', 'en')).toBe('The TraeX model query timed out; trying the local cache.')
     expect(localizeNativeDiagnostic('TraeX Profile audit 使用不同 provider，未合并其模型；请通过启动参数选择', 'en')).toContain('TraeX profile audit uses another provider')
-    expect(localizeNativeDiagnostic('用户输入的中文错误', 'en')).toBe('用户输入的中文错误')
+    expect(localizeNativeDiagnostic('Unknown user error café', 'en')).toBe('Unknown user error café')
     expect(localizeNativeDiagnostic('toString', 'en')).toBe('toString')
     expect(localizeNativeDiagnostic('Runtime 检测未能完成', 'zh')).toBe('Runtime 检测未能完成')
     expect(localizeNativeModelSource('config.toml / 当前 profile · models_cache.json / 缓存', 'en')).toBe('config.toml / current profile · models_cache.json / cache')
@@ -67,11 +67,11 @@ describe('native diagnostic presentation', () => {
     const raw = structuredClone(report)
     render(<I18nProvider><SetupPage report={report} scanning={false} error="" busy={false} settings={settings} mode="first-run" onRescan={vi.fn()} onImport={vi.fn(async () => {})} onConfigure={vi.fn()} onLater={vi.fn(async () => {})} /></I18nProvider>)
     expect(await screen.findByText('Runtime detection could not complete.')).toBeTruthy()
-    expect(screen.getByText('Configuration is not valid UTF-8: /Users/example/中文配置/config.toml')).toBeTruthy()
+    expect(screen.getByText('Configuration is not valid UTF-8: /Users/example/café-config/config.toml')).toBeTruthy()
     expect(screen.getByText('Models came from configuration, cache, or a CLI list. Their availability has not been verified.')).toBeTruthy()
     expect(screen.getByText('config.toml / current profile · models_cache.json / cache')).toBeTruthy()
-    expect(screen.getByText('/Users/example/中文配置/config.toml')).toBeTruthy()
-    expect(screen.getByText('用户模型')).toBeTruthy()
+    expect(screen.getByText('/Users/example/café-config/config.toml')).toBeTruthy()
+    expect(screen.getByText('User model')).toBeTruthy()
     expect(report).toEqual(raw)
   })
 

@@ -13,11 +13,11 @@ try {
     await page.waitForFunction(key => !!localStorage.getItem(key), key)
     await page.evaluate(key => {
       const state = JSON.parse(localStorage.getItem(key)); const at = '2026-09-17T09:00:00Z'
-      const member = { id:'member', name:'Kimi CLI', role:'执行', runtimeId:'kimi', modelId:'' }
+      const member = { id:'member', name:'Kimi CLI', role:'Implementation', runtimeId:'kimi', modelId:'' }
       const runtime = { id:'kimi',name:'Kimi CLI',executable:'kimi',adapter:'kimi',enabled:true,args:[],defaultModel:'',description:'' }
-      const html = '<!doctype html><html><head><style>body{font:14px system-ui;padding:24px;color:#252820;background:#f5f3ed}h1{font-size:28px}p{line-height:1.8}section{border-top:1px solid #ccc;margin-top:24px;padding-top:16px}</style></head><body><h1>业务品质报告</h1><p>品质 = 标准 × 度量 × 闭环</p><section><h2>建立标准</h2><p>为每项业务指标明确阈值、负责人和触发动作。</p></section><section><h2>持续度量</h2><p>结合监控与用户反馈，形成可追溯的改进记录。</p></section><script>parent.__artifactEscaped = true</script></body></html>'
-      const md = '# 品质执行清单\n\n| 工序 | 状态 |\n| --- | --- |\n| 建立标准 | 已完成 |\n| 回归验证 | 待执行 |\n\n- [x] 明确负责人\n- [ ] 验证结果\n\n```json\n{"quality": "tracked"}\n```'
-      const task = { id:'artifact-task',title:'生成业务品质报告与执行清单',directory:'/tmp/goalward-artifacts',mode:'solo',createdAt:at,members:[member],messages:[{id:'html-message',role:'assistant',text:'```html report.html\n'+html+'\n```',createdAt:at,runId:'run',memberId:'member'},{id:'md-message',role:'assistant',text:'````markdown checklist.md\n'+md+'\n````',createdAt:at,runId:'run',memberId:'member'},{id:'file-message',role:'assistant',text:'已生成：`/tmp/goalward-artifacts/business-quality.html`',createdAt:at,runId:'run',memberId:'member'}],runs:[{id:'run',createdAt:at,directory:'/tmp/goalward-artifacts',prompt:'生成报告',members:[{...member,runtime,model:'',status:'completed'}]}],events:[],results:[],plan:[] }
+      const html = '<!doctype html><html><head><style>body{font:14px system-ui;padding:24px;color:#252820;background:#f5f3ed}h1{font-size:28px}p{line-height:1.8}section{border-top:1px solid #ccc;margin-top:24px;padding-top:16px}</style></head><body><h1>Business quality report</h1><p>Quality = Standards × Measurement × Feedback</p><section><h2>Establish standards</h2><p>Define a threshold, owner, and response for each business metric.</p></section><section><h2>Continuous measurement</h2><p>Combine monitoring and user feedback into traceable improvement records.</p></section><script>parent.__artifactEscaped = true</script></body></html>'
+      const md = '# Quality checklist\n\n| Step | Status |\n| --- | --- |\n| Establish standards | Completed |\n| Regression verification | Pending |\n\n- [x] Assign an owner\n- [ ] Verify results\n\n```json\n{"quality": "tracked"}\n```'
+      const task = { id:'artifact-task',title:'Generate a business quality report and checklist',directory:'/tmp/goalward-artifacts',mode:'solo',createdAt:at,members:[member],messages:[{id:'html-message',role:'assistant',text:'```html report.html\n'+html+'\n```',createdAt:at,runId:'run',memberId:'member'},{id:'md-message',role:'assistant',text:'````markdown checklist.md\n'+md+'\n````',createdAt:at,runId:'run',memberId:'member'},{id:'file-message',role:'assistant',text:'Generated: `/tmp/goalward-artifacts/business-quality.html`',createdAt:at,runId:'run',memberId:'member'}],runs:[{id:'run',createdAt:at,directory:'/tmp/goalward-artifacts',prompt:'Generate report',members:[{...member,runtime,model:'',status:'completed'}]}],events:[],results:[],plan:[] }
       state.tasks=[task];state.goals=[];state.agents=[];state.activeTaskId=task.id;state.onboarding={version:1,completedAt:at,outcome:'configured'}
       localStorage.setItem(key,JSON.stringify(state))
     }, key)
@@ -27,7 +27,7 @@ try {
     }
     await page.reload()
     await page.getByRole('navigation',{name:'工作空间导航'}).getByRole('button',{name:/^任务/}).click()
-    await page.getByRole('button',{name:'打开任务：生成业务品质报告与执行清单',exact:true}).click()
+    await page.getByRole('button',{name:'打开任务：Generate a business quality report and checklist',exact:true}).click()
     await page.getByRole('tab',{name:'产物 3',exact:true}).click()
     await expect(page.locator('.artifact-row')).toHaveCount(3)
     expect(await page.locator('.artifact-row').evaluateAll(rows => rows.every(row => row.getBoundingClientRect().height === 40))).toBe(true)
@@ -45,7 +45,7 @@ try {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/tmp/goalward-artifacts/business-quality.html')
     await expect(page.getByRole('status').filter({hasText:'复制路径成功'})).toBeVisible()
     await page.getByRole('button',{name:'复制内容 checklist.md',exact:true}).click()
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 品质执行清单')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# Quality checklist')
     // Metadata is available to keyboard users without adding permanent rows.
     await page.getByRole('button',{name:'business-quality.html',exact:true}).focus()
     await expect(page.getByRole('tooltip')).toContainText('/tmp/goalward-artifacts/business-quality.html')
@@ -63,7 +63,7 @@ try {
     expect(Math.max(...controls) - Math.min(...controls)).toBeLessThan(2)
     await expect(toolbar.getByRole('tab',{name:'预览',exact:true})).toHaveAttribute('title','预览')
 
-    await expect(frame.getByRole('heading',{name:'业务品质报告',exact:true})).toBeVisible()
+    await expect(frame.getByRole('heading',{name:'Business quality report',exact:true})).toBeVisible()
     expect(await page.evaluate(() => window.__artifactEscaped)).toBeUndefined()
     await expect(preview.getByRole('heading',{name:'report.html',exact:true})).toBeFocused()
     await page.waitForFunction(() => document.querySelector('[data-inspector-motion]')?.dataset.inspectorMotion === 'idle')
@@ -115,7 +115,7 @@ try {
     await expect(page.locator('[data-inspector-toggle]')).toBeFocused()
     // Explicit file opening recreates the closed preview tab.
     await page.getByRole('button',{name:'预览 report.html',exact:true}).click()
-    await expect(frame.getByRole('heading',{name:'业务品质报告',exact:true})).toBeVisible()
+    await expect(frame.getByRole('heading',{name:'Business quality report',exact:true})).toBeVisible()
     await expect(tools.getByRole('tab',{name:'产物预览',exact:true})).toHaveCount(1)
     await page.getByRole('tab',{name:'任务对话',exact:true}).click()
     await page.getByRole('button',{name:'查看执行',exact:true}).first().click()
@@ -131,7 +131,7 @@ try {
     // Reload reconstructs artifacts from the retained source records.
     await page.reload()
     await page.getByRole('navigation',{name:'工作空间导航'}).getByRole('button',{name:/^任务/}).click()
-    await page.getByRole('button',{name:'打开任务：生成业务品质报告与执行清单',exact:true}).click()
+    await page.getByRole('button',{name:'打开任务：Generate a business quality report and checklist',exact:true}).click()
     await expect(page.getByRole('tab',{name:'产物 3',exact:true})).toBeVisible()
     results.push({width,reducedMotion,artifactRowHeight:40,copyPath:true,copyInlineContent:true,keyboardMetadata:true,html:true,markdown:true,source:true,opaqueSandbox:true,reversal:true,focus:true,error:true,inspectorTabs:true,closeInsideTabBorder:true,compactToolbarHeight:40,closeIndividualTabs:true,reopenClosedTools:true,tabStateRetained:true,keyboardTabs:true,persistence:true,overflow:false,errors})
     await page.close()

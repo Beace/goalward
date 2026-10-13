@@ -41,11 +41,11 @@ vi.mock('@/components/SettingsPage', () => ({
       <button onClick={() => {
         setAppearanceResult('pending')
         void onAppearanceChange({ theme: 'light' }).then(() => setAppearanceResult('saved'), () => setAppearanceResult('failed'))
-      }}>选择浅色主题</button>
+      }}>Choose light theme</button>
       <button onClick={() => {
         setFontResult('pending')
         void onAppearanceChange({ fontFamily: 'Menlo' }).then(() => setFontResult('saved'), () => setFontResult('failed'))
-      }}>选择 Menlo 字体</button>
+      }}>Choose Menlo font</button>
       <button onClick={() => {
         // A manual Runtime draft may predate the appearance selection.
         const stale = structuredClone(settings)
@@ -53,7 +53,7 @@ vi.mock('@/components/SettingsPage', () => ({
         stale.runtimes[0].name = 'Edited Runtime'
         setRuntimeResult('pending')
         void onSave(stale).then(() => setRuntimeResult('saved'), () => setRuntimeResult('failed'))
-      }}>保存旧 Runtime 草稿</button>
+      }}>Save older Runtime draft</button>
     </>
   },
 }))
@@ -89,7 +89,7 @@ async function openSettings() {
   const settings = await screen.findByRole('button', { name: /^设置$/ })
   await waitFor(() => expect((settings as HTMLButtonElement).disabled).toBe(false))
   fireEvent.click(settings)
-  await screen.findByRole('button', { name: '选择浅色主题' })
+  await screen.findByRole('button', { name: 'Choose light theme' })
   expect(document.documentElement.dataset.theme).toBe('dark')
   bridge.saveState.mockClear()
 }
@@ -117,7 +117,7 @@ describe('App appearance persistence', () => {
     await openSettings()
     const writes = holdWrites()
 
-    fireEvent.click(screen.getByRole('button', { name: '选择浅色主题' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose light theme' }))
     expectLightTheme()
     expect(screen.getByTestId('appearance-saving').textContent).toBe('true')
     expect(writes).toHaveLength(1)
@@ -127,7 +127,7 @@ describe('App appearance persistence', () => {
     await act(async () => writes[0].resolve())
     expect(screen.getByTestId('appearance-result').textContent).toBe('saved')
     expect(screen.getByTestId('appearance-saving').textContent).toBe('false')
-    fireEvent.click(screen.getByRole('button', { name: '保存旧 Runtime 草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save older Runtime draft' }))
     expectLightTheme()
     expect(screen.getByTestId('current-runtime').textContent).toBe('Edited Runtime')
     expect(writes).toHaveLength(2)
@@ -145,10 +145,10 @@ describe('App appearance persistence', () => {
     const originalRuntimeName = stored.settings.runtimes[0].name
     const writes = holdWrites()
 
-    fireEvent.click(screen.getByRole('button', { name: '保存旧 Runtime 草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save older Runtime draft' }))
     expect(writes).toHaveLength(1)
     expect(writes[0].state.settings.theme).toBe('dark')
-    fireEvent.click(screen.getByRole('button', { name: '选择浅色主题' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose light theme' }))
     expectLightTheme()
     // The real writer has one in-flight request; appearance waits in its latest-snapshot slot.
     expect(writes).toHaveLength(1)
@@ -181,9 +181,9 @@ describe('App appearance persistence', () => {
     const confirmedTheme = stored.settings.theme
     const writes = holdWrites()
 
-    fireEvent.click(screen.getByRole('button', { name: '选择浅色主题' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose light theme' }))
     expectLightTheme()
-    fireEvent.click(screen.getByRole('button', { name: '选择 Menlo 字体' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Menlo font' }))
     expect(screen.getByTestId('current-font').textContent).toBe('Menlo')
     expect(document.documentElement.style.getPropertyValue('--app-font-sans')).toContain('Menlo')
     expect(writes).toHaveLength(1)

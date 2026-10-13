@@ -1,52 +1,52 @@
-# 目标到任务的跳转性能（2026-09-17）
+# Goal-to-task navigation performance (2026-09-17)
 
-## 原因
+## Causes
 
-上一轮将产物提取移出了目标首页，但进入任务工作台时仍要提取产物并展示 Trace。只读复测本机最大任务（21,513 条原始事件）发现：
+The previous round moved artifact extraction off the goal home page, but task entry still extracted artifacts and displayed Trace. Read-only measurements of the largest local task, with 21,513 raw events, found:
 
-1. `getTraceDisplayEntries` 为同一工具调用合并每条更新时，使用 `records.some` 扫描既有记录，并重新创建完整 `sourceIds` 集合与数组。数千条工具更新导致重复扫描与复制，CPU profile 中 `register` 是主要热点。单次展示投影约 2.45 秒。
-2. 产物提取、检查器及历史批次分别调用投影，重复读取、重组和解析同一历史。再次进入任务也会重做。
-3. 对尚未收齐的大 JSON 片段反复调用 `JSON.parse`，产生大量失败解析和异常。
-4. 点击已经选中的任务仍提交新的状态对象，触发约 84.4 MB 全状态序列化与保存。
+1. `getTraceDisplayEntries` used `records.some` to scan existing records and recreated the complete `sourceIds` set and array while merging every update for the same tool call. Thousands of updates repeatedly scanned and copied data. `register` was the main CPU-profile hotspot. One display projection took approximately 2.45 seconds.
+2. Artifact extraction, the inspector, and historical batches separately invoked projections, repeatedly reading, reorganizing, and parsing the same history. Re-entering the task repeated this work.
+3. Repeated `JSON.parse` attempts on incomplete large JSON fragments created many failed parses and exceptions.
+4. Clicking an already selected task still submitted a new state object, triggering full serialization and persistence of approximately 84.4 MB.
 
-## 修复
+## Fixes
 
-- 工具记录使用每个调用独立的 Set 去重，按首次出现顺序追加，避免每条更新重建全量数组。所有原始记录和来源 ID 都保留。
-- Trace 投影按事件数组建立 WeakMap 缓存；产物、检查器和运行批次复用同一次计算。事件变化、成员路由、适配器或运行状态变化使缓存失效。旧缓存不阻止历史对象被 GC 回收。
-- 产物索引按不可变 Task 快照缓存，重复进入、React 重渲染复用结果。应用的任务更新生成新快照，消息、Trace 和保存的文件引用变化后重新索引。
-- 在 JSON 对象/数组的末尾括号明显尚未到达时，直接保持待解析状态；其余内容仍交给 `JSON.parse` 完整校验，没有把括号检查当成成功解析。
-- `selectTask` / `openGoal` 对已选中的 ID 返回原状态，不再产生无效写盘。真正切换任务仍保留原来的持久化行为。
+- Tool records use one deduplication Set per call and append in first-seen order, avoiding complete-array reconstruction for each update. All raw records and source IDs are preserved.
+- Trace projections use a WeakMap cache keyed by event arrays. Artifacts, inspector, and run batches reuse the computation. Changes to events, member routing, adapters, or execution states invalidate the cache. Old caches do not prevent historical objects from being garbage collected.
+- Artifact indexes cache immutable Task snapshots and reuse results on repeated entry and React rerender. App task updates create new snapshots; changes to messages, Trace, or saved file references rebuild indexes.
+- If a JSON object/array's closing bracket has clearly not arrived, it stays pending without a parse attempt. Other content still undergoes full `JSON.parse` validation; the bracket check is not treated as a successful parse.
+- `selectTask` / `openGoal` return the original state for already selected IDs, eliminating redundant disk writes. Actual task changes retain existing persistence behavior.
 
-没有新增加载动画、人为等待或占位延迟。原有按钮、键盘、滚动和工作台布局保持原有行为。
+No new loading animation, artificial wait, or placeholder delay was added. Existing buttons, keyboard behavior, scrolling, and workbench layout retain their behavior.
 
-## 性能证据
+## Performance evidence
 
-同一本机状态快照，通过 Vite 开发模式和 Chrome / Playwright 测试实际“目标 → 打开任务”按钮。从 click capture 到任务标题挂载后的两个 requestAnimationFrame 计时，完成后验证标题、工作台、Trace 和产物内容。Tauri IPC 在隔离 fixture 中模拟；保存仅执行内存 JSON 序列化，不修改真实数据。
+The same local state snapshot tested the actual Goal → Open task button through Vite development mode and Chrome / Playwright. Timing starts at click capture and ends two requestAnimationFrames after the task title mounts. Title, workbench, Trace, and artifact contents are checked afterward. Tauri IPC uses an isolated fixture; saves serialize JSON in memory without changing real data.
 
-| 场景 | 修改前 | 修改后 |
+| Scenario | Before | After |
 | --- | ---: | ---: |
-| 1536 × 960，正常动态效果，首次进入大任务 | 6701 ms | 408 ms |
-| 1280 × 720，减少动态效果，首次进入大任务 | 6797 ms | 385 ms |
-| 同一任务再次进入，两种尺寸共四次 | 未测量 | 27–65 ms |
+| 1536 × 960, normal motion, first entry into a large task | 6701 ms | 408 ms |
+| 1280 × 720, reduced motion, first entry into a large task | 6797 ms | 385 ms |
+| Re-entry into the same task, four visits across both sizes | Not measured | 27–65 ms |
 
-首次进入约减少 94% 的等待。另一次包含历史批次和任务切换交互的检查，首次进入为 387 / 396 ms。
+First-entry wait fell by approximately 94%. A separate check including historical-batch and task-switch interactions measured first entries at 387 / 396 ms.
 
-Node 模块 CPU profile：完整 Trace 展示投影从 2447 ms 降到 183 ms；缓存命中的同任务/单次执行视图约 0.01 / 0.04 ms。这些是固定样本测量，不是统计分位数或原生 WebKit 性能承诺。
+Node module CPU profile: full Trace display projection fell from 2447 ms to 183 ms. Cached same-task / single-Run views took approximately 0.01 / 0.04 ms. These are fixed-sample measurements, not statistical percentiles or native WebKit performance guarantees.
 
-原始材料均在 `test-results/task-navigation/`：
+All raw materials are under `test-results/task-navigation/`:
 
-- `before-browser-results.json`、`after-browser-results.json`：点击计时与调用记录。
-- `interaction-results.json`：再次进入、历史批次切换、产物、其他任务切换。
-- `before-modules.json`、`after-modules.json`：模块耗时。
-- `before-cpu.json`、`after-cpu.json`：CPU profile。
-- `parity-results.json`：优化前后全部 6 个任务的原始事件展示、合并 Trace、产物和每个 Run 展示结果的 SHA-256 对比，全部一致。
-- `before-task-*.png`、`after-task-*.png`：工作台截图。
-- `original/`、`browser-profile.mjs`、`profile.mjs`、`parity.mjs`、`interactions.mjs`：本轮修改前代码和只读复测脚本。
+- `before-browser-results.json`, `after-browser-results.json`: click timing and invocation records.
+- `interaction-results.json`: re-entry, historical-batch switching, artifacts, and switching to other tasks.
+- `before-modules.json`, `after-modules.json`: module durations.
+- `before-cpu.json`, `after-cpu.json`: CPU profiles.
+- `parity-results.json`: SHA-256 comparisons of raw-event displays, merged Trace, artifacts, and each Run's display for all 6 tasks before and after optimization; all matched.
+- `before-task-*.png`, `after-task-*.png`: workbench screenshots.
+- `original/`, `browser-profile.mjs`, `profile.mjs`, `parity.mjs`, `interactions.mjs`: pre-change code and read-only reproduction scripts.
 
-## 验证
+## Validation
 
-- 34 个前端测试文件、394 个用例全部通过。
-- TypeScript 检查与 Vite 生产构建通过。已有主包体积警告仍存在。
-- 新增回归覆盖缓存复用、事件追加、终态恢复、适配器/成员变化、6000 次工具更新的记录完整性、产物快照更新以及无变化导航不保存。
-- 两种桌面尺寸、正常/减少动态效果下检查实际目标任务跳转、重复进入、历史批次切换、产物显示、其他任务切换与返回；无页面错误或视口溢出。
-- 本轮仅修改前端；未替换已打包桌面应用，未重新运行 Rust 测试或测量原生 WebKit。开发版可刷新载入；发行版需重新打包后生效。
+- All 34 frontend test files and 394 cases passed.
+- TypeScript checks and the Vite production build passed. The existing main-bundle size warning remains.
+- New regressions cover cache reuse, appended events, terminal-state recovery, adapter/member changes, complete records across 6,000 tool updates, artifact-snapshot changes, and unchanged navigation without saving.
+- Actual goal-to-task navigation, re-entry, historical-batch changes, artifacts, other-task navigation, and return were checked at both desktop sizes with normal/reduced motion. There were no page errors or viewport overflow.
+- This round changed frontend code only. The packaged desktop app was not replaced, Rust tests were not rerun, and native WebKit was not measured. Development builds can reload the changes; release builds require repackaging.

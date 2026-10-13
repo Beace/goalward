@@ -15,7 +15,7 @@ const bridge = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/bridge', () => bridge)
 vi.mock('@/components/Workbench', () => ({ Workbench: ({ task }: { task: { title: string } }) => <h1>{task.title}</h1> }))
-vi.mock('@/components/TracePanel', () => ({ TracePanel: () => <aside>执行记录</aside> }))
+vi.mock('@/components/TracePanel', () => ({ TracePanel: () => <aside>Execution records</aside> }))
 vi.mock('@/components/ui/resizable', () => ({
   ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -25,7 +25,7 @@ vi.mock('@/components/ui/resizable', () => ({
 let stored: AppState | null
 let failSetupSave = false
 const detected = (): LocalDiscoveryReport => ({ scannedAt: '2026-09-15T12:00:00Z', runtimes: [
-  { id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex', probe: { found: true, path: '/local/bin/codex', version: '1.0' }, models: [{ modelId: 'configured-model', name: '配置模型', source: 'config.toml', selected: true }], configSources: ['/home/.codex/config.toml'], warnings: [] },
+  { id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex', probe: { found: true, path: '/local/bin/codex', version: '1.0' }, models: [{ modelId: 'configured-model', name: 'Configured model', source: 'config.toml', selected: true }], configSources: ['/home/.codex/config.toml'], warnings: [] },
   { id: 'claude', name: 'Claude Code', executable: 'claude', adapter: 'claude', probe: { found: false, path: '', version: '' }, models: [], configSources: [], warnings: [] },
 ] })
 beforeEach(() => {
@@ -120,9 +120,9 @@ describe('desktop first launch lifecycle', () => {
     fireEvent.click(within(screen.getByRole('navigation', { name: '工作空间导航' })).getByRole('button', { name: /^任务/ }))
     fireEvent.click(screen.getByRole('button', { name: '创建任务' }))
     await screen.findByRole('dialog', { name: '新建任务' })
-    fireEvent.change(screen.getByLabelText('任务目标'),{target:{value:'先记录探索问题'}})
+    fireEvent.change(screen.getByLabelText('任务目标'),{target:{value:'Record exploration questions first'}})
     fireEvent.click(screen.getByRole('button',{name:'创建任务'}))
-    await screen.findByRole('heading',{name:'先记录探索问题'})
+    await screen.findByRole('heading',{name:'Record exploration questions first'})
     expect(stored?.tasks[0].members).toEqual([])
     expect(bridge.startRun).not.toHaveBeenCalled()
     fireEvent.click(screen.getAllByRole('button', { name: '手动配置' })[0])

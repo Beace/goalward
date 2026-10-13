@@ -1,101 +1,101 @@
-# 首页启动性能修复（2026-09-17）
+# Home-page startup performance fix (2026-09-17)
 
-## 局部加载反馈（后续交互调整）
+## Local loading feedback (subsequent interaction adjustment)
 
-- 移除首次读取时的整屏品牌加载页。`WorkspaceLayout` 和工作空间导航在数据到达前挂载，并保留同一个导航实例；目标栏在原位置显示“正在读取目标…”，右侧只使用静态占位。
-- 默认首页的 `GoalsPage` 改为直接导入，不再经过“正在打开目标…”的 Suspense 整块替换。已载入的目标切换即时更新详情，没有新增请求、人为等待或动画延时。
-- 未知数量不显示 0，数据读取前不声称“已保存”或“无运行中的进程”；创建、搜索和设置在初始读取完成前禁用。读取错误保留在目标列表区域，保持数据保护说明。
-- 采用 `apple-design` 与 `animate` 的即时响应及高频操作克制原则：静态 Skeleton 不播放脉冲，也无进出场等待，减少动态效果场景沿用静态更新。
-- 浏览器可控慢读取 fixture（`test-results/inline-loading/preview.mjs`）检查了 1536×960 和 1280×720、读取中/完成/失败、快速目标切换与 Enter 键选择；两种尺寸无横向溢出，失败只占目标列表，未出现全屏 `.app-loading`。这是 UI 行为验证，fixture 不读取真实原生数据。
-- 新增首次读取期间布局保留、原位填充和局部错误回归；前端 406 用例通过。生产前端和 Debug macOS Bundle 构建通过。此交互修改不改变上轮的 SQLite 分页与持久化协议。
+- Removed the full-screen branded loading page during initial reads. `WorkspaceLayout` and workspace navigation mount before data arrives and retain the same navigation instance. The goal column shows “Reading goals…” in place; the right side uses static placeholders only.
+- The default home `GoalsPage` is directly imported instead of a full Suspense replacement with “Opening goals…”. Switching loaded goals updates details immediately without additional requests, artificial waits, or motion delays.
+- Unknown counts do not display 0. Before reading data, the UI does not claim “Saved” or “No running processes”. Creation, search, and settings stay disabled until the initial read completes. Read errors remain within the goal-list area with data-protection guidance.
+- Applied `apple-design` and `animate` principles for immediate response and restrained frequent interactions: static Skeletons do not pulse or wait for entry/exit. Reduced-motion mode also uses static updates.
+- A controlled slow-read browser fixture (`test-results/inline-loading/preview.mjs`) checked 1536×960 and 1280×720, pending/completed/failed reads, rapid goal changes, and Enter selection. Both sizes had no horizontal overflow. Failures occupied only the goal list, and no full-screen `.app-loading` appeared. This validates UI behavior; the fixture does not read real native data.
+- Added regressions for preserved layout during initial reads, in-place filling, and local errors. All 406 frontend cases passed. Production frontend and Debug macOS Bundle builds passed. This interaction change does not alter the previous SQLite pagination or persistence protocol.
 
-## 后续修复：首屏与历史事件分离（21:47 验证）
+## Subsequent fix: separate the initial screen from historical events (validated at 21:47)
 
-此前减少重复 Trace 传输和增量保存后，桌面首屏仍等待 `load_state` 返回约 84 MB 的完整状态，以及全部历史日志校验和消息恢复。SQLite 的底层读取更快并不能消除完整 JSON 跨进程传输和 WebView 解析。因此本轮直接拆开首屏读取链路；下文的“原生冷启动未验证 / 状态仍整体读取”是此前阶段的历史结论。
+After duplicate Trace transfer and full-snapshot saves were reduced, desktop startup still waited for `load_state` to return approximately 84 MB of complete state and for all historical-log validation and message recovery. Faster SQLite reads do not eliminate full JSON transfer between processes or WebView parsing. This round therefore separates the initial-screen read path. Statements below about unverified native cold startup and full-state reads are historical conclusions from the preceding stage.
 
-- 首屏调用 `load_workspace_summary`，读取配置、任务摘要和已保存的 messages / runs / artifacts，不扫描 events 和 JSONL。历史存在的任务只携带内存标记 `historyPending`。
-- 打开任务后调用 `load_task_event_page`。每页最多 256 条记录、事件 JSON 合计目标上限 512 KiB（单条超大记录完整返回，响应包络和逗号不计入目标），以 task + position 索引查询；首页和已保存对话不等待分页结束。
-- 只恢复该任务的日志尾部，期间缓冲实时事件并去重，完成时保留加载期间的任务修改。重复打开共用同一请求；卸载取消后续页，已删除任务不会被异步结果复活。历史失败显示就地错误和重试。
-- 发送、启动编排和导出先等待该任务恢复及保存；历史页中已持久化的事件不会再次上传。摘要状态的普通保存不会删除数据库中的历史。
-- 潜在中断的运行在首页显示后自动恢复；已完成任务在实际需要时加载。未增加人为等待或加载动画。
+- The initial screen calls `load_workspace_summary`, reading configuration, task summaries, and saved messages / runs / artifacts without scanning events or JSONL. Tasks with history carry only the in-memory `historyPending` marker.
+- Opening a task calls `load_task_event_page`. Each page contains at most 256 records and targets 512 KiB of combined event JSON. Oversized individual records are returned in full; response envelopes and commas are excluded from the target. Queries use the task + position index. The home page and saved conversations do not wait for pagination to finish.
+- Only that task's log tail is recovered. Live events are buffered and deduplicated while task edits made during loading are retained. Repeated opening shares one request. Unmount cancels later pages, and asynchronous results cannot resurrect deleted tasks. Historical failures show local errors and retry.
+- Sending, orchestration startup, and export wait for task recovery and persistence first. Already persisted historical-page events are not uploaded again. Ordinary summary-state saves do not delete database history.
+- Potentially interrupted Runs recover automatically after the home page appears. Completed tasks load only when needed. No artificial waits or loading animation were added.
 
-隔离临时副本 Release 测量（真实 6 个任务、21,711 条事件）：
+Release measurements using isolated temporary copies of 6 real tasks and 21,711 events:
 
-| 指标 | 结果 |
+| Metric | Result |
 | --- | ---: |
-| 原完整状态 | 84,398,262 bytes |
-| 首屏摘要（含暂存标记） | 55,405 bytes，减少 99.934% |
-| 数据库重开并读取摘要 | 2.76 ms |
-| 摘要 JSON 序列化 | 0.057 ms |
-| 全部历史分页校验 | 169 页；每个任务逐字段完全一致 |
-| 最大 IPC 历史页（含响应包络） | 524,401 bytes |
-| 完整迁移、导出及原文件保留 | 全部通过 |
+| Original full state | 84,398,262 bytes |
+| Initial-screen summary, including temporary markers | 55,405 bytes, a 99.934% reduction |
+| Database reopening and summary read | 2.76 ms |
+| Summary JSON serialization | 0.057 ms |
+| Complete historical-pagination validation | 169 pages; every task matched field by field |
+| Largest IPC historical page, including response envelope | 524,401 bytes |
+| Complete migration, exports, and original-file preservation | All passed |
 
-数据：`test-results/lazy-startup/storage-profile.json`，脚本：`src-tauri/examples/storage-profile.rs`。这些原生测量不包括 WebView 绘制，不能当作首页加载总耗时。
+Data: `test-results/lazy-startup/storage-profile.json`; script: `src-tauri/examples/storage-profile.rs`. These native measurements exclude WebView rendering and are not total home-page load times.
 
-实际 `.app` 验证：`npm run tauri -- build --debug --bundles app` 构建并签名后，退出无运行任务的旧 Debug Bundle，再打开更新后的 Bundle，使用真实应用数据和 Tauri IPC（非浏览器 mock）。第一次原生界面检查已显示工作空间导航，打开和检查总计 755 ms；随后截图确认目标首页完整显示。从目标中的“打开任务”点击进入实际 Kimi 历史任务，919 ms 的点击和检查中已显示已保存对话及局部历史加载提示；后续截图确认完整执行检查器显示 18 条合并后的记录，任务状态与对话正常。这是工具观察上界，不是精确首帧计时或 P95；未重建 Release/安装目录中的其他副本。
+Real `.app` validation: after building and signing with `npm run tauri -- build --debug --bundles app`, the old Debug Bundle with no active tasks was quit and the updated Bundle opened with real app data and Tauri IPC, without browser mocks. The first native UI inspection already showed workspace navigation; opening plus inspection took 755 ms. A subsequent screenshot confirmed the complete goal home page. Clicking Open task from the goal entered a real historical Kimi task. Within the 919 ms click-and-inspection interval, saved conversation and a local history-loading hint appeared. Later screenshots confirmed the complete execution inspector with 18 merged records and normal task state and conversation. These are tool-observation upper bounds, not precise first-frame timing or P95. Other Release/installed-directory copies were not rebuilt.
 
-验证：前端 35 文件 / 404 用例通过，Rust 82 通过 / 4 opt-in 忽略，TypeScript + Vite 构建、Rust Clippy 全目标通过。新增覆盖摘要保存不丢历史、有 Run 无事件仍恢复尾部、分页字节限制 / 顺序 / 固定边界、首屏先于历史完成、实时事件缓冲、加载中编辑 / 删除、失败重试与历史不重复上传。
+Validation: 35 frontend files / 404 cases passed; Rust 82 passed / 4 opt-in ignored; TypeScript + Vite builds and all-target Rust Clippy passed. New coverage includes summary saves preserving history, tail recovery for Runs without events, paginated byte limits / ordering / fixed bounds, initial display before history completion, live-event buffering, edits / deletion during loading, failure retries, and no duplicate historical uploads.
 
-边界：首次从旧 JSON 迁移仍需完整读取一次；任务内完整历史最终仍进入内存，消息和 Run 集合本身还未分页。文件未压缩或截断。主 JS 包超过 500 KB 的构建提示仍存在。
+Boundaries: initial legacy-JSON migration still needs one full read. Complete task history still ultimately enters memory, and messages / Run collections are not paginated. Files are neither compressed nor truncated. The existing main JS bundle warning above 500 KB remains.
 
-## 问题与证据
+## Problem and evidence
 
-截图中的“正在读取本地任务与配置…”由 `useAppState` 的初始化门控显示。旧链路依次读取状态、读取全部关联 Trace、逐条调用实时事件 reducer、恢复消息/终态、注册事件监听、完整保存状态，最后才展示工作区。Runtime 扫描发生在状态加载后，不在这一段等待路径中。
+The screenshot's “Reading local tasks and configuration…” came from the `useAppState` initialization gate. The old path read state, read all linked Trace, invoked the live-event reducer one event at a time, recovered messages/terminal states, registered listeners, saved complete state, and only then displayed the workspace. Runtime scanning happened after state loading, outside this wait path.
 
-本机只读样本：`state.json` 为 84,398,262 bytes，6 个任务（含 1 个示例）、21,707 条原生 Trace。所有 Trace 事件 ID 均已存在于状态快照。旧实现仍再次回传 84,341,705 bytes 的 Trace，并在每条重复事件上扫描任务已有事件列表。此外 `App` 在目标首页提前调用 `getTaskArtifacts`，解析了当前任务的完整工具 Trace。
+Read-only local sample: `state.json` was 84,398,262 bytes, with 6 tasks including 1 example and 21,707 native Trace records. Every Trace event ID already existed in the state snapshot. The old implementation still transferred another 84,341,705 bytes of Trace and scanned the task's existing event list for every duplicate. `App` also called `getTaskArtifacts` early on the goal home page, parsing the current task's complete tool Trace.
 
-## 修改
+## Changes
 
-- 原生 `load_trace_events` 支持按任务传入 `knownEventIds`，仍逐条校验日志格式与身份，只返回快照中缺失的事件。参数缺省保持旧行为。未引入历史条数/累计字节截断，没有删除日志。
-- 启动恢复用批量索引合并事件，随后一次性派生消息，保留精确 task/run/member 路由、任务内 ID 去重、同毫秒记录顺序和首个终态语义。
-- 迁移、恢复及步骤对账在无变化时保留引用，干净重开跳过整份状态的 IPC 上传与原子写盘。有迁移、丢失尾部日志或遗留运行状态需要修复时，仍先保存再显示首页；保存失败仍阻止初始化完成。
-- 产物索引只在工作台页面计算，不再阻塞目标首页、设置或其他页面。
+- Native `load_trace_events` accepts per-task `knownEventIds`, still validates each log record's format and identity, and returns only events missing from the snapshot. Omitting the argument preserves old behavior. No history-count / cumulative-byte truncation or log deletion was added.
+- Startup recovery merges events using batch indexes and derives messages once, preserving exact task/run/member routing, per-task ID deduplication, same-millisecond record ordering, and first-terminal-state semantics.
+- Migration, recovery, and step reconciliation retain references when unchanged. Clean reopening skips full-state IPC upload and atomic disk writes. Migration, missing log tails, or legacy execution-state repairs still save before displaying the home page. Save failure continues to block initialization.
+- Artifact indexing occurs only on the workbench page and no longer blocks the goal home page, settings, or other pages.
 
-读取了 `apple-design`、`animate` 与项目设计系统。本次加载完成使用即时状态切换，不加入额外位移、入场序列或人为延时；现有组件的反馈保持原样。
+The `apple-design` and `animate` skills and project design system were read. Loading completion uses immediate state changes without additional displacement, entry sequencing, or artificial delays. Existing component feedback remains unchanged.
 
-## 测量
+## Measurements
 
-### 同样本前端比较
+### Frontend comparison with the same sample
 
-使用本机 Chrome + Playwright、Vite 开发模式，对比保存的修改前源码和修改后源码。测试通过隔离的 HTTP fixture 模拟 Tauri IPC，加载同一份实际状态和 Trace；`save_state` 只在内存中执行 JSON 序列化，不写入真实存储。计时为页面导航至工作空间导航 DOM 出现，另断言首页内容可见。开发模式 StrictMode 导致两次 `load_state`，两组保持一致。
+Local Chrome + Playwright in Vite development mode compared saved pre-change source with updated source. An isolated HTTP fixture simulated Tauri IPC and loaded the same real state and Trace. `save_state` serialized JSON only in memory without writing real storage. Timing covered page navigation until workspace-navigation DOM appeared, with a separate assertion that home content was visible. Development StrictMode produced two `load_state` calls consistently in both groups.
 
-| 场景 | 修改前 | 修改后 | 减少 |
+| Scenario | Before | After | Reduction |
 | --- | ---: | ---: | ---: |
-| 1536 × 960，正常动态效果 | 7552 ms | 1253 ms | 83.4% |
-| 1280 × 720，减少动态效果 | 6989 ms | 994 ms | 85.8% |
+| 1536 × 960, normal motion | 7552 ms | 1253 ms | 83.4% |
+| 1280 × 720, reduced motion | 6989 ms | 994 ms | 85.8% |
 
-这是两个固定场景的前端样本，不是统计分位数，也不是已安装 macOS App 的完整进程冷启动耗时。未计入真实 Tauri IPC、窗口创建和磁盘 fsync。原始结果：`test-results/startup/browser-results.json`；只读比较脚本：`test-results/startup/browser-profile.mjs`。该脚本使用本次保留于 `test-results/startup/original/` 的修改前源码。
+These are frontend samples from two fixed scenarios, not statistical percentiles or complete process cold-start times for the installed macOS App. They exclude real Tauri IPC, window creation, and disk fsync. Raw results: `test-results/startup/browser-results.json`; read-only comparison script: `test-results/startup/browser-profile.mjs`. The script uses pre-change source retained in `test-results/startup/original/`.
 
-Node/Vite 模块基准中，21,707 条历史事件的全量合并由 1151.5 ms 降至 20.5 ms；原先首页提前执行的产物解析耗时为 2278.2 ms。测试脚本仍单独测量产物解析，实际首页现在跳过这一工作。
+In the Node/Vite module benchmark, complete merging of 21,707 historical events fell from 1151.5 ms to 20.5 ms. Artifact parsing previously performed early on the home page took 2278.2 ms. The script still measures artifact parsing separately; the actual home page now skips it.
 
-### 原生存储读取
+### Native storage reads
 
-Release Rust benchmark 调用真实 Storage 方法，仅读取现有文件，不执行 save：
+The Release Rust benchmark calls real Storage methods, reads existing files only, and performs no save:
 
-| 项目 | 耗时/大小 |
+| Operation | Time / size |
 | --- | ---: |
-| 状态读取及解析 | 81.2 ms |
-| 原先全量 Trace 读取及解析 | 94.3 ms |
-| 原先 Trace 响应序列化 | 62.0 ms |
-| 新版 Trace 校验及过滤 | 82.6 ms |
-| 原先 Trace 响应 | 84,341,705 bytes |
-| 新版缺失事件响应 | 2 bytes (`[]`) |
+| State read and parse | 81.2 ms |
+| Previous complete Trace read and parse | 94.3 ms |
+| Previous Trace response serialization | 62.0 ms |
+| Updated Trace validation and filtering | 82.6 ms |
+| Previous Trace response | 84,341,705 bytes |
+| Updated missing-event response | 2 bytes (`[]`) |
 
-文件系统读取不是这个样本中的主要瓶颈。收益来自减少重复传输、前端扫描、隐藏页面计算和无变化写盘。
+Filesystem reads were not the main bottleneck in this sample. Improvements came from reducing duplicate transfer, frontend scanning, hidden-page computation, and unchanged-state writes.
 
-只读复测命令（参数指定现有数据目录；只打印耗时和数量）：
+Read-only reproduction command, using an existing data directory and printing only durations and counts:
 
 ```sh
 cargo run --manifest-path src-tauri/Cargo.toml --example startup-profile --release -- "$HOME/Library/Application Support/dev.goalward.desktop"
 ```
 
-## 验证与边界
+## Validation and boundaries
 
-- 前端全量 34 个测试文件、388 个用例通过，随后新增的首页延迟产物计算和 Kimi 批量恢复用例分别通过（最终用例总数 390）。
-- Rust 74 个测试通过，4 个显式 opt-in 测试保持忽略。
-- TypeScript / Vite 生产构建、Rust Clippy `--all-targets -- -D warnings` 通过。
-- 新增/调整回归覆盖四种适配器批量恢复与逐条回放等价、拆分协议帧、去重、错路由、首终态、干净重开不写盘、首页不提前提取产物，以及原生日志过滤后仍检查损坏内容。
-- 浏览器检查覆盖上述两种桌面尺寸、正常/减少动态效果、设置进入与返回、示例任务工作台、全局搜索与 Escape 关闭，无页面错误和视口溢出。截图位于 `test-results/startup/home-1536.png`、`home-1280.png`。
-- 本轮未修改动画实现，不宣称重新验证所有拖动、反向动画和流式运行。未替换已打开的桌面 App，未测量该安装版本更新后的原生冷启动。
-- 状态仍整体读取，Trace 仍完整校验；大量历史数据增长后的分片存储/按任务载入不在本次改动内。首次进入大型任务工作台仍需计算它的产物/Trace 展示。
+- The complete frontend suite passed 34 files and 388 cases. Subsequently added home-page deferred-artifact and Kimi batch-recovery cases passed separately, bringing the final count to 390.
+- Rust passed 74 tests; 4 explicit opt-in tests remained ignored.
+- TypeScript / Vite production builds and Rust Clippy `--all-targets -- -D warnings` passed.
+- Added/adjusted regressions cover batch recovery matching event-by-event replay for four adapters, split protocol frames, deduplication, wrong routing, first terminal state, clean reopening without writes, no early artifact extraction, and continued corrupt-log validation after filtering.
+- Browser checks covered both desktop sizes, normal/reduced motion, entering/leaving settings, the example-task workbench, global search, and Escape dismissal. There were no page errors or viewport overflow. Screenshots are at `test-results/startup/home-1536.png` and `home-1280.png`.
+- This round did not change motion implementation and does not claim renewed validation of every drag, animation reversal, or streaming Run. The open desktop App was not replaced, and native cold startup after updating that installed version was not measured.
+- State was still read in full and Trace fully validated at this stage. Sharded storage / per-task loading for growing histories was outside this change. First entry into a large task workbench still needed artifact/Trace display computation.

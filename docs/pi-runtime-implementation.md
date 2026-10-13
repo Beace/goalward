@@ -1,33 +1,33 @@
-# Pi Runtime 接入
+# Pi Runtime integration
 
-Pi 作为独立 Runtime 接入本机发现、模型目录、执行、会话恢复、公开输出和 Trace。应用使用 Pi 的原生持续 RPC 模式和公开 JSON 事件，不把普通终端文本猜测为结构化事件。完整接法、兼容与验收边界见 [Claude 与 Pi 原生会话](claude-pi-native-sessions.md)。
+Pi is integrated as an independent Runtime for local discovery, model catalogs, execution, session recovery, public output, and Trace. The application uses Pi's native persistent RPC mode and public JSON events rather than guessing structured events from ordinary terminal text. See [Claude and Pi native sessions](claude-pi-native-sessions.md) for the complete integration, compatibility, and acceptance boundaries.
 
-## 本机发现与模型身份
+## Local discovery and model identity
 
-- 自动发现读取 Pi Agent 目录中的 `settings.json` 默认 Provider / 模型，以及 `models.json` 中显式登记的模型。
-- 可执行文件可用时，额外运行 `pi --offline --no-extensions --list-models`。扫描不加载扩展，扩展注册的模型需要手动登记。
-- 模型身份保留为 `provider/model`，避免不同 Provider 的同名模型被合并。
-- 发现过程只导出模型识别所需字段，不导出 API Key、Base URL 或其他凭据。
-- 模型列表中的 thinking 标记只能证明是否存在思考能力，不能证明支持的具体档位，因此思考强度默认继承 Pi。
+- Automatic discovery reads the default Provider / model from `settings.json` in the Pi Agent directory and explicitly registered models from `models.json`.
+- When the executable is available, it also runs `pi --offline --no-extensions --list-models`. Discovery does not load extensions; models registered by extensions must be added manually.
+- Model identities retain the `provider/model` form to avoid merging identically named models from different Providers.
+- Discovery exports only fields needed to identify models, excluding API keys, base URLs, and other credentials.
+- A thinking marker in the model list establishes that reasoning is available, but does not establish the supported levels. Reasoning effort therefore inherits Pi's setting by default.
 
-## 执行与会话
+## Execution and sessions
 
-- Pi Runtime 使用 `pi --mode rpc` 长期子进程，通过 `get_state` 校验精确原生会话 ID，再通过 stdin JSONL 发送 `prompt`；公开回复、活动状态和工具事件分别投影到对话与 Trace。[官方 RPC 文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)
-- 原始公开事件继续保留，历史记录可重新投影，不以界面展示内容替代协议记录。
-- 同一任务成员在 Runtime 配置和工作目录保持一致时复用连接与原生会话；每轮调用仍保存为独立 Run。连接断开不自动重发输入，下次显式请求才恢复精确 session。
-- 结束状态以原生 settled/idle 和最终回答状态为准；`prompt` acknowledgement 和低层 `agent_end` 均不单独证明已完成。进程退出码为 0 也不证明执行成功，更不等于业务验收通过。[官方事件生命周期](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)
-- 运行中追加消息使用原生 `steer`。停止先 `clear_queue` 再 `abort`，正常停止后保留 idle 会话；无法响应、断连或退出 App 时仍通过原生进程组回收，并保留已经收到的输出。[官方命令文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc-commands.md)
+- The Pi Runtime uses a persistent `pi --mode rpc` subprocess. It validates the exact native session ID with `get_state`, then sends `prompt` through stdin JSONL. Public replies, activity states, and tool events are projected into the conversation and Trace separately. [Official RPC documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)
+- Original public events are preserved so history can be projected again. The UI presentation does not replace protocol records.
+- The same task member reuses its connection and native session while Runtime configuration and working directories remain unchanged. Each invocation is still saved as an independent Run. A disconnect does not resend input automatically; the exact session resumes only on the next explicit request.
+- Completion follows native settled/idle status and the final reply state. Neither a `prompt` acknowledgement nor low-level `agent_end` independently establishes completion. Exit code 0 does not prove execution success or business acceptance. [Official event lifecycle](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)
+- Input during execution uses native `steer`. Stopping sends `clear_queue` before `abort` and preserves the idle session after a normal stop. Unresponsive connections, disconnects, and App shutdown still reclaim the native process group and preserve received output. [Official command documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc-commands.md)
 
-## 参数与权限边界
+## Argument and permission boundaries
 
-- 模型、会话、RPC 协议和消息传入由适配器统一管理，用户参数不能覆盖这些关键位置。
-- 可选启动参数在保存和启动前验证；冲突参数会直接报错，不静默降级为另一种执行方式。
-- Pi 没有原生统一逐次工具审批能力。原生扩展的 `confirm` 可确认/取消；未支持的 `input/select/editor` 明确取消并记录 Trace。工具、扩展和项目访问策略继续由 Pi 自己的配置决定；目标助手仅开放 `read,grep,find,ls`，关闭 extensions 和 MCP，让引用文件可读取并排除命令/写入工具。[官方扩展 UI](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc-extension-ui.md)
-- 本机发现、模型列表和配置读取不等于认证、远端推理或账号权限已经验证。
+- The adapter manages model selection, sessions, the RPC protocol, and message input. User arguments cannot override these critical settings.
+- Optional launch arguments are validated before saving and launching. Conflicting arguments produce an error rather than silently switching execution modes.
+- Pi has no uniform native per-tool approval capability. Native extension `confirm` requests can be confirmed/cancelled; unsupported `input/select/editor` requests are explicitly cancelled and recorded in Trace. Pi's own configuration continues to determine tool, extension, and project-access policies. The goal assistant exposes only `read,grep,find,ls` and disables extensions and MCP, allowing referenced files to be read while excluding command/write tools. [Official extension UI](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc-extension-ui.md)
+- Local discovery, model listing, and configuration reads do not verify authentication, remote inference, or account permissions.
 
-## 验证
+## Validation
 
-常规回归：
+Standard regression checks:
 
 ```bash
 npm test
@@ -35,22 +35,22 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-浏览器侧 Pi 投影检查：
+Browser-side Pi projection check:
 
 ```bash
 node scripts/pi-runtime-smoke.mjs
 ```
 
-已安装 Claude/Pi 的真实持续协议检查使用临时目录和 localhost 受控 provider，不消耗真实供应商调用：
+The real persistent-protocol check for installed Claude/Pi uses temporary directories and a controlled localhost provider without making real supplier calls:
 
 ```bash
 python3 scripts/native-session-protocol-smoke.py
 ```
 
-需要已有可用 Pi 登录和模型配置的原生两轮会话检查为显式忽略测试，不会在普通测试中自动发起远端调用：
+The native two-turn session check requires an existing working Pi login and model configuration. It is explicitly ignored by default and does not automatically make remote calls during ordinary tests:
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml pi_live_native_two_turn_session -- --ignored --nocapture
 ```
 
-浏览器模拟通过只能证明前端事件投影，不替代真实 Tauri 进程、账号认证、远端模型和工具执行的端到端验收。
+Passing browser simulations verifies frontend event projection. It does not replace end-to-end acceptance of real Tauri processes, account authentication, remote models, or tool execution.

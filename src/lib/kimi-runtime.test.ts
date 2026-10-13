@@ -21,7 +21,7 @@ function fixture() {
   const update = (payload: unknown) => json({ type: 'kimi.acp.update', update: payload })
   return { state, event, json, update }
 }
-const permission = { type: 'kimi.permission_requested', requestId: 'request-1', toolCall: { title: 'Write file', rawInput: { path: '/tmp/example' } }, options: [{ optionId: 'allow', name: '允许一次', kind: 'allow_once' }, { optionId: 'deny', name: '拒绝', kind: 'reject_once' }] }
+const permission = { type: 'kimi.permission_requested', requestId: 'request-1', toolCall: { title: 'Write file', rawInput: { path: '/tmp/example' } }, options: [{ optionId: 'allow', name: 'Allow once', kind: 'allow_once' }, { optionId: 'deny', name: 'Reject', kind: 'reject_once' }] }
 
 describe('Kimi ACP public projection and permissions', () => {
   it('streams fragmented public text, separates tool turns and never promotes thought or tool output to chat', () => {
@@ -29,15 +29,15 @@ describe('Kimi ACP public projection and permissions', () => {
     let state = f.state
     const frames = [
       { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'PRIVATE' } },
-      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '第一段' } },
-      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '继续' } },
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'First segment' } },
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' continued' } },
       { sessionUpdate: 'tool_call', toolCallId: 'tool', title: 'Bash', kind: 'execute', rawInput: { command: 'echo safe' } },
       { sessionUpdate: 'tool_call_update', toolCallId: 'tool', status: 'completed', rawOutput: 'TOOL_ONLY' },
-      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '结论' } },
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Conclusion' } },
     ].map(update => JSON.stringify({ type: 'kimi.acp.update', update })).join('\n') + '\n'
     for (let index = 0; index < frames.length; index += 19) state = applyRuntimeEvent(state, f.event(frames.slice(index, index + 19)))
     const task = state.tasks[0], run = task.runs[0]
-    expect(getRuntimeOutput(task, run, run.members[0]).map(output => output.text)).toEqual(['第一段继续', '结论'])
+    expect(getRuntimeOutput(task, run, run.members[0]).map(output => output.text)).toEqual(['First segment continued', 'Conclusion'])
     expect(getRunActivity(task, run).phase).toBe('responding')
     const calls = getTraceDisplayEntries(task).filter(entry => entry.call)
     expect(calls).toHaveLength(1)

@@ -54,10 +54,10 @@ Installed-CLI checks and their precise boundaries are described in [Claude/Pi va
 - [Kimi ACP capabilities](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp.html): advertised ACP session/control capabilities.
 - [Pi RPC](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md): session, message, steering and abort commands.
 
-## 中文使用说明
+## Usage reference
 
-目标统一保存工作目录：第一项为主目录，可继续添加多个目录；关联任务、建议采用、复制和子任务自动继承。新建任务不再填写目录。空目标和独立任务在桌面应用中自动获得固定目录，已有文件不会搬迁或删除，历史执行保留原目录。运行中修改目标目录只影响后续执行。
+Goals store one shared working-directory definition: the first entry is the primary directory, and more directories can be added. Linked tasks, adopted proposals, duplicates, and subtasks inherit it automatically. New tasks no longer require a directory field. Empty goals and standalone tasks automatically receive fixed directories in the desktop app. Existing files are neither moved nor deleted, and historical executions retain their original directories. Changes to a goal's directories during execution apply only to later turns.
 
-输入框输入 `@` 搜索当前工作目录里的文件或文件夹，用上下键、Enter/Tab 或鼠标插入完整引用，Escape 收起候选列表。当前执行期间使用当时的目录范围，不提前使用下轮新增目录。文件内容仍由原 Agent 按其真实工具与权限读取。
+Type `@` in the composer to search for files or folders under the current working directories. Use the arrow keys, Enter/Tab, or the pointer to insert a complete reference; Escape dismisses the candidate list. During a current execution, the search retains that execution's directory scope rather than adopting directories added for the next turn. The original Agent still reads file contents through its actual tools and permissions.
 
-Codex、Claude、Kimi、Pi 优先使用原生会话协议，连接跨轮复用，每轮结果与 Trace 单独保存。运行中追加只开放已确认能力：Codex/Pi 原生 steering，Claude 排队追加，Kimi 未支持时保留草稿。普通停止保留会话；Claude 已排队消息的停止会回收连接后精确续接。工具审批展示真实请求和可用选项，不伪造各家没有的权限能力。
+Codex, Claude, Kimi, and Pi use their native session protocols where supported. Connections are reused across turns, while each turn's results and Trace are saved separately. Input during execution is available only for confirmed capabilities: native steering for Codex/Pi, queued follow-ups for Claude, and a retained draft when unsupported by Kimi. Normal stopping preserves the session. Stopping Claude with queued messages reclaims the connection before resuming the exact conversation later. Tool approvals show the actual requests and available options without inventing permission capabilities absent from a Runtime.

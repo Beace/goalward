@@ -20,45 +20,45 @@ afterEach(cleanup)
 describe('MarkdownMessage content', () => {
   it('retains unchanged content and copy state when only the link callback changes', async () => {
     const first = vi.fn(), latest = vi.fn()
-    const text = '[报告](./report.md)\n\n```sh\necho hello\n```'
+    const text = '[Report](./report.md)\n\n```sh\necho hello\n```'
     const view = render(<MarkdownMessage text={text} onOpenLink={first} />)
-    const link = screen.getByRole('link', { name: '报告' })
+    const link = screen.getByRole('link', { name: 'Report' })
     const code = screen.getByLabelText('sh代码块')
     fireEvent.click(screen.getByRole('button', { name: '复制代码' }))
     await waitFor(() => expect(screen.getByText('已复制')).toBeTruthy())
     view.rerender(<MarkdownMessage text={text} onOpenLink={latest} />)
-    expect(screen.getByRole('link', { name: '报告' })).toBe(link)
+    expect(screen.getByRole('link', { name: 'Report' })).toBe(link)
     expect(screen.getByLabelText('sh代码块')).toBe(code)
     expect(screen.getByText('已复制')).toBeTruthy()
     fireEvent.click(link)
     expect(latest).toHaveBeenCalledWith('report.md')
     expect(first).not.toHaveBeenCalled()
-    view.rerender(<MarkdownMessage text={text + '\n新增正文'} onOpenLink={latest} />)
-    expect(screen.getByText('新增正文')).toBeTruthy()
+    view.rerender(<MarkdownMessage text={text + '\nAdditional body text'} onOpenLink={latest} />)
+    expect(screen.getByText('Additional body text')).toBeTruthy()
     view.rerender(<MarkdownMessage text={text} />)
-    expect(screen.queryByRole('link', { name: '报告' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Report' })).toBeNull()
   })
   it('renders headings, emphasis, inline code, quotes and real nested ordered lists', () => {
-    const { container } = render(<MarkdownMessage text={'# 新闻摘要\n\n**关键结论**，包含 `agent.run()`。\n\n1. 收集来源\n   1. 核对日期\n   2. 检查原文\n2. 整理报告\n\n> 引用的公开内容'} />)
-    expect(screen.getByRole('heading', { level: 1, name: '新闻摘要' })).toBeTruthy()
-    expect(container.querySelector('strong')?.textContent).toBe('关键结论')
+    const { container } = render(<MarkdownMessage text={'# News summary\n\n**Key conclusion**, including `agent.run()`.\n\n1. Collect sources\n   1. Verify dates\n   2. Check original text\n2. Organize report\n\n> Quoted public content'} />)
+    expect(screen.getByRole('heading', { level: 1, name: 'News summary' })).toBeTruthy()
+    expect(container.querySelector('strong')?.textContent).toBe('Key conclusion')
     expect(container.querySelector('code')?.textContent).toBe('agent.run()')
     const list = container.querySelector('ol')!
     expect(list.children).toHaveLength(2)
     expect(list.querySelector('li > ol')?.children).toHaveLength(2)
-    expect(list.querySelector('li > ol > li')?.textContent).toBe('核对日期')
-    expect(container.querySelector('blockquote')?.textContent).toContain('引用的公开内容')
+    expect(list.querySelector('li > ol > li')?.textContent).toBe('Verify dates')
+    expect(container.querySelector('blockquote')?.textContent).toContain('Quoted public content')
   })
 
   it('renders GFM tables, task checkboxes and strikethrough with semantic DOM', () => {
-    const { container } = render(<MarkdownMessage text={'| 来源 | 日期 |\n| --- | --- |\n| 官方公告 | 09-16 |\n\n- [x] 已核对\n- [ ] 待补充\n\n~~旧版本~~'} />)
+    const { container } = render(<MarkdownMessage text={'| Source | Date |\n| --- | --- |\n| Official announcement | 09-16 |\n\n- [x] Checked\n- [ ] To add\n\n~~Old version~~'} />)
     const table = screen.getByRole('table')
-    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['来源', '日期'])
-    expect(within(table).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['官方公告', '09-16'])
+    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Source', 'Date'])
+    expect(within(table).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['Official announcement', '09-16'])
     const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
     expect(checkboxes.map(input => input.checked)).toEqual([true, false])
     expect(checkboxes.every(input => input.disabled)).toBe(true)
-    expect(container.querySelector('del')?.textContent).toBe('旧版本')
+    expect(container.querySelector('del')?.textContent).toBe('Old version')
   })
 
   it('shows a fenced language and copies the rendered code text exactly', async () => {
@@ -93,26 +93,26 @@ describe('MarkdownMessage content', () => {
   })
 
   it('updates an unfinished fence in place and copies only the latest streamed content', async () => {
-    const view = render(<MarkdownMessage text={'## 实现\n\n```ts\nconst value ='} />)
+    const view = render(<MarkdownMessage text={'## Implementation\n\n```ts\nconst value ='} />)
     const initialPre = screen.getByLabelText('ts代码块')
     fireEvent.click(screen.getByRole('button', { name: '复制代码' }))
     await screen.findByText('已复制')
-    view.rerender(<MarkdownMessage text={'## 实现\n\n```ts\nconst value = 42;\nconsole.log(value);\n```\n\n完成。'} />)
+    view.rerender(<MarkdownMessage text={'## Implementation\n\n```ts\nconst value = 42;\nconsole.log(value);\n```\n\nDone.'} />)
     expect(screen.getByLabelText('ts代码块')).toBe(initialPre)
     expect(view.container.querySelectorAll('pre')).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: '复制代码' })).toHaveLength(1)
     expect(screen.queryByText('已复制')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '复制代码' }))
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('const value = 42;\nconsole.log(value);\n'))
-    expect(screen.getByText('完成。')).toBeTruthy()
+    expect(screen.getByText('Done.')).toBeTruthy()
   })
 })
 
 describe('MarkdownMessage link and media boundaries', () => {
   it('opens an HTTP link through the native bridge and exposes a recoverable failure', async () => {
     bridge.openExternalUrl.mockRejectedValueOnce(new Error('open failed'))
-    render(<MarkdownMessage text={'[官方来源](https://example.com/news?q=agents "阅读原文")'} />)
-    const link = screen.getByRole('link', { name: '官方来源' })
+    render(<MarkdownMessage text={'[Official source](https://example.com/news?q=agents "Read original")'} />)
+    const link = screen.getByRole('link', { name: 'Official source' })
     expect(link.getAttribute('href')).toBe('https://example.com/news?q=agents')
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
     fireEvent.click(link)
@@ -132,10 +132,10 @@ describe('MarkdownMessage link and media boundaries', () => {
     ['protocol-relative', '//example.com/asset'],
     ['credentials', 'https://user:pass@example.com/private'],
   ])('renders %s URLs as inert text', (_name, url) => {
-    render(<MarkdownMessage text={`[不可执行链接](${url})`} />)
-    expect(screen.getByText('不可执行链接')).toBeTruthy()
+    render(<MarkdownMessage text={`[Nonexecutable link](${url})`} />)
+    expect(screen.getByText('Nonexecutable link')).toBeTruthy()
     expect(screen.queryByRole('link')).toBeNull()
-    fireEvent.click(screen.getByText('不可执行链接'))
+    fireEvent.click(screen.getByText('Nonexecutable link'))
     expect(bridge.openExternalUrl).not.toHaveBeenCalled()
   })
 
@@ -151,16 +151,16 @@ describe('MarkdownMessage link and media boundaries', () => {
   })
 
   it('represents images as explicit links without creating image requests', async () => {
-    const { container } = render(<MarkdownMessage text={'![架构图](https://example.com/diagram.png)\n\n![本地图片](file:///private/local.png)'} />)
+    const { container } = render(<MarkdownMessage text={'![Architecture diagram](https://example.com/diagram.png)\n\n![Local image](file:///private/local.png)'} />)
     expect(container.querySelector('img, picture, source')).toBeNull()
     expect(bridge.openExternalUrl).not.toHaveBeenCalled()
-    expect(screen.getByText('图片：本地图片').tagName).toBe('SPAN')
-    fireEvent.click(screen.getByRole('link', { name: '图片：架构图' }))
+    expect(screen.getByText('图片：Local image').tagName).toBe('SPAN')
+    fireEvent.click(screen.getByRole('link', { name: '图片：Architecture diagram' }))
     await waitFor(() => expect(bridge.openExternalUrl).toHaveBeenCalledWith('https://example.com/diagram.png'))
   })
 
   it('isolates footnote IDs and fragment navigation between messages', () => {
-    const text = '正文引用[^source]。\n\n[^source]: 本条消息的来源。'
+    const text = 'Body reference[^source].\n\n[^source]: Source for this message.'
     const { container } = render(<><MarkdownMessage text={text} /><MarkdownMessage text={text} /></>)
     const bodies = [...container.querySelectorAll('.markdown-body')]
     const allIds = [...container.querySelectorAll('[id]')].map(element => element.id)
@@ -186,19 +186,19 @@ describe('MarkdownMessage link and media boundaries', () => {
 
 it('routes explicit, reference, bare and inline code links to artifacts without system navigation', () => {
   const onOpenLink = vi.fn()
-  const text = '[远程](https://example.com/report)\n\n`/workspace/品质 报告.html`\n\n本地：./report.md\n\n[相对](./docs/guide.md)\n\n[文件](file:///workspace/report.html)\n\n[引用][source]\n\n[source]: https://example.com/source\n\n`https://example.com/inline`'
+  const text = '[Remote](https://example.com/report)\n\n`/workspace/quality résumé.html`\n\nLocal\uFF1A./report.md\n\n[Relative](./docs/guide.md)\n\n[File](file:///workspace/report.html)\n\n[Reference][source]\n\n[source]: https://example.com/source\n\n`https://example.com/inline`'
   const { container } = render(<MarkdownMessage text={text} onOpenLink={onOpenLink}/>)
   const links = screen.getAllByRole('link')
   expect(links).toHaveLength(7)
   for (const link of links) fireEvent.click(link)
-  expect(onOpenLink.mock.calls.flat()).toEqual(['https://example.com/report', '/workspace/品质 报告.html', 'report.md', 'docs/guide.md', '/workspace/report.html', 'https://example.com/source', 'https://example.com/inline'])
-  expect(container.querySelector('a > code')?.textContent).toBe('/workspace/品质 报告.html')
+  expect(onOpenLink.mock.calls.flat()).toEqual(['https://example.com/report', '/workspace/quality résumé.html', 'report.md', 'docs/guide.md', '/workspace/report.html', 'https://example.com/source', 'https://example.com/inline'])
+  expect(container.querySelector('a > code')?.textContent).toBe('/workspace/quality résumé.html')
   expect(bridge.openExternalUrl).not.toHaveBeenCalled()
 })
 
 it('keeps fenced paths and executable URLs inert even with artifact navigation enabled', () => {
   const onOpenLink = vi.fn()
-  const { container } = render(<MarkdownMessage text={'```sh\ncat /workspace/report.md\n```\n\n`html.parser` `console.log`\n\n[危险](javascript:alert%281%29) [协议](//example.com/file.md) [远程文件](file://server/etc/passwd) [凭证](https://user:pass@example.com)'} onOpenLink={onOpenLink}/>)
+  const { container } = render(<MarkdownMessage text={'```sh\ncat /workspace/report.md\n```\n\n`html.parser` `console.log`\n\n[Dangerous](javascript:alert%281%29) [Protocol](//example.com/file.md) [Remote file](file://server/etc/passwd) [Credentials](https://user:pass@example.com)'} onOpenLink={onOpenLink}/>)
   expect(container.querySelectorAll('a')).toHaveLength(0)
   expect(screen.getByLabelText('sh代码块').textContent).toBe('cat /workspace/report.md\n')
 })
@@ -206,7 +206,7 @@ it('keeps fenced paths and executable URLs inert even with artifact navigation e
 it('keeps screenshot filenames as text while preserving intentional filename links', () => {
   const onOpenLink = vi.fn()
   const filename = 'EC02548A-60C6-41C1-B883-4BE94F15C7AF.PNG'
-  const { container } = render(<MarkdownMessage text={`截图中的文件名 \`${filename}\`。正文提到 photo.png 和 report.md。\n\n[打开报告](report.md)\n\n明确路径：./photo.png`} onOpenLink={onOpenLink}/>)
+  const { container } = render(<MarkdownMessage text={`Filename in the screenshot: \`${filename}\`. The body mentions photo.png and report.md.\n\n[Open report](report.md)\n\nExplicit path\uFF1A./photo.png`} onOpenLink={onOpenLink}/>)
   const code = container.querySelector('code')!
   expect(code.textContent).toBe(filename)
   expect(code.closest('a')).toBeNull()

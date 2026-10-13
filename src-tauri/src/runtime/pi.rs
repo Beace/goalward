@@ -50,24 +50,24 @@ impl Outcome {
         let frame = std::mem::take(&mut self.pending);
         self.frame(&frame);
         if self.invalid {
-            return Err("Pi 返回的 JSON 事件流不完整或无法解析；请检查扩展输出".into());
+            return Err("The Pi JSON event stream is incomplete or could not be parsed. Check extension output.".into());
         }
         if self.session.as_deref().is_none_or(str::is_empty) {
-            return Err("Pi 未返回原生会话 ID".into());
+            return Err("Pi did not return a native session ID.".into());
         }
         if expected_session.is_some_and(|expected| self.session.as_deref() != Some(expected)) {
-            return Err("Pi 未续接请求的任务会话；会话 ID 不匹配".into());
+            return Err("Pi did not continue the requested task session. The session ID does not match.".into());
         }
         if !self.ended {
-            return Err("Pi 未返回 agent_end，本轮执行未完成".into());
+            return Err("Pi did not return agent_end. This turn did not complete.".into());
         }
         match self.assistant_stop.as_deref() {
             Some("stop") => Ok(()),
-            Some("length") => Err("Pi 回答达到输出长度限制，本轮执行未完成".into()),
+            Some("length") => Err("The Pi answer reached the output length limit. This turn did not complete.".into()),
             Some("error" | "aborted") => {
-                Err("Pi 模型请求失败或被中止，请查看 Trace 中的错误信息".into())
+                Err("The Pi model request failed or was interrupted. Check the error information in Trace.".into())
             }
-            _ => Err("Pi 未返回正常结束的 Agent 回答".into()),
+            _ => Err("Pi did not return a normally completed Agent answer.".into()),
         }
     }
 }

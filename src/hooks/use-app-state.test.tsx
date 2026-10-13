@@ -26,7 +26,7 @@ function deferred<T = void>() {
 
 function storedState(): AppState {
   const runtime = { id: 'runtime-1', name: 'Local Harness', executable: 'harness', adapter: 'generic' as const, enabled: true, args: ['--configured'], defaultModel: 'original-model', description: '' }
-  const member = { id: 'member-1', name: 'Implementer', role: '实现', runtimeId: runtime.id, modelId: runtime.defaultModel }
+  const member = { id: 'member-1', name: 'Implementer', role: 'Implementation', runtimeId: runtime.id, modelId: runtime.defaultModel }
   return {
     version: 1, goals: [], agents: [],
     settings: { runtimes: [runtime], models: [], providers: [], defaultRuntime: runtime.id, defaultMode: 'solo', maxParallel: 3, defaultDirectory: '/work/project', outputLimit: 65536 },
@@ -355,17 +355,17 @@ describe('useAppState persistence and concurrent updates', () => {
     const pendingWrite = deferred()
     bridge.saveState.mockClear()
     bridge.saveState.mockReturnValueOnce(pendingWrite.promise)
-    act(() => { deliver!(event('live-1', 'stdout', '第一段')) })
-    expect(result.current.state?.tasks[0].messages.at(-1)?.text).toBe('第一段')
+    act(() => { deliver!(event('live-1', 'stdout', 'First segment')) })
+    expect(result.current.state?.tasks[0].messages.at(-1)?.text).toBe('First segment')
     expect(result.current.saved).toBe(false)
-    act(() => { deliver!(event('live-2', 'stdout', '，第二段')) })
-    expect(result.current.state?.tasks[0].messages.at(-1)?.text).toBe('第一段，第二段')
+    act(() => { deliver!(event('live-2', 'stdout', ', second segment')) })
+    expect(result.current.state?.tasks[0].messages.at(-1)?.text).toBe('First segment, second segment')
     expect(bridge.saveState).toHaveBeenCalledTimes(1)
     act(() => { deliver!(event('live-done', 'completed', '', { exitCode: 0 })) })
     expect(result.current.state?.tasks[0].runs[0].members[0].status).toBe('completed')
     await act(async () => { pendingWrite.resolve() })
     await waitFor(() => expect(result.current.saved).toBe(true))
-    expect(bridge.saveState.mock.calls.at(-1)?.[0].tasks[0].messages.at(-1)?.text).toBe('第一段，第二段')
+    expect(bridge.saveState.mock.calls.at(-1)?.[0].tasks[0].messages.at(-1)?.text).toBe('First segment, second segment')
   })
 
   it('coalesces pending writes to the latest snapshot while resolving every submitted revision', async () => {

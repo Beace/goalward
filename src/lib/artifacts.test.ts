@@ -4,8 +4,8 @@ import { getTaskArtifacts, htmlPreviewDocument, replyPaths } from './artifacts'
 import type { Task, RuntimeEvent, Adapter } from './types'
 const timestamp = '2026-09-17T09:00:00Z'
 function task(text: string, events: RuntimeEvent[] = [], adapter: Adapter = 'codex'): Task {
-  const member = { id: 'member', name: 'Agent', role: '执行', runtimeId: adapter, modelId: '' }
-  return { id: 'task', title: '生成文档', directory: '/workspace/new', mode: 'solo', createdAt: timestamp, members: [member], messages: [{ id: 'reply', role: 'assistant', text, createdAt: timestamp, runId: 'run', memberId: 'member' }], runs: [{ id: 'run', directory: '/workspace/original', createdAt: timestamp, prompt: '', members: [{ ...member, status: 'completed', model: '', runtime: { id: adapter, name: adapter, adapter, executable: adapter, args: [], defaultModel: '', description: '', enabled: true } }] }], events }
+  const member = { id: 'member', name: 'Agent', role: 'Implementation', runtimeId: adapter, modelId: '' }
+  return { id: 'task', title: 'Generate document', directory: '/workspace/new', mode: 'solo', createdAt: timestamp, members: [member], messages: [{ id: 'reply', role: 'assistant', text, createdAt: timestamp, runId: 'run', memberId: 'member' }], runs: [{ id: 'run', directory: '/workspace/original', createdAt: timestamp, prompt: '', members: [{ ...member, status: 'completed', model: '', runtime: { id: adapter, name: adapter, adapter, executable: adapter, args: [], defaultModel: '', description: '', enabled: true } }] }], events }
 }
 function event(payload: unknown, id = 'event'): RuntimeEvent { return { id, taskId: 'task', runId: 'run', memberId: 'member', timestamp, kind: 'stdout', text: JSON.stringify(payload) } }
 describe('artifact history index', () => {
@@ -24,7 +24,7 @@ describe('artifact history index', () => {
   })
 
   it('backfills screenshot-style paths, deduplicates normalized aliases and preserves historical directory', () => {
-    const artifacts = getTaskArtifacts(task('已完成。产出文件：`/workspace/original/business-quality.html`\n\n[打开](./business-quality.html)'))
+    const artifacts = getTaskArtifacts(task('Done. Output file: `/workspace/original/business-quality.html`\n\n[Open](./business-quality.html)'))
     expect(artifacts).toHaveLength(1)
     expect(artifacts[0]).toMatchObject({ name: 'business-quality.html', directory: '/workspace/original', source: 'reply', runId: 'run', memberId: 'member' })
   })
@@ -37,17 +37,17 @@ describe('artifact history index', () => {
     expect(new Set(artifacts.map(a => a.id)).size).toBe(2)
   })
   it('indexes closed document fences and excludes ordinary code and partial documents', () => {
-    const value = task('```html filename="报告.html"\n<h1>Hello</h1>\n```\n```md\n# 文档\n```\n```sh\ncat secret.txt\nreport.md\n```\n```html\n<h1>未完成')
+    const value = task('```html filename="résumé.html"\n<h1>Hello</h1>\n```\n```md\n# Document\n```\n```sh\ncat secret.txt\nreport.md\n```\n```html\n<h1>Incomplete')
     const artifacts = getTaskArtifacts(value)
-    expect(artifacts.map(a => a.name)).toEqual(['报告.html', '回复文档-2.md'])
+    expect(artifacts.map(a => a.name)).toEqual(['résumé.html', '回复文档-2.md'])
     expect(artifacts[0].content).toBe('<h1>Hello</h1>\n')
   })
   it('does not collapse two document blocks with the same provided filename', () => {
     expect(getTaskArtifacts(task('```md report.md\n# v1\n```\n```md report.md\n# v2\n```'))).toHaveLength(2)
   })
   it('supports raw full HTML and Unicode paths with spaces, rejecting web/app schemes', () => {
-    expect(getTaskArtifacts(task('<!doctype html><html><body>报告</body></html>'))[0].kind).toBe('html')
-    expect(replyPaths('`/workspace/品质 报告.md` [网页](https://example.com/report.html) [禁止](javascript:report.md)')).toEqual(['/workspace/品质 报告.md'])
+    expect(getTaskArtifacts(task('<!doctype html><html><body>Report</body></html>'))[0].kind).toBe('html')
+    expect(replyPaths('`/workspace/quality résumé.md` [Web page](https://example.com/report.html) [Blocked](javascript:report.md)')).toEqual(['/workspace/quality résumé.md'])
   })
   it('registers successful file changes, but not failed writes, deletes or reads', () => {
     const events = [event({ type: 'item.completed', item: { id: 'write', type: 'file_change', changes: [{ path: 'report.html', kind: 'add' }, { path: 'deleted.md', kind: 'delete' }] } }), event({ type: 'item.failed', item: { id: 'failed', type: 'file_change', changes: [{ path: 'failed.md', kind: 'add' }] } }, 'event2')]
@@ -66,18 +66,18 @@ describe('artifact history index', () => {
     expect(getTaskArtifacts(value)).toEqual([])
   })
   it('does not index file-like references from rendered reasoning', () => {
-    const value = task('[报告](./reasoning-only.md)')
+    const value = task('[Report](./reasoning-only.md)')
     value.messages[0].kind = 'reasoning'
     expect(getTaskArtifacts(value)).toEqual([])
   })
   it('does not invent workspace paths for filenames described inside screenshots, including restored history', () => {
-    const value = task('这是一张 macOS「预览」应用的截图（文件名 `EC02548A-60C6-41C1-B883-4BE94F15C7AF.PNG`）。\n\n提到 report.md 和 photo.png。')
+    const value = task('This is a screenshot of the macOS Preview app (filename `EC02548A-60C6-41C1-B883-4BE94F15C7AF.PNG`).\n\nMentions report.md and photo.png.')
     value.directory = '/Users/bytedance/Documents/tech_news'
     value.runs[0].directory = value.directory
     expect(getTaskArtifacts(JSON.parse(JSON.stringify(value)))).toEqual([])
   })
   it('retains explicit filename links, directory paths and structured file-change evidence', () => {
-    const value = task('[报告](report.md)\n\n[图片][image]\n\n[image]: photo.png\n\n`./local.md` 和 `docs/guide.md`\n\n`/workspace/original/image.png`', [event({ type: 'item.completed', item: { id: 'write', type: 'file_change', changes: [{ path: 'generated.png', kind: 'add' }] } })])
+    const value = task('[Report](report.md)\n\n[Image][image]\n\n[image]: photo.png\n\n`./local.md` and `docs/guide.md`\n\n`/workspace/original/image.png`', [event({ type: 'item.completed', item: { id: 'write', type: 'file_change', changes: [{ path: 'generated.png', kind: 'add' }] } })])
     expect(getTaskArtifacts(value).map(item => item.path)).toEqual(['report.md', 'photo.png', 'local.md', 'docs/guide.md', '/workspace/original/image.png', 'generated.png'])
   })
 })
@@ -99,12 +99,12 @@ it('restores saved document paths after serialization without duplicating inline
   expect(artifacts[0]).toMatchObject({ id: original.id, path: '/chosen/report.md', source: 'saved' })
 })
 it('does not mistake dotted module names in the real report reply for generated files', () => {
-  expect(replyPaths('使用 `html.parser` 做校验，`console.log` 输出结果。产出 `/Users/bytedance/Documents/tech_news/business-quality.html`')).toEqual(['/Users/bytedance/Documents/tech_news/business-quality.html'])
+  expect(replyPaths('Use `html.parser` for validation and `console.log` for results. Output `/Users/bytedance/Documents/tech_news/business-quality.html`')).toEqual(['/Users/bytedance/Documents/tech_news/business-quality.html'])
 })
 
 it('indexes web links and local reference links using the same Markdown rules as the renderer', () => {
-  const artifacts = getTaskArtifacts(task('[远程](https://example.com/report?q=1)\n\n`https://example.com/report?q=1`\n\n[文档][doc]\n\n[doc]: <./docs/品质 报告.md>\n\n```text\nhttps://example.com/not-an-artifact\n```'))
+  const artifacts = getTaskArtifacts(task('[Remote](https://example.com/report?q=1)\n\n`https://example.com/report?q=1`\n\n[Document][doc]\n\n[doc]: <./docs/quality résumé.md>\n\n```text\nhttps://example.com/not-an-artifact\n```'))
   expect(artifacts).toHaveLength(2)
   expect(artifacts[0]).toMatchObject({ kind: 'web', url: 'https://example.com/report?q=1', directory: '/workspace/original' })
-  expect(artifacts[1]).toMatchObject({ kind: 'markdown', path: 'docs/品质 报告.md' })
+  expect(artifacts[1]).toMatchObject({ kind: 'markdown', path: 'docs/quality résumé.md' })
 })

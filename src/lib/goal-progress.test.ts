@@ -8,11 +8,11 @@ import type { Task } from './types'
 
 function fixture() {
   const state = createInitialState()
-  const goal = createGoal({ title: '验证交付', expected: '获得可检验结果' })
-  const task = (overrides: Partial<Task> = {}): Task => ({ ...createWorkspaceTask(state.settings, { title: '真实任务', goalId: goal.id }), ...overrides })
+  const goal = createGoal({ title: 'Verify delivery', expected: 'Obtain verifiable results' })
+  const task = (overrides: Partial<Task> = {}): Task => ({ ...createWorkspaceTask(state.settings, { title: 'Real task', goalId: goal.id }), ...overrides })
   return { goal, task }
 }
-const accepted = { id: 'accepted', summary: '交付结果', evidence: '可复查的验证记录', createdAt: '2026-10-10T00:00:00Z', verdict: 'accepted' as const }
+const accepted = { id: 'accepted', summary: 'Delivered result', evidence: 'Verification records that can be checked', createdAt: '2026-10-10T00:00:00Z', verdict: 'accepted' as const }
 
 describe('task delivery progress', () => {
   it('requires the latest accepted result, evidence, business acceptance, and matching requirements', () => {
@@ -21,7 +21,7 @@ describe('task delivery progress', () => {
     expect(isAcceptedTaskDone(task({ businessStatus: 'review', results: [accepted] }))).toBe(false)
     expect(isAcceptedTaskDone(task({ businessStatus: 'done', results: [] }))).toBe(false)
     expect(isAcceptedTaskDone(task({ businessStatus: 'done', results: [{ ...accepted, evidence: ' \n ', reviewNote: ' ' }] }))).toBe(false)
-    expect(isAcceptedTaskDone(task({ businessStatus: 'done', results: [{ ...accepted, evidence: '', reviewNote: '用户验收记录' }] }))).toBe(true)
+    expect(isAcceptedTaskDone(task({ businessStatus: 'done', results: [{ ...accepted, evidence: '', reviewNote: 'User acceptance records' }] }))).toBe(true)
     expect(isAcceptedTaskDone(task({ businessStatus: 'done', results: [accepted, { ...accepted, id: 'new', verdict: 'submitted' }] }))).toBe(false)
     expect(isAcceptedTaskDone(task({ businessStatus: 'done', results: [accepted, { ...accepted, id: 'new', verdict: 'rejected' }] }))).toBe(false)
     expect(isAcceptedTaskDone(task({ businessStatus: 'done', requirementsVersion: 1, results: [accepted] }))).toBe(false)
@@ -55,8 +55,8 @@ describe('goal criteria verification', () => {
   it('counts both outcomes only with evidence and leaves all other criteria unverified', () => {
     const { goal, task } = fixture()
     const criterion = (id: string, status: GoalCriterion['status'], evidence: string): GoalCriterion => ({ id, text: id, status, evidence })
-    goal.criteria = [criterion('satisfied', 'satisfied', '检查通过'), criterion('unsatisfied', 'unsatisfied', '检查未通过'),
-      criterion('missing', 'satisfied', ' \n '), criterion('unverified', 'unverified', '尚未评审'), criterion('failed-no-evidence', 'unsatisfied', '')]
+    goal.criteria = [criterion('satisfied', 'satisfied', 'Check passed'), criterion('unsatisfied', 'unsatisfied', 'Check failed'),
+      criterion('missing', 'satisfied', ' \n '), criterion('unverified', 'unverified', 'Not reviewed yet'), criterion('failed-no-evidence', 'unsatisfied', '')]
     const progress = getGoalProgress(goal, [task({ businessStatus: 'done', results: [accepted] })])
     expect(progress.criteria).toMatchObject({ total: 5, satisfied: 1, unsatisfied: 1, pending: 3, percentage: 20 })
     expect(progress.tasks.percentage).toBe(100)

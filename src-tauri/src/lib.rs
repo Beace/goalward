@@ -191,7 +191,7 @@ async fn export_task(task: Value, services: State<'_, AppServices>) -> Result<St
 }
 
 fn validated_external_url(value: &str) -> Result<tauri::Url, String> {
-    let invalid = || "只能打开不含登录凭证的 HTTP 或 HTTPS 网页链接。".to_string();
+    let invalid = || "Only HTTP or HTTPS web links without login credentials can be opened.".to_string();
     if value
         .chars()
         .any(|character| character.is_control() || character == ' ')
@@ -218,7 +218,7 @@ fn validated_external_url(value: &str) -> Result<tauri::Url, String> {
 #[tauri::command]
 async fn open_external_url(window: tauri::WebviewWindow, url: String) -> Result<(), String> {
     if window.label() != "main" {
-        return Err("此窗口无法打开外部链接。".into());
+        return Err("This window cannot open external links.".into());
     }
     let url = validated_external_url(&url)?;
     #[cfg(target_os = "macos")]
@@ -232,19 +232,19 @@ async fn open_external_url(window: tauri::WebviewWindow, url: String) -> Result<
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .map_err(|_| "无法启动默认浏览器。".to_string())?;
+            .map_err(|_| "Could not start the default browser.".to_string())?;
         if status.success() {
             Ok(())
         } else {
-            Err("默认浏览器未能打开此链接。".into())
+            Err("The default browser could not open this link.".into())
         }
     })
     .await
-    .map_err(|_| "打开链接的任务未能完成。".to_string())?;
+    .map_err(|_| "The link-opening task did not complete.".to_string())?;
     #[cfg(not(target_os = "macos"))]
     {
         let _ = url;
-        Err("当前桌面版本仅支持在 macOS 打开外部链接。".into())
+        Err("This desktop version only supports opening external links on macOS.".into())
     }
 }
 
@@ -262,7 +262,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 if let Err(error) = window.hide() {
-                    eprintln!("无法隐藏 Goalward 窗口：{error}");
+                    eprintln!("Could not hide the Goalward window: {error}");
                 }
             }
         }
@@ -285,17 +285,17 @@ pub fn run() {
                 let reload = MenuItem::with_id(
                     app,
                     "dev-reload",
-                    "重新加载页面",
+                    "Reload page",
                     true,
                     Some("CmdOrCtrl+R"),
                 )?;
-                menu.append(&Submenu::with_items(app, "开发", true, &[&reload])?)?;
+                menu.append(&Submenu::with_items(app, "Development", true, &[&reload])?)?;
                 app.set_menu(menu)?;
                 app.on_menu_event(|app, event| {
                     if event.id().as_ref() == "dev-reload" {
                         if let Some(window) = app.get_webview_window("main") {
                             if let Err(error) = window.reload() {
-                                eprintln!("重新加载页面失败：{error}");
+                                eprintln!("Failed to reload the page: {error}");
                             }
                         }
                     }
@@ -345,7 +345,7 @@ pub fn run() {
         } => {
             if let Some(window) = app.get_webview_window("main") {
                 if let Err(error) = window.show().and_then(|_| window.set_focus()) {
-                    eprintln!("无法重新显示 Goalward 窗口：{error}");
+                    eprintln!("Could not show the Goalward window again: {error}");
                 }
             }
         }
@@ -365,7 +365,7 @@ mod external_url_tests {
         for value in [
             "https://example.com/docs?q=a%20b&source=chat#section",
             "http://127.0.0.1:1420/",
-            "HTTPS://example.com/中文",
+            "HTTPS://example.com/résumé",
         ] {
             let url = validated_external_url(value).unwrap();
             assert!(matches!(url.scheme(), "http" | "https"));

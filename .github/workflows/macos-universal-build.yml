@@ -181,7 +181,7 @@ jobs:
                   digest = hashlib.file_digest(stream, 'sha256').hexdigest()
               if digest != item['sha256'] or path.stat().st_size != item['bytes']:
                   raise SystemExit(f'Artifact failed verification: {path}')
-          if not (output / '安装说明.txt').is_file():
+          if not (output / 'INSTALL.txt').is_file():
               raise SystemExit('Installation guide is missing')
           PY
           version="$(node -p "require('./package.json').version")"

@@ -1,30 +1,30 @@
-# Goalward 桌面图标
+# Goalward desktop icon
 
-## 内置 Runtime 标识
+## Built-in Runtime identities
 
-应用内通过 `src/components/RuntimeLogo.tsx` 统一加载 `src/assets/runtimes/` 的官方素材，随前端打包，运行时无需请求品牌网站。原始图形比例与颜色保持不变，DeepSeek 采用其官方深色变体。未知自定义 Runtime 使用中性终端图标；明确使用 Codex / Claude 适配器的自定义注册项沿用对应品牌。图标用于识别 Runtime，不表示已安装、已登录或可调用。
+The application loads official assets from `src/assets/runtimes/` through the shared `src/components/RuntimeLogo.tsx` component. Assets are bundled with the frontend, so runtime display does not request brand websites. Original proportions and colors are preserved; DeepSeek uses its official dark variant. Unknown custom Runtimes use a neutral terminal icon. Custom registrations that explicitly use the Codex / Claude adapters use the corresponding brand. These icons identify Runtimes and do not indicate installation, authentication, or availability.
 
-| Runtime | 素材与官方来源记录 |
+| Runtime | Asset and official source record |
 | --- | --- |
-| Codex | `codex.png`，官方 Codex 插件使用的 OpenAI Blossom；[来源](runtime-source-codex.md) |
-| Claude Code | `claude.png`，Anthropic 官方 Claude Code 插件图标；[来源](runtime-source-claude-deepseek.md) |
-| DeepSeek Harness | `deepseek.svg`，官方 Harness Web 应用的鲸鱼图标；[来源与上游许可](runtime-source-claude-deepseek.md) |
-| Pi | `pi.svg`，Pi Press Kit 的紧凑标识；[来源](runtime-source-pi.md) |
+| Codex | `codex.png`, the OpenAI Blossom used by the official Codex extension; [source](runtime-source-codex.md) |
+| Claude Code | `claude.png`, the official Anthropic Claude Code extension icon; [source](runtime-source-claude-deepseek.md) |
+| DeepSeek Harness | `deepseek.svg`, the whale icon used by the official Harness Web application; [source and upstream license](runtime-source-claude-deepseek.md) |
+| Pi | `pi.svg`, the compact identity from the Pi Press Kit; [source](runtime-source-pi.md) |
 
-列表、设置、首次检测、成员与聊天共用同一套素材。历史聊天和执行成员读取保存的 Runtime 快照，不随后续配置切换。来源及许可说明一并打包至 macOS 应用的 `Contents/Resources/runtime-branding/`。
+Lists, settings, initial detection, members, and chat use the same assets. Historical chats and execution members read their saved Runtime snapshots and do not change with subsequent configuration updates. Source and license records are bundled into the macOS application's `Contents/Resources/runtime-branding/` directory.
 
-## 设计
+## Design
 
-2026-10-09 为 Goalward 更新图标。向前的 G 形路径对应把模糊方向转成具体行动，再通过复盘持续前进。深炭灰底板、暖沙金和象牙白延续应用现有配色；采用圆角方形外轮廓。
+The Goalward icon was updated on 2026-10-09. Its forward-moving G-shaped path represents turning a vague direction into concrete action and continuing through reflection. The dark charcoal base, warm sand gold, and ivory white extend the application's existing palette within a rounded-square outline.
 
-- 正式母版：`goalward-icon.png`，1254 × 1254 PNG。
-- 完整生成提示词：`icon-prompt.txt`。
-- 生成方式：内置 image_gen 工具，使用 imagegen skill；未使用 CLI / API fallback。
-- `src-tauri/icons/app.svg` 是早期占位源码，不用于当前打包；请勿以它重新生成图标。
+- Production master: `goalward-icon.png`, a 1254 × 1254 PNG.
+- Complete generation prompt: `icon-prompt.txt`.
+- Generation method: the built-in image_gen tool with the imagegen skill; no CLI / API fallback was used.
+- `src-tauri/icons/app.svg` is an early placeholder source and is not used for current packaging. Do not regenerate icons from it.
 
-## 重新生成打包资源
+## Regenerate packaged assets
 
-在仓库根目录执行。Tauri CLI 负责尺寸转换与平台封装。
+Run these commands from the repository root. The Tauri CLI handles resizing and platform packaging.
 
 ```bash
 npm run tauri -- icon assets/branding/goalward-icon.png --output src-tauri/target/goalward-brand-icons
@@ -36,9 +36,9 @@ cp src-tauri/target/goalward-brand-icons/icon.icns src-tauri/icons/
 npm run mac:build
 ```
 
-项目仅使用 macOS 所需资源；其他平台的自动生成文件留在被 Git 忽略的 target 目录。
+The project uses only the assets required for macOS. Generated files for other platforms remain in the Git-ignored target directory.
 
-## 检查
+## Checks
 
 ```bash
 sips -g pixelWidth -g pixelHeight -g hasAlpha src-tauri/icons/32x32.png src-tauri/icons/128x128.png src-tauri/icons/128x128@2x.png

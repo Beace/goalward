@@ -188,24 +188,24 @@ mod tests {
     fn searches_multiple_roots_with_unicode_spaces_and_literal_symbols() {
         let first = tempfile::tempdir().unwrap();
         let second = tempfile::tempdir().unwrap();
-        std::fs::create_dir(first.path().join("资料 中文")).unwrap();
+        std::fs::create_dir(first.path().join("Documents résumé")).unwrap();
         std::fs::write(
-            first.path().join("资料 中文").join("报告 $(echo).md"),
+            first.path().join("Documents résumé").join("report $(echo).md"),
             "private content",
         )
         .unwrap();
-        std::fs::write(second.path().join("报告.txt"), "other content").unwrap();
+        std::fs::write(second.path().join("report.txt"), "other content").unwrap();
         let roots = vec![
             first.path().to_string_lossy().into_owned(),
             second.path().to_string_lossy().into_owned(),
         ];
-        let result = search(&roots, "报告").unwrap();
+        let result = search(&roots, "report").unwrap();
         assert_eq!(result.entries.len(), 2);
         assert!(result.entries.iter().all(|entry| entry.kind == "file"));
         assert!(!serde_json::to_string(&result)
             .unwrap()
             .contains("private content"));
-        assert_eq!(search(&roots, "资料").unwrap().entries[0].kind, "folder");
+        assert_eq!(search(&roots, "Documents").unwrap().entries[0].kind, "folder");
     }
     #[test]
     fn bounds_search_and_excludes_generated_directories() {

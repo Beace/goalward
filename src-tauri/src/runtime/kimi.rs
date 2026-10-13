@@ -331,14 +331,14 @@ impl KimiSession {
     ) -> Result<&'a Value, String> {
         let mut matches = options
             .as_array()
-            .ok_or("Kimi 未返回模型配置能力；无法确认思考强度，运行已停止")?
+            .ok_or("Kimi did not return model configuration capabilities. Reasoning effort could not be confirmed, and the run was stopped.")?
             .iter()
             .filter(|option| option["category"] == category || option["id"] == fallback_id);
         let option = matches
             .next()
-            .ok_or("当前 Kimi 模型未提供思考强度选项；运行已停止")?;
+            .ok_or("The current Kimi model does not provide reasoning effort options. The run was stopped.")?;
         if matches.next().is_some() || option["type"] != "select" {
-            return Err("Kimi 返回了无效或重复的模型配置选项；运行已停止".into());
+            return Err("Kimi returned invalid or duplicate model configuration options. The run was stopped.".into());
         }
         Ok(option)
     }
@@ -359,16 +359,16 @@ impl KimiSession {
         let model = Self::select_option(&inner.config_options, "model", "model")?["currentValue"]
             .as_str()
             .filter(|value| !value.is_empty())
-            .ok_or("Kimi 未确认当前模型；无法设置思考强度，运行已停止")?
+            .ok_or("Kimi did not confirm the current model. Reasoning effort could not be set, and the run was stopped.")?
             .to_owned();
         let thinking = Self::select_option(&inner.config_options, "thought_level", "thinking")?;
         if !Self::supports_value(thinking, &effort) {
-            return Err(format!("当前 Kimi 模型 {model} 不支持思考强度 {effort}；请重新检测模型或选择继承 Runtime 配置"));
+            return Err(format!("The current Kimi model {model} does not support reasoning effort {effort}. Detect models again or inherit runtime settings."));
         }
         let id = thinking["id"]
             .as_str()
             .filter(|value| !value.is_empty() && value.len() <= 128)
-            .ok_or("Kimi 思考强度选项缺少有效 ID；运行已停止")?
+            .ok_or("The Kimi reasoning effort option is missing a valid ID. The run was stopped.")?
             .to_owned();
         let params = json!({"sessionId":inner.session,"configId":id,"value":effort});
         inner.thinking_config = Some((id, model));
@@ -490,7 +490,7 @@ impl KimiSession {
                 .take(600)
                 .collect();
             return Err(format!(
-                "Kimi ACP error {code}: {message}. 请在终端完成 Kimi 登录与模型配置后重试。"
+                "Kimi ACP error {code}: {message}. Complete Kimi login and model configuration in the terminal, then try again."
             ));
         }
         if inner.cancelled && inner.stage != PROMPT_STAGE {
@@ -510,7 +510,7 @@ impl KimiSession {
                 let resume = sink.request.session_id.as_ref();
 
                 if resume.is_some() && result["agentCapabilities"]["loadSession"] != true {
-                    return Err("当前 Kimi 不支持恢复会话；运行已停止，未新建空会话".into());
+                    return Err("This Kimi version does not support resuming sessions. The run was stopped without creating an empty session.".into());
                 }
                 let mut params = json!({"cwd":sink.request.directory, "mcpServers":[]});
                 if let Some(id) = resume {
@@ -534,7 +534,7 @@ impl KimiSession {
                         .as_str()
                         .is_some_and(|id| id != expected)
                     {
-                        return Err("Kimi 返回的会话与请求恢复的会话不一致；未发送指令".into());
+                        return Err("The session returned by Kimi does not match the requested session. No instruction was sent.".into());
                     }
                 }
                 if sink.request.session_id.is_none() {
@@ -599,7 +599,7 @@ impl KimiSession {
                     };
                     let model = Self::select_option(&inner.config_options, "model", "model")?;
                     if model["currentValue"] != requested_model {
-                        return Err("Kimi 未确认所选模型；无法设置思考强度，运行已停止".into());
+                        return Err("Kimi did not confirm the selected model. Reasoning effort could not be set, and the run was stopped.".into());
                     }
                 }
                 self.configure_thinking(&mut inner)?;
@@ -611,18 +611,18 @@ impl KimiSession {
                 let (id, model) = inner
                     .thinking_config
                     .as_ref()
-                    .ok_or("Kimi 思考强度响应没有对应请求")?;
+                    .ok_or("The Kimi reasoning effort response has no matching request.")?;
                 let thinking =
                     Self::select_option(&inner.config_options, "thought_level", "thinking")?;
                 let selected_model = Self::select_option(&inner.config_options, "model", "model")?;
-                let effort = self.requested_effort().ok_or("Kimi 思考强度请求已失效")?;
+                let effort = self.requested_effort().ok_or("The Kimi reasoning effort request is no longer valid.")?;
                 if thinking["id"] != id.as_str()
                     || thinking["currentValue"] != effort
                     || !Self::supports_value(thinking, &effort)
                     || selected_model["currentValue"] != model.as_str()
                 {
                     return Err(format!(
-                        "Kimi 未确认思考强度 {effort} 已生效；运行已停止，未发送提示词"
+                        "Kimi did not confirm that reasoning effort {effort} took effect. The run was stopped without sending the prompt."
                     ));
                 }
                 self.prompt(&mut inner)?;

@@ -12,7 +12,7 @@ fn request(directory: &Path, body: &str) -> StartRequest {
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     serde_json::from_value(json!({"taskId":"claude-task","runId":"first","memberId":"member",
         "runtime":{"id":"claude","name":"Claude fixture","adapter":"claude","executable":executable,"enabled":true,"args":[],"permissions":{"claude":{"mode":"manual"}}},
-        "directory":directory,"model":"fixture-model","prompt":"literal $(do not execute) 中文\nline two"})).unwrap()
+        "directory":directory,"model":"fixture-model","prompt":"literal $(do not execute) café\nline two"})).unwrap()
 }
 const PRELUDE: &str = r#"import json,sys,pathlib,time
 def read():
@@ -121,7 +121,7 @@ while True:
     user=read()
     assert user['type']=='user' and user['parent_tool_use_id'] is None
     index+=1
-    if index==1: assert user['message']['content']=='literal $(do not execute) 中文\nline two'
+    if index==1: assert user['message']['content']=='literal $(do not execute) café\nline two'
     else: assert user['session_id']=='native-session'
     emit({'type':'stream_event','session_id':'native-session','event':{'type':'content_block_delta','index':0,'delta':{'type':'text_delta','text':'live'}}})
     result('answer-'+str(index))
@@ -334,7 +334,7 @@ result('large input accepted')
 while True: read()
 "#,
     );
-    req.prompt = "中文🙂 $(literal) @file --flag\n".repeat(16000);
+    req.prompt = "café🙂 $(literal) @file --flag\n".repeat(16000);
     let prompt = req.prompt.clone();
     let manager = manager(dir.path());
     assert_eq!(

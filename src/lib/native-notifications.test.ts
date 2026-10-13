@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const api = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: vi.fn(), isPermissionGranted: vi.fn(), requestPermission: vi.fn() }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: api.invoke, isTauri: api.isTauri }))
 vi.mock('@tauri-apps/plugin-notification', () => ({ isPermissionGranted: api.isPermissionGranted, requestPermission: api.requestPermission }))
-const notification = { title: '对话已结束', body: '测试任务：本轮回复已完成。' }
+const notification = { title: 'Conversation ended', body: 'Test task: The reply for this turn is complete.' }
 
 beforeEach(() => {
   vi.resetModules()
@@ -37,7 +37,7 @@ describe('native notification transport', () => {
     api.requestPermission.mockImplementation(() => new Promise(resolve => { grant = resolve }))
     const { sendNativeNotification } = await import('./native-notifications')
     const first = sendNativeNotification(notification)
-    const second = sendNativeNotification({ ...notification, body: '另一任务' })
+    const second = sendNativeNotification({ ...notification, body: 'Another task' })
     await vi.waitFor(() => expect(api.requestPermission).toHaveBeenCalledTimes(1))
     expect(api.invoke).not.toHaveBeenCalled()
     grant('granted')

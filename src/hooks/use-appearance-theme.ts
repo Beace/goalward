@@ -43,7 +43,7 @@ export function useAppearanceTheme(value?: ThemePreference, loaded = true) {
     }
     apply()
     if (preference === 'system') media?.addEventListener('change', apply)
-    if (loaded) void syncNativeTheme(preference).catch(error => console.warn('无法同步原生窗口主题：', error))
+    if (loaded) void syncNativeTheme(preference).catch(error => console.warn('Could not synchronize the native window theme:', error))
     return () => {
       media?.removeEventListener('change', apply)
     }

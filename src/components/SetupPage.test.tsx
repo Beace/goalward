@@ -67,7 +67,7 @@ describe('first-run discovery view', () => {
   })
 
   it('shows model identity, selected default and source, while the empty case explains runtime defaults', () => {
-    const handlers = props({ report: report([{ models: [{ modelId: 'local-model-id', name: '本机模型', source: '~/.codex/config.toml', selected: true }] }]) })
+    const handlers = props({ report: report([{ models: [{ modelId: 'local-model-id', name: 'Local model', source: '~/.codex/config.toml', selected: true }] }]) })
     render(<SetupPage {...handlers} />)
     expect(screen.getByText('local-model-id')).toBeTruthy()
     expect(screen.getByText('本机配置默认')).toBeTruthy()
@@ -81,11 +81,11 @@ describe('first-run discovery view', () => {
   })
 
   it('distinguishes failed version probes from missing executables and permits explicit path import without a default', async () => {
-    const source = report([{ probe: { found: true, path: '/custom/codex', version: '', error: '版本检查超时' } }, { probe: { found: false, path: '', version: '' } }])
+    const source = report([{ probe: { found: true, path: '/custom/codex', version: '', error: 'Version check timed out' } }, { probe: { found: false, path: '', version: '' } }])
     const handlers = props({ report: source })
     render(<SetupPage {...handlers} />)
     expect(screen.getByText('找到程序，但版本检测未成功')).toBeTruthy()
-    expect(screen.getByText('版本检查超时')).toBeTruthy()
+    expect(screen.getByText('Version check timed out')).toBeTruthy()
     expect(screen.getByRole('checkbox', { name: '导入 Codex' }).getAttribute('aria-checked')).toBe('false')
     fireEvent.click(screen.getByRole('checkbox', { name: '导入 Codex' }))
     fireEvent.click(screen.getByRole('button', { name: /导入所选 1 项并继续/ }))
@@ -113,8 +113,8 @@ describe('first-run discovery view', () => {
     fireEvent.click(importButton)
     fireEvent.click(importButton)
     expect(handlers.onImport).toHaveBeenCalledTimes(1)
-    await act(async () => { reject(new Error('无法保存配置')) })
-    expect(screen.getByRole('alert').textContent).toContain('无法保存配置')
+    await act(async () => { reject(new Error('Cannot save configuration')) })
+    expect(screen.getByRole('alert').textContent).toContain('Cannot save configuration')
     expect((screen.getByRole('button', { name: /导入所选 2 项并继续/ }) as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getByRole('checkbox', { name: '导入 Codex' }).getAttribute('aria-checked')).toBe('true')
   })

@@ -1,105 +1,105 @@
-# 本地存储分层与增量保存
+# Layered local storage and incremental persistence
 
-实现日期：2026-09-17。桌面存储格式为 SQLite schema 1；应用数据结构仍为 AppState v2，任务 JSON 导出格式保持兼容。
+Implemented on 2026-09-17. Desktop storage uses SQLite schema 1; the application data structure remains AppState v2, and task JSON exports remain compatible.
 
-## 原来的 state.json 保存了什么
+## Contents of the original state.json
 
-本机只读样本包含 6 个任务、12 次 Run、32 条对话消息和 21,711 条事件（含示例数据）。整个文件 84,398,262 bytes，任务的 events 数组共 84,343,001 bytes，占 99.9345%。
+The read-only local sample contains 6 tasks, 12 Runs, 32 conversation messages, and 21,711 events, including example data. The complete file is 84,398,262 bytes. Task events arrays total 84,343,001 bytes, or 99.9345% of the file.
 
-| 类别 | 内容 | 样本序列化体积 |
+| Category | Contents | Sample serialized size |
 | --- | --- | ---: |
-| 配置 | Runtime、模型、供应商、执行默认值 | 6,861 bytes |
-| 首次引导 | 完成状态、本机发现结果等 | 7,807 bytes |
-| 目标 | 目标、现状、计划、复盘与关联信息 | 2,459 bytes |
-| Agent 档案 | 可复用 Agent 配置 | 2 bytes（空列表） |
-| 任务 | 标题、目录、成员、业务状态、依赖、验收等 | 与下列集合合计 84,380,953 bytes |
-| 对话 | 用户、Agent、系统消息 | 18,474 bytes |
-| Run 快照 | 当次提示词、成员与 Runtime / 模型配置、执行状态 | 16,254 bytes |
-| 原始事件 | 启停事件、stdout、stderr、工具协议输入输出 | 84,343,001 bytes |
-| 工作区选择 | activeGoalId、activeTaskId、版本 | 很小 |
+| Configuration | Runtimes, models, providers, execution defaults | 6,861 bytes |
+| Onboarding | Completion state, local discovery results, etc. | 7,807 bytes |
+| Goals | Goals, context, plans, reviews, and links | 2,459 bytes |
+| Agent profiles | Reusable Agent configuration | 2 bytes (empty list) |
+| Tasks | Titles, directories, members, business states, dependencies, acceptance, etc. | 84,380,953 bytes including the collections below |
+| Conversations | User, Agent, and system messages | 18,474 bytes |
+| Run snapshots | Invocation prompts, member and Runtime / model configuration, execution states | 16,254 bytes |
+| Raw events | Start/stop events, stdout, stderr, tool-protocol inputs and outputs | 84,343,001 bytes |
+| Workspace selection | activeGoalId, activeTaskId, version | Very small |
 
-表中任务行包含其子集合，不能再次相加。字节统计按紧凑 UTF-8 JSON 计算。
+The task row includes its child collections and must not be added to them again. Sizes use compact UTF-8 JSON.
 
-旧实现每次状态变化都会把全部历史事件一起进行 JS 序列化、跨 Tauri IPC 传输、Rust 解析、完整快照写入与 fsync。选择任务、改设置和每段流式输出均可能触发这一成本；原生 JSONL 中还存在用于恢复的同一份事件。
+The previous implementation serialized all historical events in JS, transferred them across Tauri IPC, parsed them in Rust, wrote the full snapshot, and ran fsync on every state change. Task selection, setting changes, and each streaming fragment could incur this cost. Native JSONL also held the same events for recovery.
 
-## 已实现的结构
+## Implemented structure
 
 ```text
 app_data_dir/
-├── workspace.sqlite3                         # 当前生效的工作区数据库
-├── workspace.sqlite3-journal                 # SQLite 事务期间可能出现
-├── state.json                                # 旧版本原文件，保留为迁移前备份
-├── state.v1.backup.json                       # 若旧版本已生成，继续保留
-├── traces/<taskId>/<runId>/<memberId>.jsonl    # 原生执行日志与恢复来源
-└── exports/<taskId>-<exportId>.json           # 完整任务导出
+├── workspace.sqlite3                         # Active workspace database
+├── workspace.sqlite3-journal                 # May exist during SQLite transactions
+├── state.json                                # Original legacy file, retained as a pre-migration backup
+├── state.v1.backup.json                       # Retained if an older version already created it
+├── traces/<taskId>/<runId>/<memberId>.jsonl    # Native execution logs and recovery source
+└── exports/<taskId>-<exportId>.json           # Complete task exports
 ```
 
-分开存储采用独立表和记录，而非分别覆盖多个没有统一事务的 JSON 文件：
+Separate storage uses independent tables and records rather than overwriting several JSON files without a shared transaction:
 
-| 表 | 粒度 | 更新方式 |
+| Table | Granularity | Update method |
 | --- | --- | --- |
-| workspace_fields | 每个顶层字段一行：settings、goals、agents、onboarding、activeTaskId 等 | 仅值变化时 UPDATE |
-| tasks | 每个任务的轻量元数据及列表顺序 | 仅元数据或顺序变化时 UPDATE |
-| task_collections | 每个任务的 messages / runs / artifacts 各一行 | 仅对应集合变化时 UPDATE |
-| events | 每条原始事件一行，以 task_id + event_id 唯一标识 | 增量追加、幂等去重，保留插入顺序 |
-| storage_meta | 初始化提交标记 | 与迁移数据一起提交 |
+| workspace_fields | One row per top-level field: settings, goals, agents, onboarding, activeTaskId, etc. | UPDATE only when the value changes |
+| tasks | Lightweight metadata and list order for each task | UPDATE only when metadata or order changes |
+| task_collections | One row for each task's messages / runs / artifacts collection | UPDATE only when that collection changes |
+| events | One row per raw event, uniquely identified by task_id + event_id | Incremental append with idempotent deduplication and preserved insertion order |
+| storage_meta | Initialization commit marker | Committed together with migration data |
 
-events 有 task + position 和 task + run + position 索引。同时间戳记录也按原数组顺序还原，不能仅按时间戳重新排序。完整事件 JSON 保留原字段，不丢弃 payload。未知工作区 / 任务字段也往返保留。
+events has task + position and task + run + position indexes. Records sharing a timestamp are reconstructed in their original array order, never reordered solely by timestamp. Complete event JSON preserves the original fields and payloads. Unknown workspace / task fields also survive round trips.
 
-SQLite 使用外键、同步提交和默认 rollback journal；这里没有启用 WAL。元数据、对话、运行快照和本批事件一起提交，避免分文件写入中途退出导致任务与历史不一致。删除任务在同一事务中级联删除其数据库集合与事件；沿用原行为保留原生日志、导出和工作目录文件，不作磁盘清理。
+SQLite uses foreign keys, synchronous commits, and its default rollback journal; WAL is not enabled here. Metadata, conversations, Run snapshots, and the event batch commit together, preventing mismatches between tasks and history after interruption between separate file writes. Task deletion cascades to its database collections and events within the same transaction. The previous behavior of retaining native logs, exports, and working-directory files remains; no disk cleanup is performed.
 
-## 前端保存协议
+## Frontend persistence protocol
 
-`StatePersistence` 记住最后一次已确认落盘的不可变状态：
+`StatePersistence` remembers the last immutable state confirmed as persisted:
 
-1. `load_workspace_summary` 返回配置、任务元数据和已保存对话 / Run / 产物集合，省略历史事件；有历史或 Run 的任务用仅存在于前端的 `historyPending` 标记。首页先进入，打开任务时用 `load_task_event_page` 读取历史。原 `load_state` 保留完整兼容读取能力。
-2. 保存时保留轻量任务、对话、配置，events 只附带自上次确认后增加的事件。
-3. `save_state_delta({state})` 在 Rust 数据库事务中提交。事件为空表示没有新增事件，不表示删除历史。独立命令避免新前端遇到旧原生程序时被误解为完整快照；不支持时直接报告保存失败，不降级为整份覆盖。
-4. 只有 IPC 成功返回才推进前端检查点。失败重试仍携带所有未确认事件；若事务已提交但响应丢失，数据库按事件 ID 去重。
-5. 桥接层串行保存，在前一事务完成后计算下一批增量。原 hook 的流式保存合并和“先落盘再启动 Run”约束继续生效。
-6. 分页读取的持久化事件 ID 加入独立检查点，历史加载完成后的保存不会再上传它们；原生日志恢复出的新增尾部仍正常增量提交。`historyPending` 不写入数据库。
+1. `load_workspace_summary` returns configuration, task metadata, and saved conversation / Run / artifact collections while omitting historical events. Tasks with history or Runs receive the frontend-only `historyPending` marker. The home page opens first; opening a task reads its history through `load_task_event_page`. The original `load_state` retains full compatibility reads.
+2. Saving retains lightweight tasks, conversations, and configuration; events includes only events added since the last acknowledgement.
+3. `save_state_delta({state})` commits in a Rust database transaction. Empty events means no new events, not deletion of history. A separate command prevents an older native app from interpreting new frontend data as a full snapshot. Unsupported commands report persistence failure rather than falling back to full replacement.
+4. The frontend checkpoint advances only after a successful IPC response. Retry retains every unacknowledged event. If the transaction committed but the response was lost, the database deduplicates by event ID.
+5. The bridge serializes saves and computes the next delta only after the preceding transaction completes. The hook's existing streaming-save coalescing and “persist before starting a Run” requirements still apply.
+6. Persisted event IDs read through pagination enter a separate checkpoint so saves after history loading do not upload them again. New tails recovered from native logs still commit incrementally. `historyPending` is not stored in the database.
 
-原生事件由 Runtime 先写 JSONL 并同步，再发送给前端。前端存储的是完整可查询的工作区投影。重开后的 JSONL 验证按任务延后：打开、发送、编排启动、导出时先加载该任务历史，再验证它的 Run 日志，恢复投影没有的尾部并保存。可能中断的运行在首页显示后自动恢复。加载期间的新事件暂存，待历史协议前缀齐全后合并，保留已保存对话和加载期间的元数据编辑。暂时保留这两层，避免这次迁移同时替换 Runtime 的崩溃恢复机制。它们不是一个跨文件事务；一致性由先记原生日志、后保存投影、按 ID 恢复保证。
+The Runtime writes and synchronizes native events to JSONL before sending them to the frontend. The frontend stores the complete queryable workspace projection. JSONL verification after reopening is deferred by task: opening, sending, orchestration startup, and export first load that task's history, then validate its Run logs, recover missing tails, and save them. Potentially interrupted Runs recover automatically after the home page appears. New events arriving during loading are buffered until the historical protocol prefix is complete, then merged while preserving saved conversations and metadata edits made during loading. Both layers are temporarily retained to avoid replacing the Runtime's crash-recovery mechanism during this migration. They do not share a cross-file transaction. Consistency relies on writing native logs first, persisting projections later, and recovering by ID.
 
-## 迁移与失败处理
+## Migration and failure handling
 
-- 第一次打开新版本，在新数据库内读取并导入旧 state.json，数据及 initialized 标记在同一事务提交。原 JSON 文件完全不改写、不删除；它本身就是迁移前备份。
-- 原文件损坏、非法数据、数据库写入失败时中止，不返回空工作区、不覆盖原文件。失败事务回滚，没有完成标记，下次可以重试。
-- 已完成迁移后，数据库是唯一工作区来源。原 state.json 不再被新版本更新；旧程序后来对它的更改不会自动合并。
-- 遇到损坏的数据库或比当前版本更新的 schema 时报告错误，不悄悄回退到过期 JSON。迁移前应关闭旧版，避免不同版本各自编辑两份状态。
-- 数据库文件创建权限为 0600，数据目录为 0700；旧文件原样保留。数据库没有新增加密能力，沿用本地文件访问边界。
-- 回退旧程序之前先退出新版并备份整个数据目录。旧程序只认识迁移时的 state.json；迁移后的新增数据需要专门导出/转换，不能声称直接降级可保留新写入。
+- On the first launch of the new version, read and import legacy state.json into the new database. Data and the initialized marker commit in the same transaction. The original JSON file is never rewritten or deleted; it is itself the pre-migration backup.
+- Corrupt source files, invalid data, and database-write failures abort without returning an empty workspace or overwriting the original file. Failed transactions roll back without a completion marker so the next launch can retry.
+- After migration completes, the database is the only workspace source. The new version no longer updates state.json, and subsequent changes to it by an older app are not merged automatically.
+- A corrupt database or a schema newer than the current version produces an error rather than silently falling back to stale JSON. Close the old version before migration to prevent different versions from editing separate states.
+- New database files use permissions 0600 and data directories 0700; old files are retained as-is. No encryption is added, and local-file access boundaries remain unchanged.
+- Before reverting to an old app, quit the new version and back up the entire data directory. The old app understands only the state.json captured at migration. Data added after migration requires a dedicated export/conversion; direct downgrade cannot be claimed to retain new writes.
 
-## 验证与性能
+## Validation and performance
 
-`src-tauri/examples/storage-profile.rs` 会读取真实 state.json，在临时目录复制后执行迁移、重开、元数据保存和任务导出；逐字段比较完整 JSON，且检查源文件未变。临时目录随进程退出清理，不迁移实际使用中的桌面数据。
+`src-tauri/examples/storage-profile.rs` reads the real state.json, copies it into a temporary directory, then performs migration, reopening, metadata saves, and task exports. It compares complete JSON field by field and checks that the source file is unchanged. The temporary directory is cleaned up when the process exits. It does not migrate the active desktop data.
 
 ```bash
 cargo run --manifest-path src-tauri/Cargo.toml --release --example storage-profile -- "$HOME/Library/Application Support/dev.goalward.desktop"
 ```
 
-首次 Debug 实测（单次，非用户点击端到端指标）：
+Initial Debug measurement, one sample rather than a user-click end-to-end metric:
 
-| 指标 | 旧整份快照 | 分层存储 |
+| Metric | Previous full snapshot | Layered storage |
 | --- | ---: | ---: |
-| 修改选择时的保存 payload | 84,398,262 bytes 左右 | 55,254 bytes |
-| Rust 序列化、写入及同步 / DB 提交 | 1,837 ms | 2.81 ms DB 提交 + 1.30 ms payload 序列化 |
-| 已存在历史事件是否重写 | 是 | 否；本次数据库仅两个 4 KB 页面改变 |
+| Save payload after changing selection | Approximately 84,398,262 bytes | 55,254 bytes |
+| Rust serialization, write and synchronization / DB commit | 1,837 ms | 2.81 ms DB commit + 1.30 ms payload serialization |
+| Existing historical events rewritten | Yes | No; only two 4 KB database pages changed |
 
-Debug 首次迁移加读取约 3.49 秒，数据库约 100 MB。首次迁移是一次性成本，并且保留旧 JSON / JSONL 后总磁盘占用会增加；这次优化不是压缩或删除历史。
+Initial Debug migration plus reading took approximately 3.49 seconds, with a database of approximately 100 MB. Initial migration is a one-time cost, and retaining old JSON / JSONL increases total disk usage. This optimization neither compresses nor deletes history.
 
-最终 Release 隔离实测：旧完整快照序列化及落盘 **84.92 ms**；新 payload 序列化 **0.11 ms**、数据库提交 **1.66 ms**。首次迁移加读取 **525 ms**，数据库重开、完整读取及逐字段比较 **107 ms**。这些是本机单次原生存储测试，不包含 WebView IPC、JS 序列化、绘制或真实应用冷启动，不能当作 UI 端到端指标。完整指标保存在 `test-results/storage/profile-release.json`。
+Final isolated Release measurements: old complete snapshot serialization and persistence **84.92 ms**; new payload serialization **0.11 ms** and database commit **1.66 ms**. Initial migration plus reading **525 ms**; database reopening, complete reads, and field-by-field comparison **107 ms**. These are single local native-storage measurements and exclude WebView IPC, JS serialization, rendering, and real app cold startup. They are not UI end-to-end metrics. Full metrics are saved in `test-results/storage/profile-release.json`.
 
-验证结果：隔离副本中 6 个任务迁移、重开、元数据保存后的完整 JSON 与旧数据逐字段一致，6 个任务全部导出并比较一致。前端全量回归与生产构建通过，Rust 全量回归及新增日志尾部恢复用例通过，Clippy 和格式检查通过。Vite 仍提示已有主包超过 500 KB。
+Validation results: in isolated copies, complete JSON for all 6 tasks matched the old data field by field after migration, reopening, and metadata saves. All 6 task exports also matched. The full frontend regression suite and production build passed; the full Rust regression suite and new log-tail recovery cases passed, as did Clippy and formatting checks. Vite still reports the existing main bundle over 500 KB.
 
-实际开发实例：开发服务器随源码更新自动重启后，于 18:22 完成了真实数据目录的首次迁移。收尾只读检查确认数据库 schema 1、initialized=1、6 个任务及 21,711 条事件；从所有表重建的完整 AppState 与旧 state.json 逐字段完全相等，旧文件修改时间仍为 18:00:57。运行中的原生进程已持有 workspace.sqlite3。验证脚本本身始终使用临时副本；没有手动启动迁移或覆盖旧数据。发布版 `.app` 尚未重新打包。
+Actual development instance: after the development server restarted automatically with source changes, initial migration of the real data directory completed at 18:22. A final read-only check confirmed database schema 1, initialized=1, 6 tasks, and 21,711 events. The complete AppState reconstructed from all tables matched the old state.json field by field, and the old file's modification time remained 18:00:57. The running native process held workspace.sqlite3. The validation script itself always used temporary copies; no manual migration or overwrite of old data was performed. The release `.app` had not yet been rebuilt.
 
-自动回归覆盖：完整大数据往返、v1 / v2 原文件保留、损坏数据保护、部分导入回滚及重试、重复事件幂等、同时间戳顺序、冲突事件导致整批事务回滚、重开读取、任务删除级联、数据库版本保护，以及前端失败重试 / 连续写入增量 / 删除后重新创建。
+Automatic regressions cover complete large-data round trips, preservation of v1 / v2 original files, corrupt-data protection, partial-import rollback and retry, idempotent duplicate events, same-timestamp ordering, full-batch rollback on event conflicts, reopening, task-deletion cascades, database-version protection, and frontend retry / consecutive incremental writes / recreation after deletion.
 
-## 当前边界与后续扩展
+## Current boundaries and future extensions
 
-- 后续已接入首页摘要读取和按任务历史加载：单页最多 256 条事件，以事件 JSON 合计 512 KiB 为目标，超大单条完整保留；首次查询固定 position 上界，后续页不受追加影响。SQL 查询使用 task + position 索引。参考[首页性能后续修复](startup-performance.md)。
-- 任务内事件目前最终仍全部载入内存；跨 Run 的按需渲染、归档和压缩未实现。首次迁移仍要完整读取旧 state.json，这是一次性成本。
-- messages / runs 按任务集合保存，goals / agents 按顶层集合保存；当前样本很小，先消除占 99.9% 的事件写放大。集合明显增长后，可进一步拆成独立消息、Run、目标记录并分页。
-- 不做自动日志轮转、历史截断、数据库压缩或备份删除。删除数据库记录后空闲页会被后续写入复用，文件大小不保证立即缩小。
-- 浏览器预览继续使用独立 localStorage；本次 SQLite 与增量 IPC 用于桌面应用。
+- Home-page summary reads and per-task history loading were subsequently added: each page contains at most 256 events, targeting 512 KiB of combined event JSON while retaining oversized individual records in full. The initial query fixes a position upper bound so later pages are unaffected by appends. SQL uses the task + position index. See [the subsequent startup-performance fix](startup-performance.md).
+- All events within a task still ultimately enter memory. On-demand rendering across Runs, archiving, and compression are not implemented. Initial migration still reads legacy state.json in full as a one-time cost.
+- messages / runs are saved as per-task collections; goals / agents as top-level collections. These collections are small in the current sample, so the initial focus was event-write amplification accounting for 99.9% of data. Significant collection growth could justify individual message, Run, and goal records with pagination.
+- No automatic log rotation, history truncation, database compression, or backup deletion is performed. Freed database pages are reused by subsequent writes; file size need not shrink immediately after deletion.
+- Browser previews retain independent localStorage. SQLite and incremental IPC apply to the desktop app.

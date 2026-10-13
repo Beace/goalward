@@ -16,7 +16,7 @@ import {applyRuntimeEvent,createInitialState,createTask} from '/src/lib/domain'
 import '/src/index.css'
 let sequence=0
 const initial=createInitialState()
-const task=createTask(initial.settings,'Pi 流式回复验收','/tmp/pi-stream','solo')
+const task=createTask(initial.settings,'Pi streaming reply verification','/tmp/pi-stream','solo')
 const member=task.members[0]
 const runtime={...initial.settings.runtimes.find(item=>item.adapter==='pi'),id:'pi',adapter:'pi',enabled:true}
 task.runs=[{id:'run',createdAt:task.createdAt,prompt:'test',directory:task.directory,members:[{...member,runtime,model:'deepseek/deepseek-v4-pro',status:'running'}]}]
@@ -32,7 +32,7 @@ function Harness(){
  window.__startAnswer=()=>{}
  window.__appendAnswer=text=>setState(value=>applyRuntimeEvent(value,delta('text_delta',1,text)))
  window.__finishAnswer=answer=>setState(value=>[
-   event({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'thinking',thinking:'先检查上下文，再形成结论。'},{type:'text',text:answer}]}}),
+   event({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'thinking',thinking:'Check the context, then form a conclusion.'},{type:'text',text:answer}]}}),
    event({type:'agent_end',messages:[]}),
    event(null,'completed'),
  ].reduce(applyRuntimeEvent,value))
@@ -53,13 +53,13 @@ try {
     page.on('pageerror', error => report.errors.push(error.message))
     await page.goto(`${base}/${output}/harness.html?v=${harnessVersion}`)
     await page.waitForFunction(() => typeof window.__startAnswer === 'function')
-    await page.evaluate(() => window.__appendThinking('先检查上下文，', 5))
+    await page.evaluate(() => window.__appendThinking('Check the context, ', 5))
     const article = page.locator('.message-assistant')
     const disclosure = article.getByRole('button', { name: /思考过程/ })
     const reasoningRow = page.locator('.trace-event[data-reasoning-status]')
     await expect(article).toHaveCount(1)
     await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
-    await expect(article.getByLabel('思考过程')).toContainText('先检查上下文，')
+    await expect(article.getByLabel('思考过程')).toContainText('Check the context, ')
     await expect(article.locator('.message-foot')).toContainText('正在思考…')
     await expect(reasoningRow).toHaveCount(1)
     await expect(reasoningRow).toHaveAttribute('data-reasoning-status', 'running')
@@ -68,22 +68,22 @@ try {
     await article.evaluate(node => { window.__article = node })
     await disclosure.evaluate(node => { window.__disclosure = node })
     await reasoningRow.evaluate(node => { window.__reasoningRow = node; window.__reasoningTrigger = node.querySelector('.trace-trigger') })
-    for (let index = 6; index <= 24; index++) await page.evaluate(([text, tokens]) => window.__appendThinking(text, tokens), [index === 24 ? '再形成结论。' : '', index])
-    await expect(article.getByLabel('思考过程')).toContainText('先检查上下文，再形成结论。')
+    for (let index = 6; index <= 24; index++) await page.evaluate(([text, tokens]) => window.__appendThinking(text, tokens), [index === 24 ? 'then form a conclusion.' : '', index])
+    await expect(article.getByLabel('思考过程')).toContainText('Check the context, then form a conclusion.')
     assert(await article.evaluate(node => node === window.__article && node.querySelector('.reasoning-trigger') === window.__disclosure))
     assert(await reasoningRow.evaluate(node => node === window.__reasoningRow && node.querySelector('.trace-trigger') === window.__reasoningTrigger))
     await page.evaluate(() => window.__startAnswer())
-    await page.evaluate(() => window.__appendAnswer('这'))
+    await page.evaluate(() => window.__appendAnswer('This '))
     const messageRow = page.locator('.trace-event[data-message-status]')
     await expect(messageRow).toHaveCount(1)
     await messageRow.evaluate(node => { window.__messageRow = node })
-    await page.evaluate(() => window.__appendAnswer('是公开'))
-    await page.evaluate(() => window.__appendAnswer('回答。'))
+    await page.evaluate(() => window.__appendAnswer('is a public '))
+    await page.evaluate(() => window.__appendAnswer('answer.'))
     await expect(messageRow).toHaveCount(1)
-    await expect(messageRow).toContainText('这是公开回答。')
+    await expect(messageRow).toContainText('This is a public answer.')
     assert(await messageRow.evaluate(node => node === window.__messageRow))
-    await page.evaluate(() => window.__finishAnswer('这是公开回答。'))
-    await expect(article.getByText('这是公开回答。')).toBeVisible()
+    await page.evaluate(() => window.__finishAnswer('This is a public answer.'))
+    await expect(article.getByText('This is a public answer.')).toBeVisible()
     await expect(article.locator('.message-foot')).toContainText('Runtime 输出')
     await expect(reasoningRow).toHaveAttribute('data-reasoning-status', 'completed')
     await expect(page.locator('.trace-event[data-reasoning-status]')).toHaveCount(1)
@@ -92,7 +92,7 @@ try {
     assert(await messageRow.evaluate(node => node === window.__messageRow))
     const messageTrigger = messageRow.locator('.trace-trigger')
     if (await messageTrigger.getAttribute('aria-expanded') !== 'true') await messageTrigger.click()
-    await expect(messageRow.getByLabel('回复内容', { exact: true })).toHaveText('这是公开回答。')
+    await expect(messageRow.getByLabel('回复内容', { exact: true })).toHaveText('This is a public answer.')
     await expect(messageRow.getByText(/4 个原始记录/)).toBeVisible()
     await expect(reasoningRow.getByText(/思考内容/)).toBeVisible()
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))

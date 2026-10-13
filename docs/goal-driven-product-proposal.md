@@ -1,331 +1,328 @@
-# Goalward 产品提案：从模糊方向到可复盘的结果
+# Goalward product proposal: from a vague direction to results that can be reviewed
 
-日期：2026-09-16
-状态：最终 Proposal v1，用于本轮原型设计与后续实施拆分。产品方向与首轮原型范围已按用户要求确定；新增能力仍需实施，当前完成情况见能力矩阵。
+Date: 2026-09-16
+Status: Final Proposal v1, for this round of prototype design and subsequent implementation breakdown. The product direction and initial prototype scope follow the user's requirements. New capabilities still require implementation; see the capability matrix for completion status.
 
-## 2026-09-17 实施进展
+## Implementation progress, 2026-09-17
 
-本 proposal 已开始落地为正式 React / Tauri 应用，首版基础闭环及显式执行计划已经实现。当前可用能力以 README 和代码为准；第 10、12 节中的“已有 / 尚无”保留为 2026-09-16 设计启动时的基线。
+This proposal is being implemented in the production React / Tauri application. The first basic feedback loop and explicit execution plans are implemented. README and code define currently available capabilities. “Existing / missing” statements in sections 10 and 12 retain the baseline at the start of design on 2026-09-16.
 
-| 设计能力 | 当前正式实现 |
+| Designed capability | Current production implementation |
 | --- | --- |
-| 通用目标、现状、成功条件、阶段与历史 | 已实现，创建不依赖 Runtime 或指标 |
-| Agent 档案、版本、关联目标与成员覆盖 | 已实现，新配置不改写历史执行 |
-| 任务归属、子任务、依赖、独立验收 | 已实现，旧任务兼容保留 |
-| 结果与依据、现状变化采纳 | 已实现人工提交 / 验收及来源关联，核对后追加现状 |
-| 跨任务运行视图、聊天、Trace、停止 | 已接入真实执行状态 |
-| 串并行计划、人工门槛、失败策略与重试 | 已实现用户显式配置的步骤调度，受持久化与并行额度控制 |
-| 每周复盘 | 已实现应用内周期快照、补记与去重；进度判断由用户确认 |
-| Kimi CLI | 已实现 Kimi Code CLI ACP 接入、模型选择、审批、流式输出与取消 |
-| 自动拆解、外部查询连接器、模型生成周报、后台服务、自动隔离与合并 | 后续扩展，界面不将它们描述为已接通 |
+| General goals, context, success criteria, stages, and history | Implemented; creation requires neither a Runtime nor metrics |
+| Agent profiles, versions, goal assignments, and member overrides | Implemented; new configuration does not rewrite historical executions |
+| Task ownership, subtasks, dependencies, and independent acceptance | Implemented; legacy tasks remain compatible |
+| Results and evidence, adoption of context changes | Manual submission / acceptance and source links implemented; context is appended after review |
+| Cross-task active-run view, chat, Trace, and stopping | Connected to real execution state |
+| Serial/parallel plans, human gates, failure policies, and retries | Explicit user-configured step scheduling implemented, subject to persistence and concurrency limits |
+| Weekly reviews | In-app periodic snapshots, catch-up, and deduplication implemented; users confirm progress judgments |
+| Kimi CLI | Kimi Code CLI ACP integration, model selection, approvals, streaming, and cancellation implemented |
+| Automatic breakdown, external query connectors, model-generated weekly reports, background services, automatic isolation and merging | Future extensions; the UI does not describe them as connected |
 
-## 1. 产品定位与抽象边界
+## 1. Product positioning and abstraction boundaries
 
-**Goalward 帮助没有明确目标、或只有抽象方向的用户，逐步明确想推进的事，将其落成任务，组织人与 Coding Agent 执行，并依据产物和证据复盘、调整下一步行动。**
+**Goalward helps users without a clear goal, or with only an abstract direction, clarify what they want to move forward, turn it into tasks, organize people and Coding Agents to execute, and use artifacts and evidence to review results and adjust their next actions.**
 
-目标是产品主线，Agent 管理是核心执行能力，两者由任务与执行连接。目标组织方向、上下文和结果；Agent 管理组织执行角色、配置和活动。用户既可从目标发起工作，也可从某个 Agent 发起独立任务并随后关联目标。
+Goals are the product's organizing thread, and Agent management is its core execution capability. Tasks and executions connect them. Goals organize direction, context, and outcomes; Agent management organizes execution roles, configuration, and activity. Users can start work from a goal or start an independent task from an Agent and associate it with a goal later.
 
-用户管理的是一件想推进的事情及其完整上下文。目标可以持续数小时、数周，也可以长期维护；可以是交付成果、解决问题、形成判断、学习技能或改善某种状态。
+Users manage something they want to move forward and its complete context. A goal may last hours, weeks, or be maintained long-term. It may deliver something, solve a problem, form a judgment, develop a skill, or improve a condition.
 
-产品的核心机制是：
+The core mechanism is:
 
 ```text
-定义目标与预期状态
-    → 理解现状与差距
-    → 制订或调整计划
-    → 创建任务与子任务
-    → 组织人与 Agent 执行
-    → 检查结果，更新现状
-    → 复盘并选择下一步
-    → 继续推进、确认达成、进入维护或结束目标
+Define the goal and expected state
+    → Understand the current state and gap
+    → Create or adjust the plan
+    → Create tasks and subtasks
+    → Organize people and Agents to execute
+    → Inspect results and update the current state
+    → Review and choose the next step
+    → Continue, confirm achievement, enter maintenance, or end the goal
 ```
 
-“治理线上反馈”是验证这套机制的一个可落地场景。反馈率、分子分母、查询接口、修复发布和业务观察窗口属于该场景，不能成为所有目标必填的字段或固定流程。其独立场景说明见 [反馈治理场景](scenarios/feedback-improvement.md)。
+Improving online user feedback is one practical scenario for testing this mechanism. Feedback rates, numerators/denominators, query interfaces, fix releases, and business-observation windows belong to that scenario; they must not become mandatory fields or fixed processes for all goals. See [the feedback-improvement scenario](scenarios/feedback-improvement.md).
 
-通用产品不要求每个目标都有数字指标、外部数据源、代码目录、常驻 Agent 或固定截止日期。缺失的信息会影响某些判断，但不阻止用户先记录目标和开始探索。
+The general product does not require every goal to have numeric metrics, external data sources, a code directory, a persistent Agent, or a fixed deadline. Missing information affects some judgments but does not prevent users from recording a goal and starting exploration.
 
-## 2. 通用对象与职责
+## 2. General objects and responsibilities
 
-| 对象 | 要回答的问题 | 通用内容 |
+| Object | Question it answers | General contents |
 | --- | --- | --- |
-| 目标 Goal | 为什么做，希望达到什么状态？ | 意图、预期状态、范围、约束、成功条件及其版本 |
-| 现状 State | 现在知道什么、已经具备什么、还缺什么？ | 已知事实、已有成果、已作决定、未知问题、障碍及来源 |
-| 计划 Plan | 接下来准备怎样推进？ | 阶段、行动方向、优先级、依赖，以及调整理由 |
-| 任务 Task | 这一步具体做什么，怎样判定完成？ | 输入、预期结果、验收方式、执行者、子任务和业务状态 |
-| Agent 档案 | 可以复用谁来执行，默认怎样工作？ | 名称、职责指令、Runtime / 模型偏好及版本；新增能力 |
-| Runtime / Model | 哪些执行环境与模型可用？ | 本机检测、启动参数、权限、模型目录与兼容关系；复用现有能力 |
-| 执行 Run | 这次实际怎样做的？ | 当时的上下文、Agent / Runtime / 模型、过程、产物和执行终态 |
-| 结果与依据 | 做完后获得了什么，凭什么这样判断？ | 产物、发现、验证、用户确认、失败信息及关联来源 |
-| 复盘 Review | 哪些改变有用，方向是否合适，接下来做什么？ | 前后状态、达成情况、计划偏差、判断依据和后续行动 |
+| Goal | Why do this, and what state should be reached? | Intent, expected state, scope, constraints, success criteria, and versions |
+| State | What is known, already available, and still missing? | Known facts, existing deliverables, decisions, unknowns, obstacles, and sources |
+| Plan | How should work proceed next? | Stages, action directions, priorities, dependencies, and adjustment rationale |
+| Task | What exactly happens in this step, and how is completion judged? | Inputs, expected results, acceptance methods, executors, subtasks, and business states |
+| Agent profile | Who can be reused for execution, and how should they work by default? | Name, role instructions, Runtime / model preferences, and versions; a new capability |
+| Runtime / Model | Which execution environments and models are available? | Local detection, launch arguments, permissions, model catalogs, and compatibility; reuse existing capabilities |
+| Run | How was this invocation actually executed? | Context at execution time, Agent / Runtime / model, process, artifacts, and terminal execution state |
+| Results and evidence | What was obtained, and what supports that judgment? | Artifacts, findings, validation, user confirmation, failure information, and linked sources |
+| Review | Which changes helped, is the direction appropriate, and what comes next? | Before/after states, achievement, plan deviations, supporting evidence, and next actions |
 
-这些是职责划分，不要求每个概念都实现为独立页面或独立数据库表。首版计划可作为目标中的阶段与任务组织方式；结果和依据可关联现有执行记录中的文件路径、文件变更事件及用户提供的产物，避免重复建模。
+These divide responsibilities; they do not require a separate page or database table for every concept. The initial Plan can organize stages and tasks within a goal. Results and evidence can link to file paths, file-change events, and user-supplied artifacts in existing execution records to avoid duplicate modeling.
 
-目标是持续上下文的归属，任务是推动目标的行动，Run 是一次实际执行。任务可以反复执行；一个目标可以包含不同目录、不同工具和不同执行者的任务。
+A goal owns ongoing context, a task acts toward it, and a Run is one actual execution. Tasks may run repeatedly. One goal can include tasks in different directories, using different tools and executors.
 
-首版任务可独立存在，或归属一个目标；子任务继承父任务归属。独立任务可随后关联目标。旧任务保留独立入口。先不增加递归子目标和复杂的跨目标依赖。
+Initially, a task may stand alone or belong to one goal; subtasks inherit their parent's ownership. Independent tasks can be associated later. Legacy tasks retain an independent entry point. Recursive subgoals and complex cross-goal dependencies are excluded initially.
 
-## 3. 目标与成功条件
+## 3. Goals and success criteria
 
-创建入口只要求用户描述想做的事，随后通过简短引导或与 Agent 对话逐步澄清：
+Creation asks only what the user wants to do. Brief guidance or Agent conversation then clarifies:
 
-- 希望最终出现什么结果或变化？
-- 当前是什么情况，已有何种资料和成果？
-- 怎样判断达到预期？
-- 有哪些约束，以及是否有时间要求？
+- What result or change should ultimately occur?
+- What is the current situation, and what information and deliverables already exist?
+- How will success be judged?
+- What constraints and time requirements apply?
 
-成功条件可以组合使用：
+Success criteria can combine these forms:
 
-| 成功条件形式 | 示例 | 可采用的检查方式 |
+| Criterion form | Example | Possible checks |
 | --- | --- | --- |
-| 成果交付 | 交付一个可供试用的桌面应用 | 实际产物、功能验证、用户验收 |
-| 事实或能力成立 | 能独立完成一个指定练习 | 演示、检查记录、自评或他人评价 |
-| 形成有依据的判断 | 对几个方案形成可执行的选型结论 | 比较材料、实验依据、已知限制和决策确认 |
-| 数值达到要求 | 某项指标达到用户约定范围 | 同口径观测和明确的阈值 |
-| 持续满足条件 | 在约定时段内保持某种状态 | 连续观察或周期检查 |
+| Deliverable | Deliver a desktop app suitable for trial use | Actual artifact, functional verification, user acceptance |
+| Established fact or capability | Independently complete a specified exercise | Demonstration, inspection records, self-assessment, or external assessment |
+| Evidence-supported judgment | Reach an actionable selection among several options | Comparison materials, experiments, known limitations, and decision confirmation |
+| Numeric requirement | Bring a metric into the user-agreed range | Comparable observations and an explicit threshold |
+| Sustained condition | Maintain a condition over an agreed period | Continuous observations or periodic checks |
 
-这些形式用于组合成功条件，不把所有目标强制分类成互斥类型。一个目标可以同时包含成果、质量要求和量化条件。
+These forms combine success criteria rather than force all goals into mutually exclusive categories. A goal may include deliverables, quality requirements, and numeric conditions together.
 
-探索中的目标允许成功条件暂未完全明确，系统记录未知项并帮助澄清。目标、条件或约束发生变化时保存版本，历史执行和复盘继续引用当时的版本。
+An exploratory goal can have incomplete criteria. The system records unknowns and helps clarify them. Changes to goals, criteria, or constraints save a version; historical executions and reviews retain their original version references.
 
-创建目标不依赖 Runtime 或工作目录。执行任务时再按需要补齐相应资源。
+Goal creation requires neither a Runtime nor a working directory. Add execution resources when tasks need them.
 
-## 4. 现状与上下文
+## 4. Current state and context
 
-现状是对当前情况的可追溯描述，支持文字、结构化事实、已有产物、决策、障碍和可选指标。首页根据已存在的内容展示，不为没有数据的目标铺设空白图表。
+Current state is a traceable description of the situation, supporting text, structured facts, existing artifacts, decisions, obstacles, and optional metrics. The home page displays available content without adding empty charts to goals that have no data.
 
-现状可以来自：
+Current state can come from:
 
-- 用户直接描述或修订，并保留“用户提供”的来源。
-- 文档、文件、代码、笔记及既有产物。
-- 任务执行后得到的成果、发现和验证记录。
-- 工具、连接器或查询取得的外部信息。
-- 用户或其他参与者在应用外完成的工作。
+- Direct user descriptions or revisions, retaining a user-provided source.
+- Documents, files, code, notes, and existing artifacts.
+- Deliverables, findings, and validation records from task execution.
+- External information from tools, connectors, or queries.
+- Work completed outside the application by users or other participants.
 
-系统允许先有简短现状，再逐步补充来源。需要重复获取的内容可以配置获取方式；结构化指标查询是其中一种扩展能力。
+Users can begin with brief context and add sources later. Information that needs repeated retrieval can have a retrieval method configured; structured metric queries are one extension.
 
-Agent 对材料的解释、未经验证的假设和已接受的事实分别记录。接受方式可为用户确认、指定检查规则或约定的验收流程，不将所有非量化结论视为无效。
+Agent interpretations, unverified hypotheses, and accepted facts are recorded separately. Acceptance may use user confirmation, specified check rules, or an agreed acceptance process. Non-numeric conclusions are not automatically invalid.
 
-每次更新记录变化内容、来源、时间和关联任务，保留修订历史。处理相互冲突或过期的内容时显示差异及依据，不让最后一次 Agent 总结无条件覆盖全部现状。
+Each update records the change, source, time, and linked task, retaining revision history. Conflicting or outdated content displays its differences and evidence. The latest Agent summary cannot unconditionally overwrite the entire current state.
 
-## 5. 计划、任务与执行编排
+## 5. Plans, tasks, and execution orchestration
 
-用户可以直接创建任务，也可以让 Agent 根据目标和现状提出建议。建议应解释这项行动将交付什么、解决什么未知问题或推动哪一项成功条件。
+Users can create tasks directly or ask an Agent to suggest them from the goal and context. Suggestions should explain what the action will deliver, which unknown it resolves, or which success criterion it advances.
 
-任务支持阶段组织、子任务、优先级和依赖。它可以由一个 Agent 执行、由多个 Agent 协作、由人完成，也可以包含等待外部结果的步骤。非 Agent 步骤也能更新状态和提交结果。
+Tasks support stages, subtasks, priorities, and dependencies. A task can use one Agent, multiple collaborating Agents, people, or steps waiting for external results. Non-Agent steps can also change state and submit results.
 
-执行编排负责选择角色、Runtime、模型、输入上下文、串行或并行关系，以及失败后的重试或交接。角色由任务需要决定，可以是调研、撰写、实现、测试、评审等，不固化为某个场景的岗位。
+Orchestration selects roles, Runtimes, models, input context, serial/parallel relationships, and retries or handoffs after failure. Roles follow task needs, such as research, writing, implementation, testing, or review, rather than fixed scenario-specific jobs.
 
-任务状态独立于 Run：待开始、进行中、受阻、待验收、已完成、已取消。已有依赖只是计划信息；只有实现了对应调度逻辑，才能声称系统会自动等待或启动任务。
+Task states are independent of Runs: pending, in progress, blocked, awaiting acceptance, done, and cancelled. Dependencies are initially planning information. Automatic waiting or task startup can be claimed only after corresponding scheduling logic exists.
 
-Run 保留当时的目标版本、现状快照、任务要求和实际成员配置。后续修改目标或切换模型不重写历史。
+A Run retains the goal version, context snapshot, task requirements, and actual member configuration at execution time. Later goal edits or model changes do not rewrite history.
 
-目标可配置一个推进助手，协助理解差距、提出计划、整理结果和复盘。助手按需或按约定周期执行，持续上下文存储在产品中。
+A goal can have a progress assistant that helps understand gaps, suggest plans, organize results, and review. It executes on demand or on an agreed schedule, while the product stores ongoing context.
 
-## 6. 结果怎样更新现状
-
-```text
-执行结束或用户提交结果
-    → 整理产物、发现与依据
-    → 按任务要求检查或确认
-    → 更新任务状态
-    → 将适用的变化纳入目标现状
-    → 重新检查成功条件与剩余问题
-    → 提议继续、调整计划或确认达成
-```
-
-更新的内容依目标而异：产物任务可以增加可交付成果；研究任务可以排除假设或减少未知；学习任务可以增加能力验证记录；带指标的目标可以增加一次新观测。
-
-一次执行正常退出不等于任务通过验收；一个任务完成也不自动意味着目标达成。反过来，有价值的负面结果可能使现状更清晰，例如实验否定了原方案，应据此调整计划。
-
-有些结果可以立即验证，有些需要后续检查或外部反馈。产品允许记录“已交付，效果待验证”，而不是为所有任务强制安排业务指标观察期。
-
-现状更新也可由用户修订、外部信息或周期检查触发。重复事件不会重复计入成果，失效来源不能把已知状态重置为零或空。
-
-## 7. 进展与复盘
-
-同时呈现三个互相关联但不同的视角：
-
-- **目标进展**：哪些成功条件已经满足，哪些部分还有差距或无法判断。
-- **行动进展**：哪些任务已完成、正在进行、受阻或待验收。
-- **认知变化**：新增了什么发现，排除了什么假设，哪些决定发生变化。
-
-呈现形式由成功条件决定：检查清单、阶段状态、成果列表、结论与剩余问题，或者指标趋势。没有合理计算方式时不显示总百分比，不用任务完成率推算目标达成率。
-
-复盘始终围绕同一组问题：发生了什么变化、哪些变化有助于目标、原计划是否仍合理、下一步做什么。用户可手动触发、按阶段触发或设置周期；每周复盘是周期配置之一。
-
-“是否符合预期”需要对应的预期标准。若有期限或里程碑，可比较时间进展；若处于探索阶段，可比较原定研究问题和已有结果；条件不足时明确指出无法判断的部分，不编造进度评级。
-
-复盘保留当时的目标、前后现状和判断依据。建议可以转成任务；是否自动创建和启动任务属于用户另行配置的执行策略。
-
-目标可处于待澄清、推进中、暂停、已达成或已结束等状态。对于需要持续保持的目标，可明确进入维护阶段；不因一次达标就默认结束，也不让已完成的一次性交付目标无限继续。
-
-桌面端定时执行需要说明实际运行条件。首版可在应用运行时执行、再次打开时补跑错过的周期，并显示实际执行时间。退出后仍准时执行需要相应的后台服务或远端能力。按目标和周期去重，避免重复复盘。
-
-## 8. 通用页面结构
-
-保留 Tauri 2、React、TypeScript、统一 shadcn/ui 和当前高密度分栏风格。应用主题默认跟随操作系统，也可在“设置 → 外观”选择深色或浅色；主题、字体和语言选择后立即生效并自动保存，自动保存仅包含外观字段，其他 Runtime / 模型 / 执行配置继续手动保存。主题变化使用同一套语义 token，不改变布局或控件体系。后续 UI 与动效实施继续遵守 AGENTS.md 和设计系统。
-
-左侧一级导航为“目标”“Agents”“任务”“运行中”，底部为“Runtime 与模型”和“设置”。目标下默认进入概览，可切换任务、进展记录与复盘；目标概览始终显示紧凑的参与 Agent 区域和管理入口。
-
-Agents 使用列表与详情布局；运行中按真实执行实例聚合，显示目标、任务、成员、Runtime、模型、当前动作、耗时与最后活动。任务入口保留跨目标任务和独立任务。
+## 6. How results update current state
 
 ```text
-目标名称                                      [更新现状] [创建任务]
-预期结果摘要 · 当前阶段 · 需要关注的事项
-
-概览 | 任务 | 进展记录 | 复盘
-
-预期状态与成功条件
-当前现状：已有成果、已知事实、未知与障碍，以及适用时的指标
-推进计划：阶段、下一步行动、依赖与决策
-参与 Agents：职责、关联任务与当前执行数量，提供配置入口
-最近变化：结果、发现、修订与复盘
+Execution ends or the user submits results
+    → Organize artifacts, findings, and evidence
+    → Check or confirm against task requirements
+    → Update task state
+    → Incorporate applicable changes into the goal's current state
+    → Recheck success criteria and remaining questions
+    → Propose continuing, adjusting the plan, or confirming achievement
 ```
 
-信息密度随目标内容变化。量化场景可以呈现趋势，交付场景呈现成果与验收，探索场景呈现问题与结论；导航与任务执行方式保持一致。
+Updates depend on the goal. Delivery tasks can add deliverables; research tasks can rule out hypotheses or reduce unknowns; learning tasks can add capability-validation records; metric-based goals can add observations.
 
-进入任务后复用现有对话、成员配置、Runtime / 模型选择、执行历史和 Trace 检查器，并保留返回目标的路径。
+A normally exited execution does not establish task acceptance, and a completed task does not automatically establish goal achievement. Valuable negative results can clarify context, such as an experiment disproving the original approach and prompting a revised plan.
 
-## 9. 用不同场景检验同一套产品
+Some results can be verified immediately; others need later checks or external feedback. The product can record “delivered, impact awaiting verification” without requiring a business-metric observation period for every task.
 
-以下用于检验抽象是否成立，不是四套产品定位，也不要求四个专用模式：
+User revisions, external information, and periodic checks can also update context. Duplicate events do not count deliverables twice, and invalid sources cannot reset known state to zero or empty.
 
-| 场景 | 预期状态 | 当前状态示例 | 行动与任务 | 如何检查进展 |
+## 7. Progress and reviews
+
+Present three related but distinct views:
+
+- **Goal progress:** satisfied success criteria, remaining gaps, and areas that cannot be judged.
+- **Action progress:** completed, active, blocked, and awaiting-acceptance tasks.
+- **Knowledge changes:** new findings, ruled-out hypotheses, and changed decisions.
+
+Presentation follows the criteria: checklists, stage states, deliverable lists, conclusions and remaining questions, or metric trends. Show no overall percentage without a reasonable calculation, and do not infer goal achievement from task completion rates.
+
+Reviews address the same questions: what changed, which changes helped the goal, whether the original plan remains appropriate, and what comes next. Users can trigger reviews manually, by stage, or periodically; weekly review is one periodic configuration.
+
+Judging whether progress meets expectations requires corresponding standards. Deadlines or milestones allow time comparisons; exploration can compare planned research questions with obtained results. Missing conditions must be identified without inventing progress ratings.
+
+Reviews retain the goal, before/after context, and evidence at that time. Suggestions can become tasks; automatic creation and startup belong to a separately configured user execution policy.
+
+Goals can be awaiting clarification, active, paused, achieved, or ended. Goals requiring sustained conditions can explicitly enter maintenance. One successful observation does not automatically end them, while completed one-time delivery goals should not continue indefinitely.
+
+Scheduled desktop execution must explain its actual operating conditions. Initially, reviews can run while the application is running, catch up missed periods when reopened, and display actual execution times. Timely execution after exit needs a background service or remote capability. Deduplicate by goal and period to prevent repeated reviews.
+
+## 8. General page structure
+
+Retain Tauri 2, React, TypeScript, shared shadcn/ui components, and the current dense column layout. The theme follows the OS by default; users can choose dark or light in Settings → Appearance. Theme, font, and language changes apply immediately and save automatically. Automatic saves include only appearance fields; Runtime / model / execution settings retain manual saving. Theme changes use the same semantic tokens without changing layout or the component system. Future UI and motion implementation follows AGENTS.md and the design system.
+
+Primary left navigation contains Goals, Agents, Tasks, and Running, with Runtime & models and Settings at the bottom. Goals open Overview by default and can switch to Tasks, Progress records, and Reviews. The overview always includes a compact participating-Agents area and management entry point.
+
+Agents use a list/detail layout. Running aggregates actual execution instances and shows goal, task, member, Runtime, model, current action, elapsed time, and last activity. Tasks retains cross-goal and independent tasks.
+
+```text
+Goal name                                      [Update context] [Create task]
+Expected-result summary · Current stage · Items requiring attention
+
+Overview | Tasks | Progress records | Reviews
+
+Expected state and success criteria
+Current state: deliverables, known facts, unknowns, obstacles, and applicable metrics
+Plan: stages, next actions, dependencies, and decisions
+Participating Agents: roles, linked tasks, active execution counts, and configuration
+Recent changes: results, findings, revisions, and reviews
+```
+
+Information density follows the goal's contents. Numeric scenarios can show trends; delivery scenarios show deliverables and acceptance; exploration shows questions and conclusions. Navigation and task execution remain consistent.
+
+Task workspaces reuse existing conversations, member configuration, Runtime / model selection, execution history, and Trace inspector, retaining a return path to the goal.
+
+## 9. Test one product with different scenarios
+
+These test the abstraction; they do not establish four product positions or require four dedicated modes:
+
+| Scenario | Expected state | Example current state | Actions and tasks | Progress checks |
 | --- | --- | --- | --- | --- |
-| 交付桌面工具 | 有可供试用并符合约定需求的安装包 | 已有原型，仍缺实现与验证 | 实现、测试、打包、试用反馈 | 产物和验收条件 |
-| 技术选型研究 | 对候选方案形成有依据的选择 | 已有候选，关键限制尚不明确 | 阅读资料、做实验、比较、决策 | 关键问题是否得到回答，决策是否有依据 |
-| 学习一项技能 | 能独立完成约定实践 | 已掌握基础，缺少完整实践 | 制订学习计划、练习、评估、补足 | 实践成果与能力评价 |
-| 治理线上反馈 | 反馈率满足用户设定条件 | 有当前观测，部分原因待确认 | 分析、治理、验证、观察 | 约定口径下的观测与证据 |
+| Deliver a desktop tool | Trial installation package meeting agreed requirements | Prototype exists; implementation and validation are missing | Implement, test, package, gather trial feedback | Artifacts and acceptance criteria |
+| Research a technical choice | Evidence-supported selection among candidates | Candidates exist; critical limitations remain unclear | Read, experiment, compare, decide | Key questions answered and decisions supported |
+| Learn a skill | Independently complete an agreed practice | Fundamentals known; complete practice missing | Plan learning, practice, assess, fill gaps | Practical results and capability assessment |
+| Improve online feedback | Feedback rate meets user-defined criteria | Current observations exist; some causes remain unconfirmed | Analyze, improve, validate, observe | Observations and evidence under agreed definitions |
 
-前三种场景无需虚构业务指标即可完整走通；第四种通过指标和数据来源扩展落地。每一种场景都允许任务结束后更新现状、修订计划和进行复盘。
+The first three can complete the feedback loop without invented business metrics. The fourth uses metrics and data-source extensions. Every scenario allows tasks to update context, revise plans, and trigger reviews.
 
-## 10. 当前实现与最小落地范围
+## 10. Existing implementation and minimum delivery scope
 
-当前正式应用已有 Task、Run、成员配置、Runtime 进程、对话及公开 Trace。任务显示状态主要来自最近一次 Run；人工分工和并行发送已经实现，自动拆解、依赖调度和自动汇总尚未实现。
+The production application currently has Task, Run, member configuration, Runtime processes, conversations, and public Trace. Task display states mostly follow the latest Run. Manual division of work and parallel sends exist; automatic breakdown, dependency scheduling, and automatic summarization do not yet exist.
 
-首先增加的通用能力：
+First add these general capabilities:
 
-1. Goal：目标描述、预期状态、成功条件、约束与版本。
-2. State / StateUpdate：当前情况及带来源的历史变化，支持文字、成果和结构化内容。
-3. Task 扩展：目标归属、子任务、依赖、执行者、验收要求与独立业务状态。
-4. Result / Evidence：结果与依据，尽量关联执行记录中的文件路径、文件变更事件及用户提供的产物和确认。
-5. Review：某个阶段或周期的状态比较、判断与下一步。
+1. Goal: description, expected state, success criteria, constraints, and versions.
+2. State / StateUpdate: current situation and source-linked historical changes, supporting text, deliverables, and structured content.
+3. Task extensions: goal ownership, subtasks, dependencies, executors, acceptance requirements, and independent business state.
+4. Result / Evidence: results and supporting evidence, linking wherever possible to execution file paths, file-change events, and user-supplied artifacts and confirmations.
+5. Review: state comparison, judgment, and next steps for a stage or period.
 
-指标、数据查询、自动取数、特定业务流程属于按需扩展。查询型来源可以复用 Agent 或连接器能力，不把 BI 平台建设变成通用闭环的前提。
+Metrics, data queries, automatic retrieval, and specific business workflows are optional extensions. Query sources can reuse Agent or connector capabilities. Building a BI platform is not a prerequisite for the general feedback loop.
 
-首个可交付版本应同时支持两条路径：
+The first deliverable version should support both paths:
 
-- 从目标出发：创建任意目标 → 建立现状 → 选择 Agent 并创建任务 → 执行和验收 → 更新现状 → 复盘。
-- 从 Agent 出发：创建或选择 Agent 档案 → 创建独立任务或加入目标 → 配置并执行 → 查看当前活动与历史 → 将成果关联到目标。
+- From a goal: create any goal → establish context → choose an Agent and create a task → execute and accept → update context → review.
+- From an Agent: create or select a profile → create an independent task or join a goal → configure and execute → inspect current activity and history → associate results with a goal.
 
-第一阶段即加入可复用 Agent 档案、任务内配置和跨任务执行可见性。之后加入周期触发、自动获取信息和更强的编排能力。
+The first phase includes reusable Agent profiles, per-task configuration, and cross-task execution visibility. Periodic triggers, automatic information retrieval, and stronger orchestration follow later.
 
-旧任务及历史 Run 原样保留，默认待关联目标；不把旧执行成功迁移为业务已验收。数据结构变化配合显式迁移与旧状态兼容。
+Legacy tasks and historical Runs remain intact and initially await goal association. Successful legacy execution is not migrated into accepted business status. Data changes include explicit migrations and legacy-state compatibility.
 
-验收时至少同时跑通交付型和探索型场景，并用反馈治理检验指标扩展。所有场景均验证执行终态与业务状态独立、结果可追溯、用户可修订现状、计划可调整，以及重试和恢复不重复记录成果。
+Acceptance must cover delivery and exploration scenarios, with feedback improvement testing metric extensions. Every scenario verifies separate terminal execution and business states, traceable results, user-editable context, adjustable plans, and retries/recovery without duplicate deliverables.
 
+## 11. Full responsibilities of Agent management
 
-## 11. Agent 管理的完整职责
-
-### 对象边界
+### Object boundaries
 
 ```text
-Agent 档案（可复用的职责与默认配置）
-    → 目标团队中的职责关联（可选）
-    → 任务成员（来源档案版本 + 任务内覆盖，或临时成员）
-    → RunMember（某次实际执行的不可变配置快照）
-    → Runtime / Model / 公开事件 / 结果
+Agent profile (reusable role and default configuration)
+    → Role assignment within a goal team (optional)
+    → Task member (source-profile version + task overrides, or temporary member)
+    → RunMember (immutable configuration snapshot for one actual execution)
+    → Runtime / Model / public events / results
 ```
 
-- AgentProfile 是配置资产，不是常驻进程，也不是 Runtime 的别名。同一个 Runtime 可以运行不同职责的多个 Agent。
-- GoalAssignment 表达谁参与目标及其职责，不意味着每个成员参加每个任务。首版保留简单关联，不增加复杂团队权限体系。
-- TaskMember 复用现有 Member。允许从档案添加，也允许直接创建临时成员；实例的对话按任务隔离，不因使用同一档案而共享全部历史。
-- Run / RunMember 是实际活动。一个 Agent 可以同时有多个执行实例，因此“启用/停用”的档案状态与“2 个运行中、1 个失败”的执行统计分开展示。
+- AgentProfile is a configuration asset, not a persistent process or a Runtime alias. One Runtime can execute several Agents with different roles.
+- GoalAssignment records participation and role without requiring every participant in every task. The initial version retains simple links without a complex team-permission system.
+- TaskMember reuses the existing Member. Members may come from profiles or be created temporarily. Conversations remain task-isolated; using one profile does not share all history.
+- Run / RunMember represents actual activity. An Agent can have several simultaneous instances, so profile enabled/disabled status is separate from counts such as 2 running and 1 failed.
 
-### Agents 一级页面
+### Primary Agents page
 
-左侧为紧凑档案列表，右侧为所选档案详情。列表显示名称、职责、默认 Runtime / 模型、关联目标数和当前执行数；详情包含“配置”“参与任务”“执行记录”。
+A compact profile list appears on the left and the selected profile's details on the right. The list shows name, role, default Runtime / model, linked-goal count, and active-execution count. Details contain Configuration, Participating tasks, and Execution history.
 
-操作：新建、编辑、复制、停用、分配到目标、用此 Agent 创建任务。从已有任务成员“保存为 Agent”可逐步沉淀档案。
+Actions include create, edit, duplicate, disable, assign to a goal, and create a task with this Agent. Save as Agent from an existing task member progressively builds reusable profiles.
 
-配置字段：名称、职责指令、默认 Runtime、兼容模型、思考强度和说明。首版展示已保存的 Runtime 访问权限、模型兼容关系与检测结果。技能及工具清单仅在 Runtime 公开且适配器支持读取时展示；其发现与同步作为后续能力，不以权限规则推断已安装技能或实际工具清单。首版不声称具备跨 Runtime 的统一工具注入或每 Agent 沙箱。
+Configuration fields include name, role instructions, default Runtime, compatible model, reasoning effort, and notes. Initially, display saved Runtime access permissions, model compatibility, and detection results. Display skill/tool inventories only when the Runtime exposes them and the adapter supports reading them. Discovery and synchronization are later capabilities. Permission rules do not establish installed skills or actual tool inventories. The initial version claims neither uniform cross-Runtime tool injection nor per-Agent sandboxes.
 
-停用只限制新分配，不静默停止已有执行。档案更新形成新版本，新成员采用新版；已绑定成员通过明确的更新动作采用新版并保留任务覆盖，历史 Run 不变。对话或任务中调参不会自动改写全局档案。
+Disabling limits new assignments without silently stopping existing executions. Profile edits create new versions. New members use the new version; existing members adopt it through an explicit update while retaining task overrides. Historical Runs remain unchanged. Conversation or task parameter edits do not automatically rewrite global profiles.
 
-### 任务中的 Agent 管理
+### Agent management within tasks
 
-保留单 Agent / 协作模式、添加或移除成员、职责分配、Runtime / 模型 / 思考强度选择、成员会话、发送对象和历史执行选择。成员结构的变更遵守当前批次的执行约束；原型不假装可以热替换正在运行的进程。
+Retain single-Agent / collaborative modes, member addition/removal, role assignment, Runtime / model / effort selection, member conversations, recipients, and historical execution selection. Member-structure edits obey the current batch's execution constraints. The prototype must not pretend to hot-swap running processes.
 
-查看成员、编辑配置与选择消息接收者相互独立。运行中修改配置标注“下次执行生效”。更换 Runtime 通过新执行与上下文交接处理；不暗示恢复厂商原生 session。
+Inspecting members, editing configuration, and choosing message recipients remain independent. Edits during execution are labelled effective next execution. Changing Runtime uses a new execution and context handoff without implying restoration of a vendor-native session.
 
-### Runtime 与模型管理
+### Runtime and model management
 
-保留现有设置入口：本机检测与导入、可执行路径、启用状态、适配器、启动参数、默认模型、模型目录与 Runtime 绑定、思考强度、适配器专属权限、记录导出和存储。
+Retain the settings entry points: local detection/import, executable path, enabled state, adapter, launch arguments, default model, model catalog and Runtime binding, effort, adapter-specific permissions, record export, and storage.
 
-程序已检测、配置已登记、模型可调用、进程运行中是不同状态。界面只显示已取得证据的状态；不能把模型登记或可执行文件检测称为账号与模型调用验证成功。
+Detected programs, registered configuration, callable models, and running processes are distinct states. The UI displays only evidenced states. Model registration or executable detection cannot be called successful account/model-call validation.
 
-### 运行中一级页面
+### Primary Running page
 
-按 Run / 成员实例展示跨目标与跨任务的当前活动、失败或中断，以及当前并行额度。支持打开会话、定位 Trace、进入任务和停止具体执行。停止范围必须可见，不能从一个成员行误停所有任务。
+Show cross-goal and cross-task current activity, failures, and interruptions by Run / member instance, alongside concurrency limits. Support opening conversations, locating Trace, entering tasks, and stopping specific executions. The stop scope must be visible so a member-row action cannot accidentally stop all tasks.
 
-当前工作台常规停止操作以任务运行批次为范围。首版跨任务视图继续标注“停止本次执行（涉及 N 位成员）”。后端已有按成员停止接口；若开放单成员停止，需补齐前端操作、启动竞态处理及验收。暂停、队列、恢复或即时注入不作为已有能力呈现。
+The current workbench's ordinary stop operates on the task run batch. The initial cross-task view retains the label Stop this execution (N members). The backend already has member-specific stopping; exposing it requires frontend actions, launch-race handling, and acceptance. Pause, queue, resume, and live input injection are not presented as existing capabilities.
 
-## 12. 基于现有能力的实施边界
+## 12. Implementation boundaries based on existing capabilities
 
-核对来源：README.md、src/lib/types.ts、src/lib/domain.ts、src/App.tsx、Workbench、MemberConfiguration、SettingsPage 与 TracePanel。
+Inspected sources: README.md, src/lib/types.ts, src/lib/domain.ts, src/App.tsx, Workbench, MemberConfiguration, SettingsPage, and TracePanel.
 
-| 能力 | 当前实现 | 本轮设计处理 |
+| Capability | Existing implementation | Design treatment in this round |
 | --- | --- | --- |
-| 本机 Runtime 检测、导入、注册、配置 | 已有 | 保留现有四种 Runtime；原型另增 Kimi CLI 入口，真实适配待接入 |
-| 模型目录、绑定、思考强度与 Runtime 权限 | 已有 | 复用设置体系，不混为 Agent 自身能力 |
-| 任务成员、单人或多成员、消息接收者 | 已有 | 保留完整任务执行页，新增档案来源 |
-| 指定成员或全部成员的并行调用 | 已有 | 如实保留；自动依赖调度属于新增 |
-| 真实运行、停止、历史快照、会话和 Trace | 已有 | 保留详情与证据，新增跨任务聚合入口 |
-| 全局 Agent 档案、版本与目标关联 | 尚无 | 首版新增，不将 Runtime 重命名冒充完成 |
-| 目标、现状、计划、独立验收与复盘 | 尚无 | 首版新增通用对象和手动闭环 |
-| 自动产物列表及成果验收 | 尚无完整能力；真实文件事件在 Trace | 原型展示规划交互，实施时先支持人工附加与 Trace 关联 |
-| 自动拆解、成员调度、依赖等待、自动汇总 | 尚无 | 展示建议与可解释的计划；自动执行后续分阶段实现 |
-| 自动取数与周期复盘 | 尚无 | 纳入后续阶段，清楚描述调度运行条件 |
-| 原生 session 恢复、暂停、运行中指令注入 | 尚无统一能力 | 不给所有 Runtime 展示通用可用按钮 |
-| 自动 worktree、隔离、冲突检测与合并 | 尚无 | 不把多人共目录执行描述成安全隔离协作 |
-| Provider 凭据注入、连接测试、统一密钥管理 | 尚无 | 保留现有登记能力，不承诺已接通 |
+| Local Runtime detection, import, registration, configuration | Existing | Retain four Runtimes; prototype adds Kimi CLI with real integration pending |
+| Model catalog, binding, effort, and Runtime permissions | Existing | Reuse settings rather than conflate them with Agent capabilities |
+| Task members, single/multiple members, recipients | Existing | Retain the full execution page and add profile sources |
+| Parallel invocation for selected/all members | Existing | Retain accurately; automatic dependency scheduling is new |
+| Real execution, stop, historical snapshots, sessions, Trace | Existing | Retain details/evidence and add cross-task aggregation |
+| Global Agent profiles, versions, goal links | Missing | Add initially; renaming Runtimes does not implement it |
+| Goals, context, plans, independent acceptance, reviews | Missing | Add general objects and a manual feedback loop initially |
+| Automatic artifact lists and result acceptance | Incomplete; real file events exist in Trace | Prototype illustrates planned interactions; implementation first supports manual attachment and Trace links |
+| Automatic breakdown, member scheduling, dependency waiting, summarization | Missing | Show suggestions and explainable plans; implement automation in later phases |
+| Automatic retrieval and periodic reviews | Missing | Add later, explicitly describing scheduler operating conditions |
+| Native-session recovery, pause, input injection during execution | No uniform capability | Do not show universally available controls for all Runtimes |
+| Automatic worktrees, isolation, conflict detection, merging | Missing | Shared-directory multi-Agent execution is not safe isolated collaboration |
+| Provider credential injection, connection testing, shared secret management | Missing | Retain registration without promising connectivity |
 
-正式实现分三阶段：
+Production implementation has three phases:
 
-1. **目标 + Agent 管理基础闭环**：目标与现状、可复用 Agent 档案、任务归属与独立验收、现有 Runtime 执行与跨任务运行视图、手动复盘。
-2. **持续推进**：结构化成果、信息来源刷新、周期复盘、状态变更建议与阶段计划。
-3. **编排自动化**：任务依赖调度、角色协作、重试与恢复、隔离与冲突处理；每项按 Runtime 实际能力逐步开放。
+1. **Basic goal and Agent-management feedback loop:** goals/context, reusable profiles, task ownership/independent acceptance, existing Runtime execution/cross-task activity, manual reviews.
+2. **Ongoing progress:** structured results, refreshed information sources, periodic reviews, state-change suggestions, and stage plans.
+3. **Orchestration automation:** dependency scheduling, role collaboration, retries/recovery, isolation/conflict handling; enable each incrementally according to actual Runtime capabilities.
 
-## 13. 本轮原型范围与验收
+## 13. Prototype scope and acceptance for this round
 
-首轮围绕同一套导航设计四个核心画面：
+The first round designs four core screens within one navigation system:
 
-1. **目标概览**：通用目标、成功条件、当前状态、任务计划、参与 Agents 和复盘入口。示例以“交付一个可试用的桌面应用”为主，另可切换“技术选型研究”；反馈治理只作为场景之一。
-2. **Agents 管理**：档案列表、职责和默认配置、参与目标/任务、历史执行、新建和编辑、分配及独立发起任务。
-3. **任务执行**：目标/任务定位、验收条件、成员协作、对话、接收者与 Runtime/模型/思考强度、产物与执行检查器。
-4. **运行中**：跨目标运行实例、成员归属、并行额度、失败/中断、定位会话或 Trace，以及明确范围的停止操作。
+1. **Goal overview:** general goals, success criteria, current state, task plans, participating Agents, and review entry points. The main example delivers a trial desktop app, with technical-choice research as another example. Feedback improvement is only one scenario.
+2. **Agent management:** profiles, roles/defaults, participating goals/tasks, historical executions, creation/editing, assignment, and independent task startup.
+3. **Task execution:** goal/task location, acceptance criteria, member collaboration, conversation, recipients, Runtime/model/effort, artifacts, and execution inspector.
+4. **Running:** cross-goal instances, member ownership, concurrency limits, failures/interruptions, conversation/Trace location, and clearly scoped stops.
 
-提供最小交互链：切换主入口 → 从目标创建任务并选择 Agent → 进入执行工作台 → 查看成员配置与 Trace → 演示提交结果和更新现状；另可从 Agents 页面发起任务。新建目标、编辑档案与 Runtime/模型选择采用紧凑弹层或表单。原型显著标记“示例数据”，所有执行与保存为本地演示。
+Provide the minimum interaction chain: switch primary entry → create a task from a goal and choose an Agent → enter the workbench → inspect member configuration and Trace → demonstrate result submission and context update. Tasks can also start from Agents. Goal creation, profile editing, and Runtime/model selection use compact dialogs/forms. The prototype prominently identifies sample data; execution and persistence are local demonstrations.
 
-沿用 1536 × 960 与 1280 × 720 的桌面验收尺寸、独立滚动与固定输入区域。按 apple-design 处理即时反馈、可打断开关、焦点恢复和减少动态效果；实际动画代码再按 animate 实施并复用现有参数。高频导航即时更新，不做整页入场或 token 动画。
+Retain 1536 × 960 and 1280 × 720 desktop acceptance sizes, independent scrolling, and fixed composers. Apply apple-design for immediate feedback, interruptible toggles, focus restoration, and reduced motion. Implement actual motion with animate and shared parameters. Frequent navigation updates immediately without whole-page entry or token animations.
 
-原型完成应验证主要导航、创建与配置、消息接收者独立、停止范围、状态更新、正常/减少动态效果和焦点行为。未提供真实 Runtime 的原型不能作为执行、自动调度或正式 UI 组件迁移已经完成的证据。
+Prototype completion verifies primary navigation, creation/configuration, independent recipients, stop scope, state updates, normal/reduced motion, and focus. A prototype without real Runtimes cannot establish completed execution, automatic scheduling, or production UI-component migration.
 
+### Second-round prototype refinement
 
-### 第二轮原型深化
+Refine the workbench, Agent management, and orchestration in parallel. Four pages share one browser-demonstration state:
 
-按“工作台、Agent 管理、执行编排”并行深化，四个页面共享同一份浏览器演示状态：
+- The workbench orders expected results, success criteria, confirmed facts, pending changes, and tasks clearly. Reviews include conclusions, evidence gaps, and actionable next steps that can become tasks. Periodic settings are explicitly demonstration preferences.
+- Agent management adds search/filtering, participating goals/tasks/executions, and version differences. Tasks use saved profiles; version updates remain separate from historical snapshots.
+- Orchestration shows step dependencies, serial/parallel relationships, responsible members, inputs/outputs, failure policies, human confirmations, and retries. It is an interactive local plan simulation; real scheduling retains the phased implementation boundaries above.
+- Task, execution, acceptance, and goal facts change separately. Stops, activity counts, and state changes use one shared source. The Running page accurately locates research tasks and member Trace.
 
-- 工作台将预期结果、成功条件、已确认事实、待采纳变化及推进任务排在清晰的阅读顺序中。复盘包含结论、证据缺口与可创建任务的后续行动，周期设置明确标注为演示偏好。
-- Agent 管理补齐搜索筛选、参与目标、任务与执行、版本差异；用已保存档案创建任务，版本更新与历史执行快照分离。
-- 执行编排展示步骤依赖、串并行、负责成员、输入输出、失败策略、人工确认与重试。它是本地可操作的计划模拟，真实调度仍遵循上述分阶段实施边界。
-- 任务、执行、验收和目标事实分别变更；停止、活动计数与状态变化通过同一来源保留。运行页可准确定位研究任务及成员 Trace。
-
-历史原型交付与验收记录保留在本地，未纳入公开仓库。页面生成和本地模拟不改变第 12 节关于正式应用现有能力的结论。
-
+Historical prototype deliveries and acceptance records remain local and are excluded from the public repository. Generated pages and local simulations do not change section 12's conclusions about existing production capabilities.
 
 ### Kimi CLI Runtime
 
-将 Kimi CLI 作为 Runtime，与 Codex、Claude Code、Pi、DeepSeek Harness 并列。它可以作为 Agent 档案的默认运行环境，也可以成为任务成员下一次执行的配置。模型、思考设置和权限按该 Runtime 的实际公开能力处理；未读取配置时继承默认，不虚构通用档位。任务与 Run 保留当时 Runtime 快照。
+Kimi CLI is a Runtime alongside Codex, Claude Code, Pi, and DeepSeek Harness. It can be an Agent profile's default environment or a task member's next-execution configuration. Model, effort, and permissions follow that Runtime's actual exposed capabilities. Unread configuration inherits defaults without inventing universal effort levels. Tasks and Runs retain their execution-time Runtime snapshots.
 
-本轮设计已覆盖侧栏、设置、新建与编辑 Agent、任务成员选择、执行列表和 Trace 身份。正式应用仍保持现有四种接入，Kimi 的真实检测、认证状态、审批与取消协议需单独实施。当前 Kimi Code CLI 可使用 ACP；旧 kimi-cli 与新版 kimi-code 不应共用未经版本判断的命令模板。
+This design round covers the sidebar, settings, Agent creation/editing, task-member selection, execution lists, and Trace identity. The production app still retains four existing integrations; Kimi's real detection, authentication states, approval, and cancellation protocols require separate implementation. Current Kimi Code CLI supports ACP. Legacy kimi-cli and newer kimi-code must not share command templates without version checks.

@@ -4,10 +4,10 @@ import type { AppState, RunStatus, RuntimeEvent } from './types'
 
 function liveState(adapter: 'codex' | 'claude' | 'generic' | 'kimi' = 'codex') {
   const initial = createInitialState()
-  const task = createTask(initial.settings, '真实任务', '/tmp/project', 'solo')
+  const task = createTask(initial.settings, 'Real task', '/tmp/project', 'solo')
   const member = task.members[0]
   const runtime = { ...initial.settings.runtimes[0], args: ['--configured'], adapter }
-  task.runs = [{ id: 'run-1', createdAt: '2026-09-15T01:00:00Z', prompt: '执行', directory: task.directory, members: [{ ...member, runtime, model: '', status: 'running' }] }]
+  task.runs = [{ id: 'run-1', createdAt: '2026-09-15T01:00:00Z', prompt: 'Execute', directory: task.directory, members: [{ ...member, runtime, model: '', status: 'running' }] }]
   const state: AppState = { ...initial, tasks: [task], activeTaskId: task.id }
   let sequence = 0
   const event = (kind: RuntimeEvent['kind'], text = '', overrides: Partial<RuntimeEvent> = {}): RuntimeEvent => ({
@@ -35,8 +35,8 @@ describe('task and settings defaults', () => {
     const settings = createInitialState().settings
     settings.runtimes[0].defaultModel = 'configured-model-id'
     settings.runtimes.slice(1).forEach(runtime => { runtime.enabled = false })
-    const task = createTask(settings, '  搜索  ', ' /tmp/project ', 'team')
-    expect(task.title).toBe('搜索')
+    const task = createTask(settings, '  Search  ', ' /tmp/project ', 'team')
+    expect(task.title).toBe('Search')
     expect(task.directory).toBe('/tmp/project')
     expect(task.members).toHaveLength(3)
     expect(new Set(task.members.map(member => member.id)).size).toBe(3)
@@ -99,14 +99,14 @@ describe('runtime events', () => {
 
   it('deduplicates delivery and Codex items, handles split JSONL, and keeps reasoning out of chat', () => {
     const { state, event } = liveState()
-    const raw = JSON.stringify({ type: 'item.completed', item: { id: 'message-1', type: 'agent_message', text: '已完成公开结果。' } })
+    const raw = JSON.stringify({ type: 'item.completed', item: { id: 'message-1', type: 'agent_message', text: 'Public result completed.' } })
     let next = applyRuntimeEvent(state, event('stdout', raw.slice(0, 35)))
     expect(next.tasks[0].messages).toHaveLength(0)
     const second = event('stdout', raw.slice(35))
     next = applyRuntimeEvent(next, second)
     expect(applyRuntimeEvent(next, second)).toBe(next)
     next = applyRuntimeEvent(next, event('stdout', `${raw}\n${JSON.stringify({ type: 'item.completed', item: { type: 'reasoning', text: 'do not extract' } })}\n`))
-    expect(next.tasks[0].messages.map(message => message.text)).toEqual(['已完成公开结果。'])
+    expect(next.tasks[0].messages.map(message => message.text)).toEqual(['Public result completed.'])
     expect(next.tasks[0].events).toHaveLength(3)
     expect(next.tasks[0].events[0].text).toBe(raw.slice(0, 35))
     expect(state.tasks[0].events).toEqual([])
@@ -114,12 +114,12 @@ describe('runtime events', () => {
 
   it('extracts Claude thinking and text blocks without duplicating the result summary', () => {
     const { state, event } = liveState('claude')
-    const assistant = { type: 'assistant', message: { id: 'msg-1', content: [{ type: 'thinking', thinking: 'private' }, { type: 'text', text: '公开答复' }, { type: 'tool_use', input: { text: 'not a message' } }] } }
+    const assistant = { type: 'assistant', message: { id: 'msg-1', content: [{ type: 'thinking', thinking: 'private' }, { type: 'text', text: 'Public answer' }, { type: 'tool_use', input: { text: 'not a message' } }] } }
     let next = applyRuntimeEvent(state, event('stdout', JSON.stringify(assistant)))
-    next = applyRuntimeEvent(next, event('stdout', JSON.stringify({ type: 'result', result: '公开答复' })))
-    expect(next.tasks[0].messages.map(message => [message.kind, message.text])).toEqual([['reasoning', 'private'], ['message', '公开答复']])
-    next = applyRuntimeEvent(next, event('stdout', JSON.stringify({ type: 'result', result: '另一段完整总结' })))
-    expect(next.tasks[0].messages.map(message => [message.kind, message.text])).toEqual([['reasoning', 'private'], ['message', '公开答复'], ['message', '另一段完整总结']])
+    next = applyRuntimeEvent(next, event('stdout', JSON.stringify({ type: 'result', result: 'Public answer' })))
+    expect(next.tasks[0].messages.map(message => [message.kind, message.text])).toEqual([['reasoning', 'private'], ['message', 'Public answer']])
+    next = applyRuntimeEvent(next, event('stdout', JSON.stringify({ type: 'result', result: 'Another complete summary' })))
+    expect(next.tasks[0].messages.map(message => [message.kind, message.text])).toEqual([['reasoning', 'private'], ['message', 'Public answer'], ['message', 'Another complete summary']])
   })
 
   it('keeps terminal status when stdout or started arrives late and uses the historical runtime snapshot', () => {
@@ -153,9 +153,9 @@ describe('runtime events', () => {
     const { state, event } = liveState()
     let next = applyRuntimeEvent(state, event('stderr', 'auth failed'))
     next = applyRuntimeEvent(next, event('stdout', '{malformed'))
-    next = applyRuntimeEvent(next, event('stdout', JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '可读取的答复' } })))
+    next = applyRuntimeEvent(next, event('stdout', JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Readable answer' } })))
     next = applyRuntimeEvent(next, event('failed', 'exit 1', { exitCode: 1 }))
-    expect(next.tasks[0].messages.map(message => message.text)).toEqual(['可读取的答复'])
+    expect(next.tasks[0].messages.map(message => message.text)).toEqual(['Readable answer'])
     expect(next.tasks[0].events[0].text).toBe('auth failed')
     expect(next.tasks[0].runs[0].members[0].status).toBe('failed')
   })
@@ -174,17 +174,17 @@ describe('reload recovery and context handoff', () => {
 
   it('preserves all saved public context and the complete instruction for legacy or generic sessions', () => {
     const { task, member } = liveState()
-    task.delivery = '导出入口清单'
+    task.delivery = 'Export entry inventory'
     task.deadline = '2026-10-16'
     task.messages = Array.from({ length: 12 }, (_, index) => ({ id: String(index), role: 'user', text: `context-${index}:` + 'x'.repeat(2000), createdAt: task.createdAt }))
     const prompt = buildPrompt(task, 'new instruction '.repeat(2000), member)
-    expect(prompt).toContain('职责：执行')
-    expect(prompt).toContain('预期产物：导出入口清单')
-    expect(prompt).toContain('任务截止日期：2026-10-16')
-    expect(prompt).toContain('不代表恢复了旧会话内部状态')
+    expect(prompt).toContain('Role instructions: 执行')
+    expect(prompt).toContain('Expected deliverables: Export entry inventory')
+    expect(prompt).toContain('Task deadline: 2026-10-16')
+    expect(prompt).toContain('does not restore the previous session\'s internal state')
     expect(prompt).toContain('context-11:')
     expect(prompt).toContain('context-0:')
-    expect(prompt).not.toContain('已截断')
+    expect(prompt).not.toContain('was truncated')
     expect(prompt).toContain('x'.repeat(2000))
     expect(prompt).toContain('new instruction '.repeat(2000).trim())
   })
@@ -192,12 +192,12 @@ describe('reload recovery and context handoff', () => {
   it('keeps rendered reasoning out of the next Runtime prompt', () => {
     const { task, member } = liveState()
     task.messages = [
-      { id: 'thinking', role: 'assistant', kind: 'reasoning', text: '内部推演不应回传', createdAt: task.createdAt, runId: 'run', memberId: member.id },
-      { id: 'answer', role: 'assistant', kind: 'message', text: '公开结论需要保留', createdAt: task.createdAt, runId: 'run', memberId: member.id },
+      { id: 'thinking', role: 'assistant', kind: 'reasoning', text: 'Internal reasoning must not be returned', createdAt: task.createdAt, runId: 'run', memberId: member.id },
+      { id: 'answer', role: 'assistant', kind: 'message', text: 'Public conclusions must be retained', createdAt: task.createdAt, runId: 'run', memberId: member.id },
     ]
-    const prompt = buildPrompt(task, '继续处理', member)
-    expect(prompt).toContain('公开结论需要保留')
-    expect(prompt).not.toContain('内部推演不应回传')
+    const prompt = buildPrompt(task, 'Continue processing', member)
+    expect(prompt).toContain('Public conclusions must be retained')
+    expect(prompt).not.toContain('Internal reasoning must not be returned')
   })
 })
 

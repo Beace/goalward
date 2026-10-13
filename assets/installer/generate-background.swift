@@ -67,7 +67,7 @@ func render(scale: Int, name: String) throws {
 
     text("Goalward", at: NSRect(x: 32, y: 36, width: 596, height: 30),
          size: 23, weight: .semibold, color: foreground)
-    text("将 Goalward 拖到 Applications 完成安装",
+    text("Drag Goalward to Applications to install",
          at: NSRect(x: 32, y: 78, width: 596, height: 20),
          size: 12, color: secondary)
 
@@ -85,10 +85,10 @@ func render(scale: Int, name: String) throws {
 
     fill(NSRect(x: 0, y: 324, width: 660, height: 96), with: edge)
     fill(NSRect(x: 32, y: 324, width: 596, height: 1), with: divider)
-    text("安装后，从「应用程序」启动",
+    text("After installation, launch from Applications",
          at: NSRect(x: 32, y: 344, width: 596, height: 20),
          size: 12, color: secondary)
-    text("Apple Silicon  ·  macOS 13.3 或更新版本",
+    text("Apple Silicon  ·  macOS 13.3 or later",
          at: NSRect(x: 32, y: 375, width: 596, height: 18),
          size: 11, color: muted)
 

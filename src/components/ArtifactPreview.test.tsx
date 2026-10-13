@@ -7,12 +7,12 @@ const bridge = vi.hoisted(() => ({ readArtifact: vi.fn(), openArtifact: vi.fn(),
 vi.mock('@/lib/bridge', async original => ({ ...await original<typeof import('@/lib/bridge')>(), ...bridge }))
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 const artifact: Artifact = { id: 'doc', name: 'report.md', kind: 'markdown', directory: '/workspace', path: 'report.md', source: 'reply', sourceId: 'message', createdAt: '' }
-const picture: Artifact = { ...artifact, id: 'picture', name: '岛台 石材.JPG', path: '岛台 石材.JPG', kind: 'file' }
+const picture: Artifact = { ...artifact, id: 'picture', name: 'café stone.JPG', path: 'café stone.JPG', kind: 'file' }
 it('renders binary image previews, copies the path and preserves the last image on read failure', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined)
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   bridge.readArtifact.mockResolvedValueOnce({ content: '', imageDataUrl: 'data:image/jpeg;base64,first' })
-    .mockRejectedValueOnce(new Error('文件已删除'))
+    .mockRejectedValueOnce(new Error('File deleted'))
     .mockResolvedValueOnce({ content: '', imageDataUrl: 'data:image/jpeg;base64,updated' })
   render(<ArtifactPreview artifact={picture}/>)
   const img = await screen.findByRole('img', { name: picture.name })
@@ -20,7 +20,7 @@ it('renders binary image previews, copies the path and preserves the last image 
   expect(img.className).toBe('is-ready')
   expect(screen.queryByRole('tab', { name: '源码' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '复制文件路径' }))
-  await waitFor(() => expect(writeText).toHaveBeenCalledWith('/workspace/岛台 石材.JPG'))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('/workspace/café stone.JPG'))
   fireEvent.click(screen.getByRole('button', { name: '刷新文件' }))
   expect((await screen.findByRole('alert')).textContent).toContain('刷新失败，仍显示上次读取的内容')
   expect(screen.getByRole('img', { name: picture.name })).toBe(img)
@@ -54,9 +54,9 @@ it('ignores stale reads when the user switches documents', async () => {
   await waitFor(() => expect(screen.queryByRole('heading', { name: 'Stale' })).toBeNull())
 })
 it('allows retrying failed reads and preserves source for copy/save', async () => {
-  bridge.readArtifact.mockRejectedValueOnce(new Error('文件不存在')).mockResolvedValueOnce({ content: '# Recovered' })
+  bridge.readArtifact.mockRejectedValueOnce(new Error('File not found')).mockResolvedValueOnce({ content: '# Recovered' })
   render(<ArtifactPreview artifact={artifact}/>)
-  expect((await screen.findByRole('alert')).textContent).toContain('文件不存在')
+  expect((await screen.findByRole('alert')).textContent).toContain('File not found')
   fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
   await screen.findByRole('heading', { name: 'Recovered' })
   fireEvent.click(screen.getByRole('button', { name: '系统打开' }))
@@ -77,7 +77,7 @@ it('rereads the file, retains source mode, reports stale content on failure and 
   let finish: (value: { content: string }) => void = () => {}
   bridge.readArtifact.mockResolvedValueOnce({ content:'# Original' })
     .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
-    .mockRejectedValueOnce(new Error('文件已删除'))
+    .mockRejectedValueOnce(new Error('File deleted'))
     .mockResolvedValueOnce({ content:'# Restored' })
   render(<ArtifactPreview artifact={artifact}/>)
   await screen.findByRole('heading', { name:'Original' })
@@ -90,7 +90,7 @@ it('rereads the file, retains source mode, reports stale content on failure and 
   expect(screen.getByRole('tab', { name:'源码' }).getAttribute('aria-selected')).toBe('true')
   expect(screen.getByRole('status').textContent).toContain('已刷新')
   fireEvent.click(screen.getByRole('button', { name:'刷新文件' }))
-  expect((await screen.findByRole('alert')).textContent).toContain('刷新失败，仍显示上次读取的内容：文件已删除')
+  expect((await screen.findByRole('alert')).textContent).toContain('刷新失败，仍显示上次读取的内容：File deleted')
   expect(screen.getByText('# Updated')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name:'重新读取' }))
   await screen.findByText('# Restored')
@@ -114,10 +114,10 @@ it('embeds remote pages only in an isolated frame, without reading local files',
 })
 
 it('supports following links inside a local Markdown preview', async () => {
-  bridge.readArtifact.mockResolvedValue({ content: '[详情](./nested/report.html)' })
+  bridge.readArtifact.mockResolvedValue({ content: '[Details](./nested/report.html)' })
   const onOpenLink = vi.fn()
   render(<ArtifactPreview artifact={artifact} onOpenLink={onOpenLink}/>)
-  fireEvent.click(await screen.findByRole('link', { name: '详情' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Details' }))
   expect(onOpenLink).toHaveBeenCalledWith('nested/report.html')
 })
 
@@ -140,11 +140,11 @@ it('requires an explicit override above 500 MB and never carries it to another f
 
 it('keeps the large-file override for retries but still shows read errors', async () => {
   bridge.readArtifact.mockResolvedValueOnce({ content: '', bytes: 501 * 1024 * 1024, tooLarge: true })
-    .mockRejectedValueOnce(new Error('读取文件失败'))
+    .mockRejectedValueOnce(new Error('File read failed'))
     .mockResolvedValueOnce({ content: '# Recovered large document' })
   render(<ArtifactPreview artifact={artifact}/>)
   fireEvent.click(await screen.findByRole('button', { name: '仍要打开' }))
-  await screen.findByText('读取文件失败')
+  await screen.findByText('File read failed')
   fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
   await screen.findByRole('heading', { name: 'Recovered large document' })
   expect(bridge.readArtifact).toHaveBeenLastCalledWith('/workspace', 'report.md', true)
@@ -175,9 +175,9 @@ it('opens validated web addresses from an empty preview and rejects other scheme
     expect(input.getAttribute('aria-invalid')).toBe('true')
   }
   expect(onOpenUrl).not.toHaveBeenCalled()
-  fireEvent.change(input, { target: { value: '  https://example.com/报告  ' } })
+  fireEvent.change(input, { target: { value: '  https://example.com/résumé  ' } })
   fireEvent.submit(input.closest('form')!)
-  expect(onOpenUrl).toHaveBeenCalledWith('https://example.com/%E6%8A%A5%E5%91%8A')
+  expect(onOpenUrl).toHaveBeenCalledWith('https://example.com/r%C3%A9sum%C3%A9')
   expect(screen.queryByRole('alert')).toBeNull()
   expect(bridge.readArtifact).not.toHaveBeenCalled()
 })

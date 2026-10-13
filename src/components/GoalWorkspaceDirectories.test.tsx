@@ -11,9 +11,9 @@ import { GoalWorkspaceDirectories } from './GoalWorkspaceDirectories'
 afterEach(cleanup)
 function mount(failOnce = false, duringFailedWrite?: (state: AppState) => AppState) {
   const seed = createInitialState()
-  const goal = { ...createGoal({ title: '项目目标' }), workingDirectories: ['/project/main', '/project/data'] }
-  const task = createWorkspaceTask(seed.settings, { title: '项目任务', goalId: goal.id, workingDirectories: goal.workingDirectories })
-  const history = { id: 'old-run', createdAt: task.createdAt, directory: '/project/main', workingDirectories: ['/project/main', '/historic/data'], prompt: '历史输入', members: [] }
+  const goal = { ...createGoal({ title: 'Project goal' }), workingDirectories: ['/project/main', '/project/data'] }
+  const task = createWorkspaceTask(seed.settings, { title: 'Project task', goalId: goal.id, workingDirectories: goal.workingDirectories })
+  const history = { id: 'old-run', createdAt: task.createdAt, directory: '/project/main', workingDirectories: ['/project/main', '/historic/data'], prompt: 'Historical input', members: [] }
   task.runs = [history]
   const committed = vi.fn()
   const projected = vi.fn()
@@ -85,7 +85,7 @@ describe('fixed goal workspace controls', () => {
   })
 
   it('rolls back an already projected primary directory change without discarding concurrent native history', async () => {
-    const messages = [{ id: 'concurrent-reply', role: 'assistant' as const, text: '保存期间到达的内容', createdAt: new Date().toISOString() }]
+    const messages = [{ id: 'concurrent-reply', role: 'assistant' as const, text: 'Content received during saving', createdAt: new Date().toISOString() }]
     const { committed, projected, history } = mount(true, current => ({ ...current, tasks: current.tasks.map(task => ({ ...task, messages, historyPending: true })) }))
     fireEvent.click(screen.getByRole('button', { name: '设为主目录: /project/data' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('workspace disk unavailable'))

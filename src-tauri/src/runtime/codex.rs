@@ -27,7 +27,7 @@ fn native_arguments(request: &StartRequest) -> Result<(Vec<String>, Vec<String>)
     while index < request.runtime.args.len() {
         let arg = &request.runtime.args[index];
         if arg.contains("{prompt}") || arg.contains('\0') || arg.len() > 4096 {
-            return Err("Codex 原生会话不能将消息插入启动参数；请移除 {prompt} 或无效参数".into());
+            return Err("Native Codex sessions cannot insert messages into launch arguments. Remove {prompt} or invalid arguments.".into());
         }
         let (flag, inline) = if let Some(value) = arg
             .strip_prefix("-c")
@@ -48,7 +48,7 @@ fn native_arguments(request: &StartRequest) -> Result<(Vec<String>, Vec<String>)
             flag,
             "-c" | "--config" | "--enable" | "--disable" | "-p" | "--profile"
         ) {
-            return Err(format!("Codex app-server 不支持启动参数 {flag}；支持 -c/--config、--enable/--disable、--strict-config 和 --profile，消息、会话、目录与权限由应用管理"));
+            return Err(format!("Codex app-server does not support launch argument {flag}. Supported arguments are -c/--config, --enable/--disable, --strict-config, and --profile; messages, sessions, directories, and permissions are managed by the app."));
         }
         let value = if let Some(value) = inline {
             value
@@ -59,7 +59,7 @@ fn native_arguments(request: &StartRequest) -> Result<(Vec<String>, Vec<String>)
                 .args
                 .get(index)
                 .map(String::as_str)
-                .ok_or_else(|| format!("Codex 参数 {flag} 缺少值"))?
+                .ok_or_else(|| format!("Codex argument {flag} is missing a value."))?
         };
         if value.is_empty()
             || value.starts_with('-')
@@ -67,7 +67,7 @@ fn native_arguments(request: &StartRequest) -> Result<(Vec<String>, Vec<String>)
             || value.contains("{prompt}")
             || value.len() > 4096
         {
-            return Err(format!("Codex 参数 {flag} 的值无效"));
+            return Err(format!("Codex argument {flag} has an invalid value."));
         }
         let value = super::expand_template(
             value,
@@ -81,7 +81,7 @@ fn native_arguments(request: &StartRequest) -> Result<(Vec<String>, Vec<String>)
         if matches!(flag, "-c" | "--config") {
             let (key, _) = value
                 .split_once('=')
-                .ok_or("Codex --config 必须采用 key=value 格式")?;
+                .ok_or("Codex --config requires key=value format.")?;
             let root = key
                 .trim()
                 .split('.')
@@ -110,7 +110,7 @@ fn native_arguments(request: &StartRequest) -> Result<(Vec<String>, Vec<String>)
                     | "experimental_use_profile"
             ) {
                 return Err(format!(
-                    "Codex 配置 {root} 与任务权限或会话范围冲突；请通过 Runtime 权限设置配置"
+                    "Codex configuration {root} conflicts with task permissions or session scope. Configure it through runtime permission settings."
                 ));
             }
             if request
@@ -120,7 +120,7 @@ fn native_arguments(request: &StartRequest) -> Result<(Vec<String>, Vec<String>)
                 && matches!(root, "model" | "model_reasoning_effort")
             {
                 return Err(
-                    "Codex 模型/思考强度配置与本轮选择冲突；请使用应用中的模型与思考强度设置"
+                    "Codex model or reasoning effort configuration conflicts with the current turn selection. Use the app model and reasoning effort settings."
                         .into(),
                 );
             }
@@ -142,10 +142,10 @@ pub(super) fn arguments(request: &StartRequest) -> Result<Vec<String>, String> {
         return Err("Codex app-server requires the Codex adapter".into());
     }
     if request.runtime.args.len() > 128 {
-        return Err("Codex 启动参数最多 128 项".into());
+        return Err("Codex launch arguments allow at most 128 entries.".into());
     }
     if request.codex_streaming && !request.runtime.args.is_empty() {
-        return Err("目标助手的 Codex 会话不允许自定义启动参数".into());
+        return Err("Goal assistant Codex sessions do not allow custom launch arguments.".into());
     }
     let (mut args, native_args) = native_arguments(request)?;
     let config = request
@@ -160,7 +160,7 @@ pub(super) fn arguments(request: &StartRequest) -> Result<Vec<String>, String> {
                 || !p.additional_directories.is_empty()
         })
     {
-        return Err("目标助手的 Codex 会话要求只读权限".into());
+        return Err("Goal assistant Codex sessions require read-only permissions.".into());
     }
     crate::permission::arguments(&request.runtime, &[])?;
     reasoning::arguments("codex", request.reasoning_effort.as_deref(), &[])?;
@@ -610,7 +610,7 @@ impl CodexSession {
             if let Some(reply) = inner.steering.get_mut(&id) {
                 let outcome = if !value["error"].is_null() {
                     Err(format!(
-                        "Codex 拒绝追加消息：{}",
+                        "Codex rejected the additional message: {}",
                         value["error"]["message"]
                             .as_str()
                             .unwrap_or("turn/steer rejected")
@@ -619,7 +619,7 @@ impl CodexSession {
                             .collect::<String>()
                     ))
                 } else if value["result"]["turnId"].as_str() != Some(reply.turn.as_str()) {
-                    Err("Codex 追加消息确认没有匹配本轮 turn ID；输入已保留".into())
+                    Err("Codex additional-message acknowledgement did not match the current turn ID. The input was retained.".into())
                 } else {
                     Ok(())
                 };
@@ -666,7 +666,7 @@ impl CodexSession {
                         ),
                     );
                     self.emit(json!({"type":"runtime.permission_requested","requestId":token,"toolCall":{"title":value["params"]["command"].as_str().or(value["params"]["reason"].as_str()).unwrap_or("Codex tool permission"),"kind":method,"rawInput":value["params"]},
-                        "options":[{"optionId":"accept","name":"允许本次","kind":"allow_once"},{"optionId":"decline","name":"拒绝","kind":"reject_once"}]}));
+                        "options":[{"optionId":"accept","name":"Allow this time","kind":"allow_once"},{"optionId":"decline","name":"Deny","kind":"reject_once"}]}));
                     return Ok(());
                 }
                 let result = match method {
@@ -685,7 +685,7 @@ impl CodexSession {
                 };
                 Self::write(&mut inner, response)?;
                 self.emit(json!({"type":"codex.app_server.request_rejected","method":method}));
-                return Err(format!("Codex 请求了不可用的客户端能力：{method}"));
+                return Err(format!("Codex requested an unavailable client capability: {method}"));
             }
             let params = &value["params"];
             match method {
@@ -941,7 +941,7 @@ impl CodexSession {
                             && result["sandbox"]["networkAccess"].as_bool() != Some(false)
                     })
                 {
-                    return Err("Codex 未确认请求的权限范围；未发送本轮消息".into());
+                    return Err("Codex did not confirm the requested permission scope. The turn message was not sent.".into());
                 }
                 inner.effective_sandbox = result["sandbox"]
                     .is_object()
@@ -1093,7 +1093,7 @@ impl NativeSession for CodexSession {
             if remaining.is_zero() {
                 inner.steering.remove(&id);
                 inner.controls.insert(id);
-                return Err("Codex 未在 5 秒内确认追加消息；输入已保留，未自动重发".into());
+                return Err("Codex did not acknowledge the additional message within 5 seconds. The input was retained without automatic resend.".into());
             }
             let (next, _) = self
                 .changed

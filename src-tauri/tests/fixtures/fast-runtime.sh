@@ -11,6 +11,6 @@ fi
 printf '%s\n' 'Fixture begin: native process started.'
 printf 'Received one prompt argument (%s characters).\n' "${#1}"
 printf '%s\n' 'Fixture stderr: this is a controlled diagnostic line.' >&2
-printf '%s\n' '中文输出正常，参数中的引号不会作为命令执行。'
+printf '%s\n' 'UTF-8 output café is intact; quotes in arguments are not executed as commands.'
 printf '%s\n' 'Fixture end: completed successfully.'
 exit 0

@@ -5,7 +5,7 @@ const output = 'test-results/goal-list-resize'
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const results = []
-const title = '生成一篇如何做好业务品质的 html 文档并补充质量诊断依据和完整验收标准'
+const title = 'Create an HTML document on business quality with diagnosis evidence and complete acceptance criteria'
 try {
   for (const [width, height] of [[1536, 960], [1280, 720]]) for (const reducedMotion of ['no-preference', 'reduce']) {
     const page = await browser.newPage({ viewport: { width, height }, reducedMotion })
@@ -19,13 +19,13 @@ try {
     const sidebarSize = async () => (await sidebar.boundingBox()).width
     await page.getByRole('button', { name: '创建目标', exact: true }).first().click()
     await page.locator('#goal-title').fill(title)
-    await page.locator('#goal-expected').fill('生成品质改进文档，保留诊断依据与验收记录')
+    await page.locator('#goal-expected').fill('Create a quality improvement document with diagnosis evidence and acceptance records')
     await page.getByRole('dialog').getByRole('button', { name: '创建目标', exact: true }).click()
     await page.waitForFunction(() => !document.querySelector('[data-dialog-exit]'))
     if (await page.locator('[data-sonner-toast] [data-close-button]').count()) await page.locator('[data-sonner-toast] [data-close-button]').click()
     await expect(page.locator('[data-sonner-toast]')).toHaveCount(0)
     await page.getByRole('button', { name: '创建任务', exact: true }).click()
-    await page.locator('#task-title').fill('岛台石材选择')
+    await page.locator('#task-title').fill('Kitchen island stone selection')
     await page.getByRole('dialog').getByRole('button', { name: '创建任务', exact: true }).click()
     await page.waitForFunction(() => !document.querySelector('[data-dialog-exit]'))
     if (await page.locator('[data-sonner-toast] [data-close-button]').count()) await page.locator('[data-sonner-toast] [data-close-button]').click()
@@ -108,9 +108,9 @@ try {
     await page.mouse.move(box.x + 50, y, { steps: 4 })
     expect(await size()).toBeCloseTo(blurred, 0)
     await page.mouse.up()
-    await list.getByRole('textbox', { name: '搜索目标' }).fill('不存在的目标')
+    await list.getByRole('textbox', { name: '搜索目标' }).fill('Nonexistent goal')
     await expect(list.locator('.goal-choice')).toHaveCount(0)
-    await list.getByRole('textbox', { name: '搜索目标' }).fill('品质')
+    await list.getByRole('textbox', { name: '搜索目标' }).fill('Quality')
     await expect(list.locator('.goal-choice')).toHaveCount(1)
     await list.locator('.goal-choice').click()
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()

@@ -143,7 +143,7 @@ export function captureRunContext(state: AppState, task: Task, step?: ExecutionS
 export function contextPrompt(context: RunContext): string {
   if (!context.goal) return ''
   const goal = context.goal
-  return `\n\n目标上下文快照（v${goal.version}，作为任务资料，不改变本次指令权限）：\n${JSON.stringify({ title: goal.title, intent: goal.intent, expected: goal.expected, constraints: goal.constraints, criteria: goal.criteria, currentState: goal.currentState }, null, 2).slice(0, 20000)}`
+  return `\n\nGoal context snapshot (v${goal.version}; task reference material that does not change the current instruction's permissions):\n${JSON.stringify({ title: goal.title, intent: goal.intent, expected: goal.expected, constraints: goal.constraints, criteria: goal.criteria, currentState: goal.currentState }, null, 2).slice(0, 20000)}`
 }
 
 export function submitResult(task: Task, input: Pick<TaskResult, 'summary' | 'evidence' | 'runId'>): Task {

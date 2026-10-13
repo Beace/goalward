@@ -13,10 +13,10 @@ import {Button} from '/src/components/ui/button'
 import {createInitialState,createTask,applyRuntimeEvent} from '/src/lib/domain'
 import '/src/index.css'
 const initial=createInitialState()
-const task=createTask(initial.settings,'同一轮回答合并预览','/tmp','solo')
+const task=createTask(initial.settings,'Merged reply preview for one turn','/tmp','solo')
 const member=task.members[0]
-task.runs=[{id:'run',createdAt:task.createdAt,prompt:'整理新闻',directory:'/tmp',members:[{...member,runtime:initial.settings.runtimes[0],model:'',status:'running'}]}]
-task.messages=[{id:'user',role:'user',runId:'run',createdAt:task.createdAt,text:'获取昨日的 AI 相关新闻，整理成一个本地 HTML 文件'}]
+task.runs=[{id:'run',createdAt:task.createdAt,prompt:'Summarize news',directory:'/tmp',members:[{...member,runtime:initial.settings.runtimes[0],model:'',status:'running'}]}]
+task.messages=[{id:'user',role:'user',runId:'run',createdAt:task.createdAt,text:'Collect yesterday AI news and create a local HTML file'}]
 const seed={...initial,tasks:[task]}
 let sequence=0
 function Harness(){
@@ -26,7 +26,7 @@ function Harness(){
  const append=(text)=>setState(current=>applyRuntimeEvent(current,{id:'event-'+(++sequence),taskId:task.id,runId:'run',memberId:member.id,timestamp:new Date().toISOString(),kind:'stdout',text:JSON.stringify({type:'item.completed',item:{id:'part-'+sequence,type:'agent_message',text}})+'\\n'}))
  window.__append=append
  window.__complete=()=>setState(current=>applyRuntimeEvent(current,{id:'done',taskId:task.id,runId:'run',memberId:member.id,timestamp:new Date().toISOString(),kind:'completed',text:''}))
- return <div style={{height:'100vh',display:'flex',flexDirection:'column'}}><div style={{display:'flex',gap:12,padding:8,alignItems:'center'}}><span>合成数据 · 同一轮多段回复</span><Button onClick={()=>append('这是同一轮新增的一段公开回答。')}>追加一段</Button><Button onClick={()=>window.__complete()}>结束执行</Button><span>{inspector?'已请求查看执行':''}</span></div><div style={{flex:1,minHeight:0}}><Workbench task={state.tasks[0]} settings={state.settings} selectedRunId={selected} onSelectRun={setSelected} onChange={()=>{}} onSend={async()=>{}} onStop={()=>{}} onSettings={()=>{}} onInspector={()=>setInspector(true)} inspectorOpen={inspector} onDuplicate={()=>{}}/></div></div>
+ return <div style={{height:'100vh',display:'flex',flexDirection:'column'}}><div style={{display:'flex',gap:12,padding:8,alignItems:'center'}}><span>Synthetic data · Multiple reply segments in one turn</span><Button onClick={()=>append('This is a new public reply segment in the same turn.')}>Append a segment</Button><Button onClick={()=>window.__complete()}>Complete execution</Button><span>{inspector?'Execution view requested':''}</span></div><div style={{flex:1,minHeight:0}}><Workbench task={state.tasks[0]} settings={state.settings} selectedRunId={selected} onSelectRun={setSelected} onChange={()=>{}} onSend={async()=>{}} onStop={()=>{}} onSettings={()=>{}} onInspector={()=>setInspector(true)} inspectorOpen={inspector} onDuplicate={()=>{}}/></div></div>
 }
 createRoot(document.getElementById('root')!).render(<Harness/> )
 `)
@@ -38,12 +38,12 @@ try {
     const page = await context.newPage()
     page.on('pageerror', error => report.errors.push(error.message))
     await page.goto(`${base}/${output}/harness.html`)
-    await expect(page.getByRole('heading', { name: '同一轮回答合并预览' })).toBeVisible()
-    await page.evaluate(() => window.__append('我会按北京时间整理昨日的 AI 新闻，核对新闻日期和来源，生成带摘要、要点与原文链接的本地 HTML 文件。'))
+    await expect(page.getByRole('heading', { name: 'Merged reply preview for one turn' })).toBeVisible()
+    await page.evaluate(() => window.__append('I will summarize yesterday AI news in Beijing time, check dates and sources, and generate a local HTML file with summaries, key points, and source links.'))
     const reply = page.locator('.message-assistant')
     await expect(reply).toHaveCount(1)
     await reply.evaluate(node => { window.__reply = node; window.__part = node.querySelector('.message-part') })
-    await page.evaluate(() => window.__append('我会制作便于阅读和打印的日报页面。检索时会特别核对时区：海外媒体标注的日期，换算成北京时间可能已经是次日。'))
+    await page.evaluate(() => window.__append('I will create a daily report that is easy to read and print. During research I will verify time zones: overseas publication dates may fall on the next day in Beijing time.'))
     await expect(reply.locator('.message-part')).toHaveCount(2)
     await expect(reply.locator('.message-heading')).toHaveCount(1)
     await expect(reply.locator('.message-foot')).toHaveCount(1)
@@ -54,15 +54,15 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     await reply.getByRole('button', { name: '查看执行' }).focus()
     await page.keyboard.press('Enter')
-    await expect(page.getByText('已请求查看执行')).toBeVisible()
+    await expect(page.getByText('Execution view requested')).toBeVisible()
     if (reducedMotion === 'reduce') assert.equal(await reply.locator('.animate-spin').evaluate(node => getComputedStyle(node).animationName), 'none')
-    await page.evaluate(() => window.__append(Array.from({length:60},(_,i)=>'新闻条目 '+i+'：用于检查长回答的滚动位置。').join('\n\n')))
+    await page.evaluate(() => window.__append(Array.from({length:60},(_,i)=>'News item '+i+': checking the scroll position for a long reply.').join('\n\n')))
     const scroll = page.getByLabel('任务对话记录')
     await expect.poll(() => scroll.evaluate(node => node.scrollHeight-node.scrollTop-node.clientHeight)).toBeLessThan(5)
     await scroll.evaluate(node => {node.scrollTop=100; node.dispatchEvent(new Event('scroll'))})
     await expect(page.getByRole('button',{name:'回到最新'})).toBeVisible()
     const top = await scroll.evaluate(node=>node.scrollTop)
-    await page.evaluate(() => window.__append('后续追加内容。\n\n'.repeat(20)))
+    await page.evaluate(() => window.__append('Additional content.\n\n'.repeat(20)))
     await expect(reply.locator('.message-part')).toHaveCount(4)
     assert.equal(await scroll.evaluate(node=>node.scrollTop), top)
     await page.getByRole('button',{name:'回到最新'}).click()

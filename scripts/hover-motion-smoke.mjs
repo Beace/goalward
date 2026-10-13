@@ -20,9 +20,9 @@ try {
   fixture.settings.theme = 'dark'
   fixture.settings.defaultDirectory = '/tmp/hover-motion-fixture'
   fixture.settings.models = [{ id: 'hover-model', name: 'Hover fixture model', modelId: 'hover-model', enabled: true, runtimeIds: ['codex', 'claude'] }]
-  const goal = createGoal({ title: 'Hover 动效验收目标', expected: '交互反馈保持连续', currentSummary: '独立浏览器合成数据；没有启动真实 Agent。', criteria: ['按钮与 Tab 的现有颜色变化连续'] })
-  const agent = createAgentProfile(fixture.settings, { name: 'Hover 验收 Agent', role: '界面验收', assignedGoalIds: [goal.id] })
-  const task = createTask(fixture.settings, 'Hover 动效验收任务', fixture.settings.defaultDirectory, 'solo')
+  const goal = createGoal({ title: 'Hover motion verification goal', expected: 'Interaction feedback remains continuous', currentSummary: 'Synthetic data in an isolated browser; no real Agent was started.', criteria: ['Existing button and Tab color changes remain continuous'] })
+  const agent = createAgentProfile(fixture.settings, { name: 'Hover verification Agent', role: 'UI verification', assignedGoalIds: [goal.id] })
+  const task = createTask(fixture.settings, 'Hover motion verification task', fixture.settings.defaultDirectory, 'solo')
   task.goalId = goal.id
   const runtime = fixture.settings.runtimes.find(item => item.adapter === 'claude')
   task.members[0].runtimeId = runtime.id
@@ -35,14 +35,14 @@ try {
   const events = [
     stream({ type: 'message_start', message: { id: 'hover-message', role: 'assistant', content: [] } }),
     stream({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
-    stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '这是合成的思考过程，用于验收原生 disclosure 按钮的 hover。' } }),
+    stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Synthetic reasoning for verifying hover on the native disclosure button.' } }),
     stream({ type: 'content_block_stop', index: 0 }),
     stream({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }),
-    stream({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '这是浏览器 hover 动效验收合成回复。' } }),
+    stream({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Synthetic browser reply for hover verification.' } }),
     stream({ type: 'content_block_stop', index: 1 }),
     stream({ type: 'message_stop' }),
-    event({ type: 'assistant', message: { id: 'hover-message', content: [{ type: 'thinking', thinking: '这是合成的思考过程，用于验收原生 disclosure 按钮的 hover。' }, { type: 'text', text: '这是浏览器 hover 动效验收合成回复。' }] }, session_id: 'hover-session' }),
-    event({ type: 'result', subtype: 'success', result: '这是浏览器 hover 动效验收合成回复。', session_id: 'hover-session' }),
+    event({ type: 'assistant', message: { id: 'hover-message', content: [{ type: 'thinking', thinking: 'Synthetic reasoning for verifying hover on the native disclosure button.' }, { type: 'text', text: 'Synthetic browser reply for hover verification.' }] }, session_id: 'hover-session' }),
+    event({ type: 'result', subtype: 'success', result: 'Synthetic browser reply for hover verification.', session_id: 'hover-session' }),
     event(null, 'completed'),
   ]
   fixture = events.reduce(applyRuntimeEvent, fixture)

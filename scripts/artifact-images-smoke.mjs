@@ -10,8 +10,8 @@ import {ArtifactPreview} from '/src/components/ArtifactPreview'
 import {Button} from '/src/components/ui/button'
 import '/src/index.css'
 const base={directory:'/tmp/image-fixture',source:'reply',sourceId:'reply',createdAt:'',kind:'file'};
-const files=['岛台石材-方案1.JPG','透明图片.png','损坏.jpg','慢速.jpg','说明.md'];
-function Harness(){const [name,setName]=useState(files[0]);return <div style={{height:'100vh',display:'flex'}}><main style={{flex:1,padding:24}}><h1>图片产物预览验收</h1>{files.map(file=><Button key={file} onClick={()=>setName(file)}>{file}</Button>)}</main><div id="preview-pane" style={{width:620,minHeight:0}}><ArtifactPreview artifact={{...base,id:name,name,path:name,kind:name.endsWith('.md')?'markdown':'file'}}/></div></div>};createRoot(document.getElementById('root')).render(<Harness/>);`)
+const files=['café-stone-option-1.JPG','transparent-image.png','broken.jpg','slow.jpg','readme.md'];
+function Harness(){const [name,setName]=useState(files[0]);return <div style={{height:'100vh',display:'flex'}}><main style={{flex:1,padding:24}}><h1>Image artifact preview verification</h1>{files.map(file=><Button key={file} onClick={()=>setName(file)}>{file}</Button>)}</main><div id="preview-pane" style={{width:620,minHeight:0}}><ArtifactPreview artifact={{...base,id:name,name,path:name,kind:name.endsWith('.md')?'markdown':'file'}}/></div></div>};createRoot(document.getElementById('root')).render(<Harness/>);`)
 const png = 'data:image/png;base64,' + (await readFile('assets/branding/goalward-icon.png')).toString('base64')
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const report = { scope: 'Real React image decoding/layout with simulated read_artifact IPC; native filesystem covered by Rust tests, not a native WebKit end-to-end run.', scenarios: [], errors: [] }
@@ -27,21 +27,21 @@ try {
       window.__TAURI_INTERNALS__={invoke:async (command,args)=>{
         if(command!=='read_artifact') throw new Error('Unexpected command: '+command)
         window.__reads.push(args)
-        if(window.__fail) throw new Error('文件不存在或无法访问')
-        if(args.path==='慢速.jpg') await new Promise(resolve=>{window.__finish=resolve})
-        if(args.path==='说明.md') return {content:'# 文本预览正常'}
-        return {content:'',imageDataUrl:args.path==='损坏.jpg'?'data:image/jpeg;base64,broken':args.path.endsWith('.png')?png:window.__jpeg}
+        if(window.__fail) throw new Error('File not found or inaccessible')
+        if(args.path==='slow.jpg') await new Promise(resolve=>{window.__finish=resolve})
+        if(args.path==='readme.md') return {content:'# Text preview works'}
+        return {content:'',imageDataUrl:args.path==='broken.jpg'?'data:image/jpeg;base64,broken':args.path.endsWith('.png')?png:window.__jpeg}
       }}
     },png)
     const page=await context.newPage();page.on('pageerror',e=>report.errors.push(e.message))
     await page.goto(`http://127.0.0.1:1420/${output}/harness.html`)
     const preview=page.getByRole('complementary',{name:'产物预览'})
-    const image=preview.getByRole('img',{name:'岛台石材-方案1.JPG'})
+    const image=preview.getByRole('img',{name:'café-stone-option-1.JPG'})
     await expect(image).toBeVisible();await expect.poll(()=>image.evaluate(n=>n.naturalWidth)).toBe(1600)
     await expect(preview.getByRole('tab',{name:'源码'})).toHaveCount(0)
-    await expect(preview.getByRole('heading',{name:'岛台石材-方案1.JPG'})).toBeFocused()
+    await expect(preview.getByRole('heading',{name:'café-stone-option-1.JPG'})).toBeFocused()
     await preview.getByRole('button',{name:'复制文件路径'}).click()
-    await expect.poll(()=>page.evaluate(()=>window.__copied)).toBe('/tmp/image-fixture/岛台石材-方案1.JPG')
+    await expect.poll(()=>page.evaluate(()=>window.__copied)).toBe('/tmp/image-fixture/café-stone-option-1.JPG')
     const transition=await image.evaluate(n=>getComputedStyle(n).transitionDuration)
     assert.equal(transition==='0s',reducedMotion==='reduce')
     await expect.poll(()=>image.evaluate(n=>Number(getComputedStyle(n).opacity))).toBe(1)
@@ -55,8 +55,8 @@ try {
     await page.evaluate(()=>window.__fail=false)
     await preview.getByRole('button',{name:'重新读取'}).click()
     await expect(preview.getByRole('alert')).toHaveCount(0)
-    await page.getByRole('button',{name:'透明图片.png',exact:true}).click()
-    const transparent=preview.getByRole('img',{name:'透明图片.png'})
+    await page.getByRole('button',{name:'transparent-image.png',exact:true}).click()
+    const transparent=preview.getByRole('img',{name:'transparent-image.png'})
     await expect.poll(()=>transparent.evaluate(n=>n.complete&&n.naturalWidth>0)).toBe(true)
     await page.locator('#preview-pane').evaluate(n=>n.style.width='280px')
     await expect(transparent).toBeInViewport()
@@ -64,15 +64,15 @@ try {
     assert.equal(layout.toolbar,40);assert(layout.scroll<=layout.width);assert(layout.buttons.every(b=>b.width>=28&&b.x<=width))
     await expect.poll(()=>transparent.evaluate(n=>Number(getComputedStyle(n).opacity))).toBe(1)
     await page.screenshot({path:`${output}/narrow-${width}-${reducedMotion}.png`})
-    await page.getByRole('button',{name:'损坏.jpg',exact:true}).click()
+    await page.getByRole('button',{name:'broken.jpg',exact:true}).click()
     await expect(preview.getByRole('alert')).toContainText('图片无法解码')
-    await page.getByRole('button',{name:'慢速.jpg',exact:true}).click()
+    await page.getByRole('button',{name:'slow.jpg',exact:true}).click()
     await expect(preview.getByText('正在读取图片…',{exact:true})).toBeVisible()
     await expect(preview.getByRole('button',{name:'刷新文件'})).toBeDisabled()
     const animation=await preview.getByRole('button',{name:'刷新文件'}).locator('svg').evaluate(n=>getComputedStyle(n).animationName)
     assert.equal(animation==='none',reducedMotion==='reduce')
-    await page.getByRole('button',{name:'说明.md',exact:true}).click()
-    await expect(preview.getByRole('heading',{name:'文本预览正常'})).toBeVisible()
+    await page.getByRole('button',{name:'readme.md',exact:true}).click()
+    await expect(preview.getByRole('heading',{name:'Text preview works'})).toBeVisible()
     await page.evaluate(()=>window.__finish())
     await expect(preview.getByRole('img')).toHaveCount(0)
     await expect(preview.getByRole('tab',{name:'源码'})).toBeVisible()
