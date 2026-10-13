@@ -18,6 +18,11 @@
 .markdown-body li > ul, .markdown-body li > ol { margin: 5px 0 8px; }
 .markdown-body blockquote { margin: 12px 0; border-left: 2px solid var(--color-accent-foreground); padding: 2px 0 2px 14px; color: var(--color-muted-foreground); }
 .markdown-body blockquote > :last-child { margin-bottom: 0; }
+.markdown-body blockquote[data-markdown-alert] > :first-child { margin-bottom: 8px; }
+.markdown-body blockquote[data-markdown-alert=warning] { border-color: var(--color-status-warning); }
+.markdown-body blockquote[data-markdown-alert=warning] > :first-child strong { color: var(--color-status-warning); }
+.markdown-body blockquote[data-markdown-alert=caution] { border-color: var(--color-destructive); }
+.markdown-body blockquote[data-markdown-alert=caution] > :first-child strong { color: var(--color-destructive); }
 .markdown-body a { color: var(--color-accent-foreground); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--color-border); }
 .markdown-body a:hover { text-decoration-color: currentColor; }
 .markdown-body a:focus-visible, .markdown-body pre:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; border-radius: 4px; }
@@ -42,3 +47,6 @@
 .markdown-body a { transition: color var(--motion-feedback-duration) var(--motion-feedback-ease), text-decoration-color var(--motion-feedback-duration) var(--motion-feedback-ease); }
 .markdown-body a:active { color: var(--foreground); text-decoration-color: currentColor; transition-duration: 0ms; }
 .markdown-body a > code { color: inherit; }
+
+/* Release notes retain the settings page's compact heading scale. */
+.app-update-notes .markdown-body :is(h1, h2, h3, h4, h5, h6) { font-size: 13px; }

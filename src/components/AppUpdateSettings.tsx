@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useI18n } from '@/i18n'
 import { openExternalUrl } from '@/lib/bridge'
 import { notify } from '@/components/ui/sonner'
+import { MarkdownMessage } from './MarkdownMessage'
 import type { AppUpdateController } from '@/hooks/use-app-update'
 
 function bytes(value: number, target = value) {
@@ -55,7 +56,7 @@ export function AppUpdateSettings({ update, activeCount, unsaved, tasksBusy = fa
         </div>
         {(['downloaded', 'installed', 'installing', 'restarting'].includes(update.phase)) && <p className="text-[11px] leading-5 text-muted-foreground">{activeCount > 0 ? <>{t('请等待 ', 'Wait for ')}<AnimatedNumber value={activeCount} />{t(' 个执行实例结束后再安装或重启。', ' active instances to finish before installing or restarting.')}</> : tasksBusy ? t('请等待任务编排结束后再安装或重启。', 'Wait for task orchestration to finish before installing or restarting.') : unsaved ? t('请先保存或还原设置更改，并等待本地数据保存完成。', 'Save or restore settings changes and wait for local data to finish saving.') : t('安装后需要手动重启，更新不会自动重启应用。', 'Restart manually after installation. Updates do not restart the app automatically.')}</p>}
       </div>
-      {update.info.notes && <div className="space-y-2"><h2 className="text-xs font-medium">{t('版本说明', 'Release notes')}</h2><p className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">{update.info.notes}</p></div>}
+      {update.info.notes && <div className="app-update-notes min-w-0 space-y-2"><h2 className="text-xs font-medium">{t('版本说明', 'Release notes')}</h2><div className="min-w-0 text-xs text-muted-foreground"><MarkdownMessage text={update.info.notes} /></div></div>}
       <p className="text-[11px] leading-5 text-muted-foreground">{t('更新来自 Goalward 的 GitHub Release，下载后验证发布签名。当前 macOS 包仍为临时签名，未经 Apple 公证。', 'Updates come from Goalward GitHub Releases; the release signature is verified after download. macOS packages currently use ad hoc signing and are not notarized by Apple.')}</p>
     </>}
   </section>

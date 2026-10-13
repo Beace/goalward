@@ -6,14 +6,29 @@ import { AppUpdateSettings } from './AppUpdateSettings'
 import type { AppUpdateController } from '@/hooks/use-app-update'
 const bridge = vi.hoisted(() => ({ openExternalUrl: vi.fn() }))
 const notices = vi.hoisted(() => ({ notify: { error: vi.fn() } }))
-vi.mock('@/lib/bridge', () => bridge)
+vi.mock('@/lib/bridge', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/bridge')>(), ...bridge }))
 vi.mock('@/components/ui/sonner', () => notices)
 function controller(overrides: Partial<AppUpdateController> = {}): AppUpdateController {
   return { phase: 'idle', info: { currentVersion: '0.2.0' }, desktop: true, downloadedBytes: 0, check: vi.fn(async () => {}), download: vi.fn(async () => {}), install: vi.fn(async () => {}), restart: vi.fn(async () => {}), ...overrides }
 }
-beforeEach(() => { vi.clearAllMocks(); Object.defineProperty(navigator, 'language', { configurable: true, value: 'zh-CN' }) })
+beforeEach(() => { vi.clearAllMocks(); bridge.openExternalUrl.mockResolvedValue(undefined); Object.defineProperty(navigator, 'language', { configurable: true, value: 'zh-CN' }) })
 afterEach(cleanup)
 describe('app update settings', () => {
+  it('renders GitHub release notes as Markdown and opens changelog links through the bridge', async () => {
+    const changelog = 'https://github.com/Beace/goalward/compare/v0.4.0...v0.4.1'
+    const notes = `## What's Changed\n\n* fix: stream goal assistant replies (#12)\n* fix: use shadcn date pickers (#13)\n\n**Full Changelog**: [v0.4.0...v0.4.1](${changelog})\n\n> [!WARNING]\n> This macOS trial build is ad-hoc signed and not notarized by Apple.`
+    const update = controller({ phase: 'available', info: { currentVersion: '0.4.0', version: '0.4.1', notes } })
+    const { container } = render(<AppUpdateSettings update={update} activeCount={0} unsaved={false} />)
+    expect(screen.getByRole('heading', { level: 2, name: "What's Changed" })).toBeTruthy()
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['fix: stream goal assistant replies (#12)', 'fix: use shadcn date pickers (#13)'])
+    expect(container.querySelector('strong')?.textContent).toBe('Full Changelog')
+    const warning = container.querySelector('blockquote[data-markdown-alert="warning"]')
+    expect(warning?.textContent).toContain('Warning')
+    expect(warning?.textContent).toContain('not notarized by Apple')
+    expect(warning?.textContent).not.toContain('[!WARNING]')
+    fireEvent.click(screen.getByRole('link', { name: 'v0.4.0...v0.4.1' }))
+    await waitFor(() => expect(bridge.openExternalUrl).toHaveBeenCalledWith(changelog))
+  })
   it('disables native checks in the browser and explains the desktop boundary', () => {
     const update = controller({ desktop: false })
     render(<AppUpdateSettings update={update} activeCount={0} unsaved={false} />)
