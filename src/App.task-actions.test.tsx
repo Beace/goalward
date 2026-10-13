@@ -7,7 +7,7 @@ import { createInitialState } from './lib/domain'
 import { createWorkspaceTask } from './lib/workspace'
 import type { AppState, Task } from './lib/types'
 
-const bridge = vi.hoisted(() => ({ isDesktop: true, loadState: vi.fn(), saveState: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(), discoverLocalEnvironment: vi.fn(), chooseDirectory: vi.fn(), chooseFile: vi.fn(), exportTask: vi.fn(), startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn() }))
+const bridge = vi.hoisted(() => ({ isDesktop: true, activeRuntimeTurns: vi.fn(async () => []), loadState: vi.fn(), saveState: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(), discoverLocalEnvironment: vi.fn(), chooseDirectory: vi.fn(), chooseFile: vi.fn(), exportTask: vi.fn(), startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn() }))
 vi.mock('@/lib/bridge', () => bridge)
 vi.mock('@/components/Workbench', () => ({ Workbench: ({ task, taskActions, operations, onSend }: { task: Task; taskActions: ReactNode; operations: ReactNode; onSend: (prompt: string, recipient: string) => Promise<void> }) => <section aria-label="测试工作台"><h1 data-task-heading tabIndex={-1}>{task.title}</h1>{taskActions}<button onClick={() => void onSend('测试指令', 'all').catch(() => {})}>测试启动</button>{operations}</section> }))
 vi.mock('@/components/TracePanel', () => ({ TracePanel: () => null }))

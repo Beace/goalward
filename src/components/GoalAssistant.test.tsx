@@ -11,7 +11,7 @@ import { captureRunContext, createWorkspaceTask } from '@/lib/workspace'
 import type { AppState } from '@/lib/types'
 import type { GoalAssistantDraft } from '@/lib/goal-types'
 
-vi.mock('@/lib/bridge', () => ({ isDesktop: true }))
+vi.mock('@/lib/bridge', () => ({ isDesktop: true, ensureGoalAssistantDirectory: vi.fn(async (id: string) => `/app/goals/${id}`) }))
 vi.mock('./MarkdownMessage', () => ({ MarkdownMessage: ({ text }: { text: string }) => <div>{text}</div> }))
 vi.mock('./RuntimeApprovalPanel', () => ({ RuntimeApprovalPanel: ({ task }: { task: { id: string } }) => <div aria-label="助手审批来源">{task.id}</div> }))
 vi.mock('./GoalCelebration', () => ({ GoalCelebration: ({ onDismiss }: { onDismiss: () => void }) => <div role="status">目标已明确<button onClick={onDismiss}>关闭目标确认提示</button></div> }))

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeConfig {
     pub id: String,
@@ -15,7 +15,7 @@ pub struct RuntimeConfig {
     pub permissions: Option<RuntimePermissions>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimePermissions {
     pub codex: Option<CodexPermissions>,
@@ -24,7 +24,7 @@ pub struct RuntimePermissions {
     pub kimi: Option<KimiPermissions>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KimiPermissions {
     pub mode: String,
@@ -34,7 +34,7 @@ fn inherit() -> String {
     "inherit".into()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CodexPermissions {
     #[serde(default = "inherit")]
@@ -45,7 +45,7 @@ pub struct CodexPermissions {
     pub additional_directories: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClaudePermissions {
     #[serde(default = "inherit")]
@@ -58,14 +58,14 @@ pub struct ClaudePermissions {
     pub disallowed_tools: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GenericPermissions {
     #[serde(default)]
     pub args: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartRequest {
     pub task_id: String,
@@ -77,12 +77,22 @@ pub struct StartRequest {
     pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
-    /// The goal assistant opts in to Codex's token-level app-server protocol.
-    /// Ordinary task runtimes retain their existing CLI execution mode.
+    /// Restricts the app-managed goal assistant to read-only Codex execution.
+    /// All Codex calls use app-server regardless of this legacy field.
     #[serde(default)]
     pub codex_streaming: bool,
     pub directory: String,
+    #[serde(default)]
+    pub additional_directories: Vec<String>,
     pub prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveRuntimeTurn {
+    pub run_id: String,
+    pub member_id: String,
+    pub stopping: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,7 +157,7 @@ pub struct StorageInfo {
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceRef {
     pub task_id: String,

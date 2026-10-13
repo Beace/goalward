@@ -69,6 +69,20 @@ describe('Codex app-server activity', () => {
 })
 
 describe('public streaming output', () => {
+  it('restores streaming for a confirmed live interrupted route without reviving a terminal Run', () => {
+    const f = fixture('codex')
+    const change = f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '仍在输出' } })
+    const state = applyRuntimeEvent(f.state, change)
+    state.tasks[0].runs[0].members[0].status = 'interrupted'
+    const active = [{ runId: 'run', memberId: f.member.id }]
+    const recovered = recoverInterruptedState(state, active)
+    expect(recovered.tasks[0].runs[0].members[0].status).toBe('running')
+    expect(recovered.tasks[0].messages[0]).toMatchObject({ text: '仍在输出', streaming: true })
+    state.tasks[0].runs[0].members[0].status = 'completed'
+    const terminal = recoverInterruptedState(state, active)
+    expect(terminal.tasks[0].runs[0].members[0].status).toBe('completed')
+    expect(terminal.tasks[0].messages[0].streaming).toBe(false)
+  })
   it('appends Codex app-server deltas across transport fragments and reconciles the final item without duplicates', () => {
     const f = fixture('codex')
     const item = (type: string, text: string) => f.json({ type, item: { id: 'answer', type: 'agent_message', text } })

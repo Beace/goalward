@@ -36,7 +36,7 @@ describe('editing tasks against current workspace state', () => {
     completed.results = [{ id: 'result', summary: '结果', evidence: '记录', createdAt: task.createdAt, verdict: 'accepted' }]
     const before = { ...state, tasks: [completed, state.tasks[1]] }
     const next = editWorkspaceTask(before, task.id, values(task, { title: ' 新名称 ', acceptance: ' 新验收 ', directory: ' /new ', priority: 'high' }))
-    expect(next.tasks[0]).toMatchObject({ title: '新名称', acceptance: '新验收', directory: '/new', priority: 'high', businessStatus: 'review', requirementsVersion: 1 })
+    expect(next.tasks[0]).toMatchObject({ title: '新名称', acceptance: '新验收', directory: '/old', workingDirectories: ['/old'], priority: 'high', businessStatus: 'review', requirementsVersion: 1 })
     for (const field of ['runs', 'messages', 'members', 'events', 'results', 'plan'] as const) expect(next.tasks[0][field]).toBe(completed[field])
     expect(next.tasks[0].runs[0].context?.task.title).toBe('待修改任务')
     expect(next.tasks[0].runs[0].directory).toBe('/old')

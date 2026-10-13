@@ -1,0 +1,8 @@
+.workspace-reference-input { position: relative; min-width: 0; width: 100%; }
+.workspace-reference-menu { position: absolute; bottom: calc(100% + 4px); left: 0; right: 0; z-index: 35; border: 1px solid var(--border); border-radius: 6px; background: var(--popover); color: var(--popover-foreground); box-shadow: var(--shadow-overlay); overflow: hidden; }
+.workspace-reference-menu [cmdk-list] { max-height: min(240px, 35vh); }
+.workspace-reference-menu [cmdk-item] { min-height: 32px; font-size: 12px; }
+.workspace-reference-name { flex: 0 1 auto; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-reference-path { flex: 1; min-width: 0; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-reference-root { flex: 0 1 25%; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-reference-status { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin: 0; font-size: 12px; color: var(--muted-foreground); }

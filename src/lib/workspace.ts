@@ -3,6 +3,7 @@ import type { ExecutionStep, RunContext, TaskBusinessStatus, TaskResult } from '
 import { migrateTraexRuntime } from './traex-runtime'
 import { translate } from '@/i18n'
 import { isAcceptedTaskDone } from './goal-progress'
+import { getTaskWorkingDirectories, inheritTaskWorkingDirectories, migrateWorkingDirectories, normalizeWorkingDirectories } from './working-directories'
 
 export const taskStatusLabels: Record<TaskBusinessStatus, string> = { todo: '待开始', in_progress: '进行中', blocked: '受阻', review: '待验收', done: '已完成', cancelled: '已取消' }
 const id = () => crypto.randomUUID()
@@ -62,7 +63,11 @@ export function editWorkspaceTask(state: AppState, taskId: string, values: TaskE
   next = setTaskDependencies(next, taskId, values.dependencies)
   if (deadline && next.tasks.some(item => values.dependencies.includes(item.id) && item.deadline && item.deadline > deadline)) throw new Error(translate('任务截止日期早于前置任务，请调整排期。', 'The deadline precedes a dependency. Adjust the schedule.'))
   if (deadline && next.tasks.some(item => item.dependencies?.includes(taskId) && item.deadline && item.deadline < deadline)) throw new Error(translate('任务截止日期晚于后续任务，请调整依赖排期。', 'The deadline is later than a dependent task. Adjust the schedule.'))
-  return { ...next, tasks: next.tasks.map(item => item.id === taskId ? { ...item, title, acceptance: values.acceptance.trim(), delivery, deadline, directory: values.directory.trim(), goalId, priority: values.priority, stageId, ...(requirementsChanged ? { requirementsVersion: (item.requirementsVersion ?? 0) + 1, businessStatus: item.businessStatus === 'done' ? 'review' as const : item.businessStatus } : {}) } : item) }
+  return { ...next, tasks: next.tasks.map(item => {
+    if (item.id !== taskId) return item
+    const roots = goalId ? getTaskWorkingDirectories(next, item) : normalizeWorkingDirectories([values.directory, ...(values.directory.trim() === task.directory ? task.workingDirectories ?? [] : [])])
+    return { ...item, title, acceptance: values.acceptance.trim(), delivery, deadline, directory: roots[0] ?? '', workingDirectories: roots, ...(task.directory && task.directory !== roots[0] && !item.legacyArtifactDirectory ? { legacyArtifactDirectory: task.directory } : {}), goalId, priority: values.priority, stageId, ...(requirementsChanged ? { requirementsVersion: (item.requirementsVersion ?? 0) + 1, businessStatus: item.businessStatus === 'done' ? 'review' as const : item.businessStatus } : {}) }
+  }) }
 }
 
 /** Remove one stopped task, never cascade through children, dependencies or goal evidence. */
@@ -86,16 +91,17 @@ export function migrateWorkspace(value: unknown): AppState {
     || managedRuntimes?.some((runtime, index) => runtime !== raw.onboarding?.managedRuntimes?.[index])) {
     raw = { ...raw, settings: { ...raw.settings, runtimes }, onboarding: raw.onboarding ? { ...raw.onboarding, managedRuntimes } : undefined }
   }
-  if (raw.version === 2 && raw.settings.runtimes.some(runtime => runtime.id === 'kimi') && !raw.tasks.some(task => task.orchestration === 'running')) return raw
+  if (raw.version === 2 && raw.settings.runtimes.some(runtime => runtime.id === 'kimi') && !raw.tasks.some(task => task.orchestration === 'running')) return migrateWorkingDirectories(raw)
   const kimi = { id: 'kimi', name: 'Kimi CLI', executable: 'kimi', adapter: 'kimi' as const, enabled: false, args: [], defaultModel: '', description: translate('通过 ACP 执行，默认自动批准工具请求；模型与思考设置继承 Runtime。', 'Runs through ACP and auto-approves tool requests by default; model and reasoning settings inherit from the runtime.') }
-  return { ...raw, version: 2, goals: raw.goals ?? [], agents: raw.agents ?? [], settings: { ...raw.settings, runtimes: raw.settings.runtimes.some(r => r.id === 'kimi') ? raw.settings.runtimes : [...raw.settings.runtimes, kimi] }, tasks: raw.tasks.map(task => task.orchestration === 'running' ? { ...task, orchestration: 'stopped' } : task) }
+  return migrateWorkingDirectories({ ...raw, version: 2, goals: raw.goals ?? [], agents: raw.agents ?? [], settings: { ...raw.settings, runtimes: raw.settings.runtimes.some(r => r.id === 'kimi') ? raw.settings.runtimes : [...raw.settings.runtimes, kimi] }, tasks: raw.tasks.map(task => task.orchestration === 'running' ? { ...task, orchestration: 'stopped' } : task) })
 }
 
-export function createWorkspaceTask(settings: Settings, input: { title: string; directory?: string; mode?: 'solo' | 'team'; goalId?: string; parentTaskId?: string; acceptance?: string; executor?: 'human' | 'agent'; members?: Member[] }): Task {
+export function createWorkspaceTask(settings: Settings, input: { title: string; directory?: string; workingDirectories?: string[]; mode?: 'solo' | 'team'; goalId?: string; parentTaskId?: string; acceptance?: string; executor?: 'human' | 'agent'; members?: Member[] }): Task {
   if (!input.title.trim()) throw new Error(translate('请输入任务名称', 'Enter a task name'))
   const runtime = settings.runtimes.find(r => r.enabled && r.id === settings.defaultRuntime) ?? settings.runtimes.find(r => r.enabled)
   const members = input.members ?? (input.executor !== 'human' && runtime ? [{ id: id(), name: runtime.name, role: translate('执行', 'Execution'), runtimeId: runtime.id, modelId: runtime.defaultModel }] : [])
-  return { id: id(), title: input.title.trim(), directory: input.directory?.trim() ?? '', mode: input.mode ?? (members.length > 1 ? 'team' : 'solo'), members, createdAt: now(), messages: [], runs: [], events: [], goalId: input.goalId || undefined, parentTaskId: input.parentTaskId, acceptance: input.acceptance ?? '', executor: input.executor ?? 'agent', businessStatus: 'todo', priority: 'normal', dependencies: [], results: [], plan: [] }
+  const roots = normalizeWorkingDirectories(input.workingDirectories?.length ? input.workingDirectories : [input.directory ?? settings.defaultDirectory])
+  return { id: id(), title: input.title.trim(), directory: roots[0] ?? '', workingDirectories: roots, mode: input.mode ?? (members.length > 1 ? 'team' : 'solo'), members, createdAt: now(), messages: [], runs: [], events: [], goalId: input.goalId || undefined, parentTaskId: input.parentTaskId, acceptance: input.acceptance ?? '', executor: input.executor ?? 'agent', businessStatus: 'todo', priority: 'normal', dependencies: [], results: [], plan: [] }
 }
 
 export function linkTaskToGoal(state: AppState, taskId: string, goalId?: string): AppState {
@@ -107,7 +113,8 @@ export function linkTaskToGoal(state: AppState, taskId: string, goalId?: string)
   let changed = true
   while (changed) { changed = false; for (const item of state.tasks) if (item.parentTaskId && ids.has(item.parentTaskId) && !ids.has(item.id)) { ids.add(item.id); changed = true } }
   if (state.tasks.some(t => ids.has(t.id) && taskMutationLockReason(t))) throw new Error(translate('请等待本任务及子任务的执行结束，并停止编排后更改目标', 'Wait for this task and its subtasks to finish running and stop orchestration before changing the goal.'))
-  return { ...state, tasks: state.tasks.map(t => ids.has(t.id) && t.goalId !== (goalId || undefined) ? { ...t, goalId: goalId || undefined, stageId: undefined } : t) }
+  const next = { ...state, tasks: state.tasks.map(t => ids.has(t.id) && t.goalId !== (goalId || undefined) ? { ...t, goalId: goalId || undefined, stageId: undefined } : t) }
+  return { ...next, tasks: next.tasks.map(task => ids.has(task.id) && task.goalId ? inheritTaskWorkingDirectories(next, task) : task) }
 }
 
 export function setTaskDependencies(state: AppState, taskId: string, dependencies: string[]): AppState {
@@ -180,7 +187,10 @@ export function validatePlan(task: Task) {
 export function readySteps(task: Task): ExecutionStep[] {
   const plan = task.plan ?? []
   if (plan.some(step => step.status === 'failed' && step.failurePolicy === 'halt')) return []
-  return plan.filter(step => step.status === 'pending' && step.dependsOn.every(key => { const parent = plan.find(s => s.id === key); return parent && (parent.status === 'done' || (parent.status === 'failed' && parent.failurePolicy === 'continue')) }))
+  // A native member owns one conversation, so its turns must not overlap even
+  // when the global capacity would permit another independent step.
+  const occupied = new Set(task.runs.flatMap(run => run.members.filter(member => member.status === 'running' && member.runtime.adapter !== 'generic').map(member => member.id)))
+  return plan.filter(step => step.status === 'pending' && (step.kind !== 'agent' || !step.memberIds.some(id => occupied.has(id))) && step.dependsOn.every(key => { const parent = plan.find(s => s.id === key); return parent && (parent.status === 'done' || (parent.status === 'failed' && parent.failurePolicy === 'continue')) }))
 }
 export function reconcileSteps(task: Task): Task {
   if (!task.plan?.length) return task
@@ -204,7 +214,7 @@ export function rollbackControlChange(current: AppState, before: AppState, appli
     const old = before.tasks.find(t=>t.id===task.id), next = applied.tasks.find(t=>t.id===task.id)
     if (!old || !next || old === next) return task
     const restored = {...task}
-    const keys = ['businessStatus','acceptance','title','directory','goalId','priority','dependencies','results','executor','stageId','deadline','delivery','requirementsVersion'] as const
+    const keys = ['businessStatus','acceptance','title','directory','workingDirectories','legacyArtifactDirectory','goalId','priority','dependencies','results','executor','stageId','deadline','delivery','requirementsVersion'] as const
     for (const key of keys) if (old[key] !== next[key] && task[key] === next[key]) Object.assign(restored,{[key]:old[key]})
     if (old.plan !== next.plan) restored.plan = task.plan?.flatMap(step=>{
       const previous = old.plan?.find(s=>s.id===step.id), changed = next.plan?.find(s=>s.id===step.id)

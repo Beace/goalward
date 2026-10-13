@@ -31,8 +31,8 @@ Versions published before updater support, including `v0.2.0`, need one manual i
 ## Get started
 
 1. **Connect an agent.** On first launch, review the detected runtimes, import one, and choose a default. If yours is missing, install and sign in to it, scan again, or set its executable path in **Settings → Runtimes**.
-2. **Make a goal concrete.** Start with the direction you have, even if it is still broad. Describe the outcome, constraints, and what would count as progress; then add a first task with an acceptance criterion. Choose a working directory if the task will use local files.
-3. **Do the work.** Pick an agent or a collaborating group, review its permissions, and send an instruction. Goalward keeps the conversation and execution trace with the task.
+2. **Make a goal concrete.** Start with the direction you have, even if it is still broad. Describe the outcome, constraints, and what would count as progress; then add a first task with an acceptance criterion. Set the goal’s working directories once; linked tasks inherit them automatically.
+3. **Do the work.** Pick an agent or a collaborating group, review its permissions, and send an instruction. Type `@` to reference a file or folder. Native connections keep conversations across turns, with streamed replies, tool progress and supported approval/input controls. Goalward keeps each execution trace with the task. See [native sessions and goal workspaces](docs/native-agent-sessions.md).
 4. **Review and continue.** Check the output, artifacts, and evidence before accepting the task. Record what changed and create the next task, revise the goal, or mark it achieved when its criteria are met.
 
 A finished agent process does not automatically mean a task is accepted. You can also create goals and tasks for work you will do manually.

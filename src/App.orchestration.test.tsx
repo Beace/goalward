@@ -7,7 +7,7 @@ import { createGoal } from './lib/goals'
 import { createWorkspaceTask } from './lib/workspace'
 import type { AppState, RuntimeEvent, StartRequest } from './lib/types'
 import type { ExecutionStep } from './lib/task-types'
-const bridge=vi.hoisted(()=>({isDesktop:true,loadState:vi.fn(),saveState:vi.fn(),loadTraceEvents:vi.fn(),onRuntimeEvent:vi.fn(),discoverLocalEnvironment:vi.fn(),chooseDirectory:vi.fn(),chooseFile:vi.fn(),exportTask:vi.fn(),startRun:vi.fn(),stopRun:vi.fn(),probeRuntime:vi.fn(),storageInfo:vi.fn()}))
+const bridge=vi.hoisted(()=>({isDesktop: true, activeRuntimeTurns: vi.fn(async () => []),loadState:vi.fn(),saveState:vi.fn(),loadTraceEvents:vi.fn(),onRuntimeEvent:vi.fn(),discoverLocalEnvironment:vi.fn(),chooseDirectory:vi.fn(),chooseFile:vi.fn(),exportTask:vi.fn(),startRun:vi.fn(),stopRun:vi.fn(),probeRuntime:vi.fn(),storageInfo:vi.fn()}))
 vi.mock('@/lib/bridge',()=>bridge)
 vi.mock('@/components/Workbench',()=>({Workbench:({operations,onStop,onSend}:{operations:React.ReactNode;onStop:()=>void;onSend:(prompt:string,recipient:string)=>Promise<void>})=><><button onClick={onStop}>停止所有运行</button><button onClick={()=>void onSend('用户指令','all').catch(()=>{})}>直接发送</button>{operations}</>}))
 vi.mock('@/components/TracePanel',()=>({TracePanel:()=>null}))
@@ -59,6 +59,22 @@ describe('explicit orchestration and immutable execution context',()=>{
   await terminal(0,'stopped')
   expect(stored.tasks[0].orchestration).toBe('stopped');expect(bridge.startRun).toHaveBeenCalledTimes(1)
   expect(stored.tasks[0].plan?.[1].status).toBe('pending')
+ })
+ it('waits for an occupied native member even when global capacity allows another independent step',async()=>{
+  stored.settings.maxParallel=2
+  stored.tasks[0].plan=[step('第一轮'),step('同一会话的第二轮')]
+  await mount();fireEvent.click(screen.getByRole('button',{name:'启动编排'}))
+  await waitFor(()=>expect(bridge.startRun).toHaveBeenCalledTimes(1))
+  // Settled metadata renders trigger another dispatcher pass before the first
+  // native turn has finished; this must retain the second step as pending.
+  await act(async()=>{await Promise.resolve()})
+  expect(bridge.startRun).toHaveBeenCalledTimes(1)
+  expect(stored.tasks[0].plan?.[1].status).toBe('pending')
+  await terminal(0)
+  await waitFor(()=>expect(bridge.startRun).toHaveBeenCalledTimes(2))
+  expect(stored.tasks[0].orchestration).toBe('running')
+  expect(stored.tasks[0].runs[0].members[0].status).toBe('completed')
+  expect(stored.tasks[0].runs[1].members[0].status).toBe('running')
  })
  it('sends native cancellation even when the state file cannot be written',async()=>{
   stored.tasks[0].plan=[step('检查')]

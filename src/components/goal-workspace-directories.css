@@ -1,0 +1,13 @@
+.goal-workspaces { min-width: 0; border-top: 1px solid var(--border); }
+.goal-workspaces-trigger { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: flex-start; gap: 8px; text-align: left; font-size: 12px; color: var(--muted-foreground); }
+.goal-workspaces-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+.goal-workspaces-trigger > svg { flex-shrink: 0; }
+.goal-workspace-summary { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.goal-workspaces-body { padding: 4px 0 8px; }
+.goal-workspace-row { min-height: 40px; display: flex; align-items: center; gap: 8px; }
+.goal-workspace-row > svg { flex-shrink: 0; color: var(--muted-foreground); }
+.goal-workspace-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-family: var(--font-mono); }
+.goal-workspace-add { display: flex; gap: 8px; margin-top: 4px; }
+.goal-workspace-add input { min-width: 0; flex: 1; }
+.goal-workspace-add button, .goal-workspace-row button { flex-shrink: 0; }
+.goal-workspaces-body > p { margin-top: 8px; }

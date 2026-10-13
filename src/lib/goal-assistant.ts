@@ -1,9 +1,11 @@
-import type { AppState, RuntimeConfig, Settings, Task } from './types'
+import type { AppState, Run, RuntimeConfig, Settings, Task } from './types'
 import type { Goal, GoalAssistantDraft, GoalAssistantState, GoalTaskProposal } from './goal-types'
 import { createTask } from './domain'
+import { getGoalWorkingDirectories } from './working-directories'
 import { reviseGoal, updateGoalState } from './goals'
 import { createWorkspaceTask, setTaskDependencies } from './workspace'
 import { translate } from '@/i18n'
+import { getTraceEntries } from './trace-events'
 
 export type { GoalAssistantDraft, GoalAssistantState, GoalTaskProposal } from './goal-types'
 export type GoalAssistantPhase = 'clarify' | 'plan'
@@ -131,7 +133,7 @@ export function goalAssistantRuntime(source: RuntimeConfig): RuntimeConfig {
     runtime.args = []
     runtime.permissions = { claude: { mode: 'plan', additionalDirectories: [], allowedTools: [], disallowedTools: ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'] } }
   } else if (runtime.adapter === 'pi') {
-    runtime.args = ['--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-context-files']
+    runtime.args = ['--tools', 'read,grep,find,ls', '--no-mcp', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-context-files']
     runtime.permissions = undefined
   } else if (runtime.adapter === 'kimi') {
     runtime.args = []
@@ -146,7 +148,7 @@ export function createGoalAssistantTask(settings: Settings, input: { goalId: str
   if (!source) return fail('未找到目标助手 Runtime。', 'The goal assistant runtime was not found.')
   const runtime = goalAssistantRuntime(source)
   const task = createTask({ ...settings, defaultRuntime: runtime.id, runtimes: [runtime] }, translate('目标助手', 'Goal assistant'), input.directory, 'solo')
-  return { ...task, kind: 'goal_assistant', goalId: input.goalId, businessStatus: 'todo', executor: 'agent', acceptance: translate('形成待用户确认的目标或任务建议，不执行项目修改。', 'Produce goal or task suggestions for the user to confirm without changing the project.'), results: [], dependencies: [], plan: [] }
+  return { ...task, workingDirectories: [task.directory], kind: 'goal_assistant', goalId: input.goalId, businessStatus: 'todo', executor: 'agent', acceptance: translate('形成待用户确认的目标或任务建议，不执行项目修改。', 'Produce goal or task suggestions for the user to confirm without changing the project.'), results: [], dependencies: [], plan: [] }
 }
 export function goalAssistantPrompt(goal: Goal, phase: GoalAssistantPhase, input = ''): string {
   const schema = phase === 'clarify'
@@ -161,6 +163,32 @@ export function goalAssistantPrompt(goal: Goal, phase: GoalAssistantPhase, input
     `已保存目标与用户提供现状：\n${JSON.stringify({ id: goal.id, version: goal.version, title: goal.title, intent: goal.intent, expected: goal.expected, constraints: goal.constraints, deadline: goal.deadline, criteria: goal.criteria, currentState: goal.currentState, currentTaskProposals: goal.assistant?.proposals }, null, 2)}`,
     `本轮用户输入：\n${input.trim() || (phase === 'plan' ? '请整理实现这个目标需要的任务，等待我采用。' : goal.title)}`,
   ].join('\n\n')
+}
+
+/** Native result boundaries include empty replies, which public chat deliberately
+ * omits. Inspect those boundaries so an empty follow-up cannot apply an older
+ * action. Missing legacy trace falls back to saved public messages. */
+function nativeFinalResponse(task: Task, run: Run): string | undefined {
+  let response: string | undefined
+  const members = new Map(run.members.map(member => [member.id, member]))
+  for (const entry of getTraceEntries(task, run)) {
+    const member = members.get(entry.memberId)
+    if (entry.taskId !== task.id || entry.kind !== 'stdout' || !member) continue
+    try {
+      const payload = JSON.parse(entry.text)
+      if (member.runtime.adapter === 'claude' && payload?.type === 'result') {
+        response = typeof payload.result === 'string' ? payload.result : ''
+      } else if (member.runtime.adapter === 'pi' && payload?.type === 'message_end' && payload.message?.role === 'assistant') {
+        const content: unknown[] = Array.isArray(payload.message.content) ? payload.message.content : []
+        response = content.flatMap(part => {
+          if (!part || typeof part !== 'object') return []
+          const block = part as Record<string, unknown>
+          return block.type === 'text' && typeof block.text === 'string' ? [block.text] : []
+        }).join('\n\n')
+      }
+    } catch { /* Only complete native JSON frames can delimit a response. */ }
+  }
+  return response
 }
 
 export function processGoalAssistantRun(state: AppState, goalId: string, runId: string): AppState {
@@ -182,7 +210,10 @@ export function processGoalAssistantRun(state: AppState, goalId: string, runId: 
     if (!same(currentContent, sourceContent)) fail('已保留你在回复期间的修改；请核对回复或重新整理。', 'Your edits during the reply were kept. Review the reply or generate it again.')
     const messages = task.messages.filter(item => item.role === 'assistant' && item.runId === runId && item.kind !== 'reasoning')
     if (!messages.length || messages.some(item => item.streaming)) fail('助手没有完整回复，请重试。', 'The assistant did not return a complete reply. Please retry.')
-    const action = parseGoalAssistantResponse(messages.map(item => item.text).join('\n\n'), source.version, phase, goal.deadline, goal.assistant.proposals)
+    // Native follow-ups can finish multiple assistant replies in one Run.
+    // Apply only the latest reply; earlier prose/actions remain in the chat.
+    // Never fall back to an earlier valid action if the latest reply is invalid.
+    const action = parseGoalAssistantResponse(nativeFinalResponse(task, run) ?? messages.at(-1)!.text, source.version, phase, goal.deadline, goal.assistant.proposals)
     if (action.draft) assistant = { ...assistant, draft: clone(action.draft), draftGoalVersion: source.version, draftStateVersion: source.currentState.version }
     if (action.proposals) {
       assistant.proposals = mergePlanningProposals(goal.assistant.proposals ?? [], action.proposals, goal.version)
@@ -230,7 +261,7 @@ export function adoptGoalTaskProposals(state: AppState, goalId: string, proposal
     if (existing && !state.tasks.some(task => task.id === existing)) return fail('前置任务已删除，请先调整建议依赖。', 'A prerequisite task was deleted. Adjust the suggested dependencies first.')
   }
   const created = selected.map(item => {
-    const task = { ...createWorkspaceTask(state.settings, { title: item.title, goalId, acceptance: item.acceptance }), deadline: item.deadline, delivery: item.delivery, requirementsVersion: 0 }
+    const task = { ...createWorkspaceTask(state.settings, { title: item.title, goalId, acceptance: item.acceptance, workingDirectories: getGoalWorkingDirectories(state, goal) }), deadline: item.deadline, delivery: item.delivery, requirementsVersion: 0 }
     taskIds.set(item.id, task.id)
     return task
   })
@@ -277,7 +308,8 @@ function rollbackValue(current: unknown, before: unknown, applied: unknown): unk
 }
 /** Restore a failed Goal edit/adoption without removing concurrent edits or Runtime history. */
 export function rollbackGoalAssistantAction(current: AppState, before: AppState, applied: AppState): AppState {
-  const originalTasks = new Set(before.tasks.map(item => item.id))
+  const originalTasks = new Map(before.tasks.map(item => [item.id, item]))
+  const appliedTasks = new Map(applied.tasks.map(item => [item.id, item]))
   const addedTasks = new Map(applied.tasks.filter(item => !originalTasks.has(item.id)).map(item => [item.id, item]))
   const retainedTasks = new Set<string>()
   const tasks = current.tasks.filter(task => {
@@ -287,6 +319,21 @@ export function rollbackGoalAssistantAction(current: AppState, before: AppState,
     const keep = Boolean(task.historyPending || task.runs.length || task.messages.length || task.events.length || task.results?.length || task.artifacts?.length || !same(task, added))
     if (keep) retainedTasks.add(task.id)
     return keep
+  }).map(task => {
+    const original = originalTasks.get(task.id), failed = appliedTasks.get(task.id)
+    if (!original || !failed) return task
+    let restored = task
+    // Goal workspace changes also project onto existing tasks. Restore only
+    // fields still owned by this failed write; native turns, lazy recovery,
+    // messages and any later workspace edit remain untouched.
+    for (const key of ['directory', 'workingDirectories', 'legacyArtifactDirectory'] as const) {
+      const value = rollbackValue(task[key], original[key], failed[key])
+      if (same(value, task[key])) continue
+      if (restored === task) restored = { ...task }
+      if (value === undefined) Reflect.deleteProperty(restored, key)
+      else Object.assign(restored, { [key]: value })
+    }
+    return restored
   })
   const originalGoals = new Map(before.goals.map(item => [item.id, item])), failedGoals = new Map(applied.goals.map(item => [item.id, item]))
   const goals = current.goals.flatMap(goal => {
@@ -308,6 +355,6 @@ export function rollbackGoalAssistantAction(current: AppState, before: AppState,
   const activeGoalId = current.activeGoalId === applied.activeGoalId && before.activeGoalId !== applied.activeGoalId ? before.activeGoalId : current.activeGoalId
   const activeTaskId = current.activeTaskId === applied.activeTaskId && before.activeTaskId !== applied.activeTaskId ? before.activeTaskId : current.activeTaskId
   const goalExplorationInput = current.goalExplorationInput === applied.goalExplorationInput && before.goalExplorationInput !== applied.goalExplorationInput ? before.goalExplorationInput : current.goalExplorationInput
-  if (same(goals, current.goals) && tasks.length === current.tasks.length && activeGoalId === current.activeGoalId && activeTaskId === current.activeTaskId && goalExplorationInput === current.goalExplorationInput) return current
+  if (same(goals, current.goals) && tasks.length === current.tasks.length && tasks.every((task, index) => task === current.tasks[index]) && activeGoalId === current.activeGoalId && activeTaskId === current.activeTaskId && goalExplorationInput === current.goalExplorationInput) return current
   return { ...current, goals, tasks, activeGoalId, activeTaskId, goalExplorationInput }
 }

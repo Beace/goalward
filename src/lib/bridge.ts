@@ -127,6 +127,19 @@ export async function startRun(request: StartRequest) {
 export async function stopRun(runId: string, memberId?: string) {
   return invoke<void>('stop_run', { runId, memberId: memberId ?? null })
 }
+export interface ActiveRuntimeTurn { runId: string; memberId: string; stopping: boolean }
+/** An idle native connection is not an active turn. A webview reload can keep
+ * the native process alive, so persisted status alone cannot decide recovery. */
+export async function activeRuntimeTurns(): Promise<ActiveRuntimeTurn[]> {
+  if (!isDesktop) return []
+  return invoke('active_runtime_turns')
+}
+/** The adapter uses native steering or an explicit follow-up queue, according
+ * to the capabilities announced by its actual connection. */
+export async function appendRunInput(runId: string, memberId: string, prompt: string) {
+  if (!isDesktop) throw new Error(translate('请在桌面应用中向运行中的 Agent 追加消息。', 'Append messages to a running agent in the desktop app.'))
+  return invoke<void>('steer_run', { runId, memberId, prompt })
+}
 export async function onRuntimeEvent(handler: (event: RuntimeEvent) => void) {
   return isDesktop ? listen<RuntimeEvent>('runtime-event', ({ payload }) => handler(payload)) : () => {}
 }

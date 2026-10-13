@@ -6,6 +6,7 @@ import type { AppState, RuntimeEvent } from '@/lib/types'
 import { useAppState } from './use-app-state'
 
 const bridge = vi.hoisted(() => ({
+  activeRuntimeTurns: vi.fn(async (): Promise<{runId: string; memberId: string; stopping: boolean}[]> => []),
   loadState: vi.fn<() => Promise<AppState | null>>(),
   loadTraceEvents: vi.fn<(state: AppState) => Promise<RuntimeEvent[]>>(),
   loadTaskHistory: vi.fn<(taskId: string, signal?: AbortSignal) => Promise<RuntimeEvent[]>>(),
@@ -51,6 +52,7 @@ beforeEach(() => {
   nativeNotification.mockResolvedValue(undefined)
   deliver = undefined
   unlisten = vi.fn<() => void>()
+  bridge.activeRuntimeTurns.mockResolvedValue([])
   bridge.loadState.mockResolvedValue(storedState())
   bridge.loadTraceEvents.mockResolvedValue([])
   bridge.loadTaskHistory.mockResolvedValue([])
@@ -313,6 +315,29 @@ describe('useAppState initialization and recovery', () => {
 })
 
 describe('useAppState persistence and concurrent updates', () => {
+  it('keeps a native turn active across webview reload and receives its later completion', async () => {
+    bridge.activeRuntimeTurns.mockResolvedValue([{ runId: 'run-1', memberId: 'member-1', stopping: false }])
+    const { result } = await mountReady()
+    expect(result.current.state!.tasks[0].runs[0].members[0].status).toBe('running')
+    await act(async () => { deliver!(event('terminal-after-reload', 'completed')) })
+    expect(result.current.state!.tasks[0].runs[0].members[0].status).toBe('completed')
+  })
+
+  it('recovers a terminal trace written in the subscription gap rather than reporting interruption', async () => {
+    bridge.loadTraceEvents.mockResolvedValueOnce([]).mockResolvedValueOnce([event('subscription-gap-terminal', 'completed')])
+    const { result } = await mountReady()
+    expect(result.current.state!.tasks[0].runs[0].members[0].status).toBe('completed')
+    expect(result.current.state!.tasks[0].events.some(entry => entry.id === 'subscription-gap-terminal')).toBe(true)
+  })
+
+  it('leaves the app unready if native active status cannot be confirmed', async () => {
+    bridge.activeRuntimeTurns.mockRejectedValueOnce(new Error('native status unavailable'))
+    const { result } = renderHook(() => useAppState())
+    await waitFor(() => expect(result.current.error).toContain('native status unavailable'))
+    expect(result.current.state).toBeNull()
+    expect(bridge.saveState).not.toHaveBeenCalled()
+  })
+
   it('does not rewrite a clean current-version snapshot on reopen', async () => {
     const { result, unmount } = await mountReady()
     const persisted = result.current.state!

@@ -39,6 +39,28 @@ describe('Goal assistant run selection', () => {
 })
 
 describe('Native invocation evidence', () => {
+  it('shows Claude native init/message model and result usage without inventing conversation totals', () => {
+    const { task, run, append } = fixture()
+    run.members[0].runtime = { ...run.members[0].runtime, adapter: 'claude' }
+    append({ type: 'system', subtype: 'init', session_id: 'thread-1', model: 'native-alias' })
+    append({ type: 'assistant', session_id: 'thread-1', message: { role: 'assistant', model: 'native-claude', usage: { input_tokens: 20, output_tokens: 2 } } })
+    append({ type: 'result', session_id: 'thread-1', usage: { input_tokens: 42, cache_read_input_tokens: 30, output_tokens: 11 } })
+    append({ type: 'result', session_id: 'other-session', usage: { output_tokens: 9999 } })
+    expect(getGoalAssistantInvocations(task, run)[0]).toMatchObject({ nativeModel: 'native-claude', latestUsage: { input: 42, cachedInput: 30, output: 11 } })
+    expect(getGoalAssistantInvocations(task, run)[0].conversationUsage).toBeUndefined()
+    expect(getGoalAssistantInvocations(task, run)[0].nativeProvider).toBeUndefined()
+  })
+  it('shows Pi confirmed session model and actual assistant message usage', () => {
+    const { task, run, append } = fixture()
+    run.members[0].runtime = { ...run.members[0].runtime, adapter: 'pi' }
+    append({ type: 'runtime.session_ready', sessionId: 'other-session', model: { id: 'foreign-model', provider: 'foreign-provider' } })
+    expect(getGoalAssistantInvocations(task, run)[0].nativeModel).toBeUndefined()
+    append({ type: 'runtime.session_ready', sessionId: 'thread-1', model: { id: 'pi-model', provider: 'pi-provider' }, reasoningEffort: 'medium' })
+    append({ type: 'message_end', message: { role: 'assistant', model: 'pi-actual', provider: 'pi-provider', usage: { input: 10, cacheRead: 5, output: 7, totalTokens: 22 } } })
+    append({ type: 'message_end', message: { role: 'toolResult', usage: { output: 999 } } })
+    expect(getGoalAssistantInvocations(task, run)[0]).toMatchObject({ nativeModel: 'pi-actual', nativeProvider: 'pi-provider', nativeSessionReasoning: 'medium', latestUsage: { input: 10, cachedInput: 5, output: 7, total: 22 } })
+    expect(getGoalAssistantInvocations(task, run)[0].conversationUsage).toBeUndefined()
+  })
   it('keeps requested snapshot and confirmed session configuration separate', () => {
     const { state, task, run, append } = fixture()
     append({ type: 'codex.app_server.thread_ready', threadId: 'thread-1', model: 'native-model', modelProvider: 'openai', reasoningEffort: 'medium' })

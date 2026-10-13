@@ -12,7 +12,7 @@ import type { AppState, RuntimeEvent, StartRequest, Task } from './lib/types'
 import type { GoalAssistantDraft } from './lib/goal-types'
 import type { GoalsPageProps } from './components/GoalsPage'
 
-const bridge = vi.hoisted(() => ({ isDesktop: true, loadState: vi.fn(), saveState: vi.fn(), loadTaskHistory: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(), discoverLocalEnvironment: vi.fn(), chooseDirectory: vi.fn(), chooseFile: vi.fn(), exportTask: vi.fn(), startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn(), ensureGoalAssistantDirectory: vi.fn() }))
+const bridge = vi.hoisted(() => ({ isDesktop: true, activeRuntimeTurns: vi.fn(async () => []), loadState: vi.fn(), saveState: vi.fn(), loadTaskHistory: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(), discoverLocalEnvironment: vi.fn(), chooseDirectory: vi.fn(), chooseFile: vi.fn(), exportTask: vi.fn(), startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn(), ensureGoalAssistantDirectory: vi.fn() }))
 vi.mock('@/lib/bridge', () => bridge)
 vi.mock('@/components/TracePanel', () => ({ TracePanel: () => null }))
 vi.mock('@/components/ui/resizable', () => ({ ResizablePanelGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>, ResizablePanel: ({ children }: { children: ReactNode }) => <div>{children}</div>, ResizableHandle: () => null }))
@@ -43,6 +43,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   stored = createInitialState()
   const goal = createGoal({ title: '改善产品' })
+  goal.workingDirectories = ['/user/project']
   stored.goals = [goal]
   stored = confirmGoalAssistantDraft(stored, goal.id, draft)
   stored.activeGoalId = goal.id
@@ -76,7 +77,7 @@ const deltaFrame = (request: StartRequest, delta: string) => `${JSON.stringify({
 async function delta(request: StartRequest, text: string) { await event(request, 'stdout', deltaFrame(request, text)) }
 
 describe('Goal assistant native dispatch integration', () => {
-  it('dispatches a hidden durable Task in the app directory and restricts only its Runtime snapshot', async () => {
+  it('dispatches a hidden durable Task in the fixed goal workspace and restricts only its Runtime snapshot', async () => {
     const activeId = stored.activeTaskId
     stored.settings.runtimes[0].args = ['--dangerously-bypass-approvals-and-sandbox']
     stored.settings.runtimes[0].permissions = { codex: { sandbox: 'danger-full-access', network: 'allow', additionalDirectories: ['/user/project'] } }
@@ -85,7 +86,8 @@ describe('Goal assistant native dispatch integration', () => {
     const request = await dispatch('发送目标澄清')
     const assistant = stored.tasks.find(item => item.id === request.taskId)!
     expect(assistant).toMatchObject({ kind: 'goal_assistant', goalId: stored.goals[0].id, mode: 'solo' })
-    expect(request.directory).toBe(`/app-data/goal-assistant-workspaces/${stored.goals[0].id}`)
+    expect(request.directory).toBe('/user/project')
+    expect(stored.goals[0].workingDirectories).toEqual(['/user/project'])
     expect(request.runtime.permissions?.codex).toEqual({ sandbox: 'read-only', network: 'inherit', additionalDirectories: [] })
     expect(request.runtime.args).toEqual([])
     expect(request).toMatchObject({ codexStreaming: true })
@@ -260,6 +262,7 @@ describe('Goal assistant native dispatch integration', () => {
 
   it.each([true, false])('isolates a cross-Goal completed assistant reference with historyPending=%s', async historyPending => {
     const goalA = stored.goals[0], goalB = createGoal({ ...draft, title: '目标 B 的私有计划', currentSummary: '目标 B 的现状' })
+    goalB.workingDirectories = ['/app-data/goal-b-private']
     const assistantB = createGoalAssistantTask(stored.settings, { goalId: goalB.id, directory: '/app-data/goal-b-private' })
     goalB.assistant = { taskId: assistantB.id, requestPhase: 'plan' }
     stored.goals.push(goalB)
@@ -286,7 +289,7 @@ describe('Goal assistant native dispatch integration', () => {
     expect(request.taskId).not.toBe(assistantB.id)
     expect(stored.goals[0].assistant?.taskId).toBe(request.taskId)
     expect(stored.tasks.find(task => task.id === request.taskId)).toMatchObject({ kind: 'goal_assistant', goalId: goalA.id })
-    expect(request.directory).toBe(`/app-data/goal-assistant-workspaces/${goalA.id}`)
+    expect(request.directory).toBe('/user/project')
     expect(request.prompt).not.toContain('B 的私有任务建议')
     expect(stored.goals[1]).toEqual(protectedGoalB)
     expect(stored.tasks.find(task => task.id === assistantB.id)).toEqual(protectedTaskB)

@@ -8,7 +8,8 @@ import { Label } from './ui/label'
 import { Checkbox } from './ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog'
-import { chooseDirectory } from '@/lib/bridge'
+import { chooseDirectory, ensureGoalAssistantDirectory, isDesktop } from '@/lib/bridge'
+import { applyGoalWorkingDirectories, getGoalWorkingDirectories } from '@/lib/working-directories'
 import { deleteWorkspaceTask, editWorkspaceTask, getTaskDeletionBlockers, taskMutationLockReason, type TaskEditValues } from '@/lib/workspace'
 import type { AppState, Task } from '@/lib/types'
 import type { TaskActionKind } from './TaskActionButtons'
@@ -46,6 +47,8 @@ export function TaskActionDialogs({ action, state, onChange, onClose, onSaved, o
   const blockers = task ? getTaskDeletionBlockers(state, task.id) : { reason: t('任务不存在', 'Task not found'), children: [], dependents: [] }
   const lockReason = task ? taskMutationLockReason(task) : t('任务不存在', 'Task not found')
   const blocked = !!(blockers.reason || blockers.children.length || blockers.dependents.length)
+  const draftGoal = state.goals.find(goal => goal.id === draft.goalId)
+  const inheritedDirectories = draftGoal ? getGoalWorkingDirectories(state, draftGoal) : []
   const patch = <K extends keyof TaskEditValues>(key: K, value: TaskEditValues[K]) => setDraft(current => ({ ...current, [key]: value }))
   const close = () => { if (!inFlight.current) onClose() }
   async function submit() {
@@ -53,7 +56,13 @@ export function TaskActionDialogs({ action, state, onChange, onClose, onSaved, o
     inFlight.current = true; setBusy(true); setError('')
     try {
       const id = selection.task.id
-      await onChange(current => deleting ? deleteWorkspaceTask(current, id) : editWorkspaceTask(current, id, draft))
+      const fallback = !deleting && draftGoal && !inheritedDirectories.length && isDesktop ? await ensureGoalAssistantDirectory(draftGoal.id) : undefined
+      await onChange(current => {
+        if (deleting) return deleteWorkspaceTask(current, id)
+        const latest = current.goals.find(goal => goal.id === draft.goalId)
+        const prepared = fallback && latest && !getGoalWorkingDirectories(current, latest).length ? applyGoalWorkingDirectories(current, latest.id, [fallback]) : current
+        return editWorkspaceTask(prepared, id, draft)
+      })
       if (deleting) { deleted.current = true; onDeleted(id) }
       else onSaved()
       onClose()
@@ -89,7 +98,7 @@ export function TaskActionDialogs({ action, state, onChange, onClose, onSaved, o
           {task?.parentTaskId && <p className="task-action-note">{t('子任务继承父任务的所属目标。', 'Subtasks inherit their parent task’s goal.')}</p>}
           <div className="task-edit-grid"><div className="task-edit-field"><Label htmlFor="edit-task-delivery">{t('预期产物', 'Expected deliverable')}</Label><Input id="edit-task-delivery" value={draft.delivery ?? ''} disabled={busy} onChange={event => patch('delivery', event.target.value)} /></div><div className="task-edit-field"><Label htmlFor="edit-task-deadline">{t('任务 DDL', 'Task deadline')}</Label><DatePicker id="edit-task-deadline" value={draft.deadline ?? ''} disabled={busy} onValueChange={value => patch('deadline', value)} /></div></div>
           <div className="task-edit-field"><Label htmlFor="edit-task-acceptance">{t('验收要求', 'Acceptance criteria')}</Label><Textarea id="edit-task-acceptance" aria-label={t('编辑验收要求', 'Edit acceptance criteria')} value={draft.acceptance} disabled={busy} onChange={event => patch('acceptance', event.target.value)} placeholder={t('希望交付什么，怎样确认已经完成', 'What should be delivered, and how will completion be verified?')} /></div>
-          <div className="task-edit-field"><Label htmlFor="edit-task-directory">{t('工作目录', 'Working directory')}</Label><div className="task-edit-directory"><Input id="edit-task-directory" aria-label={t('编辑任务目录', 'Edit task directory')} value={draft.directory} disabled={busy} onChange={event => patch('directory', event.target.value)} placeholder={t('执行前填写，可先留空', 'Set before running; optional for now')} /><Button type="button" size="icon-sm" variant="outline" aria-label={t('选择任务工作目录', 'Choose task working directory')} disabled={busy} onClick={() => void chooseDirectory().then(value => { if (value) patch('directory', value) }).catch(failure => setError(String(failure).replace(/^Error: /, '')))}><FolderOpen size={14} /></Button></div></div>
+          <div className="task-edit-field"><Label htmlFor={draftGoal ? undefined : 'edit-task-directory'}>{t('工作目录', 'Working directory')}</Label>{draftGoal ? <p className="task-action-note" title={inheritedDirectories.join('\n')}>{inheritedDirectories.join(' · ') || t('自动使用目标专属目录', 'Use a dedicated goal directory automatically')}<br />{t('继承目标；在目标页面管理工作目录。', 'Inherited from the goal. Manage directories on the goal page.')}</p> : <div className="task-edit-directory"><Input id="edit-task-directory" aria-label={t('编辑任务目录', 'Edit task directory')} value={draft.directory} disabled={busy} onChange={event => patch('directory', event.target.value)} placeholder={t('使用默认或任务专属目录', 'Use the default or a dedicated task directory')} /><Button type="button" size="icon-sm" variant="outline" aria-label={t('选择任务工作目录', 'Choose task working directory')} disabled={busy} onClick={() => void chooseDirectory().then(value => { if (value) patch('directory', value) }).catch(failure => setError(String(failure).replace(/^Error: /, '')))}><FolderOpen size={14} /></Button></div>}</div>
           <div className="task-edit-field"><Label>{t('推进阶段', 'Stage')}</Label><Select disabled={busy || !draft.goalId} value={draft.stageId ?? 'none'} onValueChange={value => patch('stageId', value === 'none' ? undefined : value)}><SelectTrigger aria-label={t('任务推进阶段', 'Task stage')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">{t('未分配阶段', 'Unassigned')}</SelectItem>{state.goals.find(goal => goal.id === draft.goalId)?.plan.map(stage => <SelectItem key={stage.id} value={stage.id}>{stage.title}</SelectItem>)}</SelectContent></Select></div>
           <fieldset className="task-edit-field" disabled={busy}><legend>{t('前置任务', 'Dependencies')}</legend><div className="check-list">{state.tasks.filter(item => item.id !== task?.id && !item.demo && item.kind !== 'goal_assistant').map(item => <Label key={item.id}><Checkbox checked={draft.dependencies.includes(item.id)} onCheckedChange={checked => patch('dependencies', checked ? [...draft.dependencies, item.id] : draft.dependencies.filter(id => id !== item.id))} />{item.title}</Label>)}{!state.tasks.some(item => item.id !== task?.id && !item.demo && item.kind !== 'goal_assistant') && <p className="task-action-note">{t('没有可选的前置任务。', 'No available dependencies.')}</p>}</div></fieldset>
           <p className="task-action-note">{t('Agent 成员、Runtime 和模型仍在任务工作台中配置。', 'Configure Agents, runtimes, and models in the task workbench.')}</p>

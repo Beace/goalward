@@ -14,10 +14,10 @@ export interface RuntimeApproval {
 }
 const object = (value: unknown): Record<string, unknown> | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 
-/** Derive only live requests from the persisted, reassembled ACP frames. */
+/** Derive only live requests from persisted, reassembled native frames. */
 export function getPendingRuntimeApprovals(task: Task): RuntimeApproval[] {
   const pending = new Map<string, RuntimeApproval>()
-  const members = new Map(task.runs.flatMap(run => run.members.filter(member => member.status === 'running' && member.runtime.adapter === 'kimi').map(member => [`${run.id}:${member.id}`, member] as const)))
+  const members = new Map(task.runs.flatMap(run => run.members.filter(member => member.status === 'running' && member.runtime.adapter !== 'generic').map(member => [`${run.id}:${member.id}`, member] as const)))
   if (!members.size) return []
   const liveEvents = task.events.filter(event => members.has(`${event.runId}:${event.memberId}`))
   for (const event of getTraceEntries({ ...task, events: liveEvents })) {
@@ -28,14 +28,14 @@ export function getPendingRuntimeApprovals(task: Task): RuntimeApproval[] {
     const id = typeof payload?.requestId === 'string' ? payload.requestId : ''
     const key = `${event.runId}:${event.memberId}:${id}`
     if (!id) continue
-    if (payload?.type === 'kimi.permission_resolved') pending.delete(key)
-    if (payload?.type !== 'kimi.permission_requested') continue
+    if (payload?.type === 'kimi.permission_resolved' || payload?.type === 'runtime.permission_resolved') pending.delete(key)
+    if (payload?.type !== 'kimi.permission_requested' && payload?.type !== 'runtime.permission_requested') continue
     const tool = object(payload.toolCall)
     const options = Array.isArray(payload.options) ? payload.options.map(object).filter(option => typeof option?.optionId === 'string' && typeof option.name === 'string').map(option => ({ optionId: option!.optionId as string, name: option!.name as string, kind: typeof option!.kind === 'string' ? option!.kind : '' })) : []
     if (!options.length) continue
     pending.set(key, {
       id, runId: event.runId, memberId: event.memberId, memberName: member.name,
-      title: typeof tool?.title === 'string' ? tool.title : translate('Kimi 请求确认工具操作', 'Kimi requests approval for a tool action'),
+      title: typeof tool?.title === 'string' ? tool.title : translate(`${member.name} 请求确认工具操作`, `${member.name} requests approval for a tool action`),
       detail: tool?.rawInput === undefined ? undefined : JSON.stringify(tool.rawInput, null, 2), options,
     })
   }

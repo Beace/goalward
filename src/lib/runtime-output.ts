@@ -139,7 +139,7 @@ function readClaude(state: Projection, payload: JsonObject, timestamp: string) {
       upsert(state, key, text, timestamp, false)
     }
     completeOutputs(state)
-    activity(state, 'waiting', payload.is_error ? 'Runtime 返回异常，等待进程结束' : '回答已完成，等待进程结束')
+    activity(state, 'waiting', payload.is_error ? 'Runtime 返回异常，正在结束本轮' : '回答已完成，正在结束本轮')
   }
 }
 
@@ -221,17 +221,17 @@ function readCodex(state: Projection, payload: JsonObject, timestamp: string) {
     activity(state, 'waiting', '等待 Runtime 输出')
   } else if (type === 'turn.completed' || type === 'turn.failed' || type === 'error') {
     completeOutputs(state)
-    activity(state, 'waiting', type === 'turn.completed' ? '回答已完成，等待进程结束' : 'Runtime 返回异常，等待进程结束')
+    activity(state, 'waiting', type === 'turn.completed' ? '回答已完成，正在结束本轮' : 'Runtime 返回异常，正在结束本轮')
   } else if (type === 'codex.app_server.turn_completed' || type === 'codex.app_server.error' || type === 'codex.app_server.request_rejected') {
     if (type === 'codex.app_server.turn_completed') completeOutputs(state)
-    activity(state, 'waiting', type === 'codex.app_server.turn_completed' && payload.status === 'completed' ? '回答已完成，等待进程结束' : 'Runtime 返回异常，等待进程结束')
+    activity(state, 'waiting', type === 'codex.app_server.turn_completed' && payload.status === 'completed' ? '回答已完成，正在结束本轮' : 'Runtime 返回异常，正在结束本轮')
   }
 }
 
 function readKimi(state: Projection, payload: JsonObject, timestamp: string) {
   if (payload.type === 'kimi.permission_requested') { activity(state, 'waiting', '等待工具权限确认', string(object(payload.toolCall)?.title)); return }
   if (payload.type === 'kimi.permission_resolved') { activity(state, 'waiting', '已提交权限选择，等待 Runtime'); return }
-  if (payload.type === 'kimi.prompt_completed') { completeOutputs(state); activity(state, 'waiting', '回答已结束，等待 Runtime 退出'); return }
+  if (payload.type === 'kimi.prompt_completed') { completeOutputs(state); activity(state, 'waiting', '回答已结束，正在结束本轮'); return }
   if (payload.type !== 'kimi.acp.update') return
   const update = object(payload.update)
   if (!update) return
@@ -289,13 +289,13 @@ function readPi(state: Projection, payload: JsonObject, timestamp: string) {
     state.outputs = state.outputs.filter(output => !output.key.startsWith(prefix) || keys.has(output.key))
     state.activeClaudeKey = undefined
     state.claudeBlocks.clear()
-    activity(state, 'waiting', message.stopReason === 'error' ? 'Pi 请求失败，等待进程结束' : '已收到回答，等待 Pi 下一步')
+    activity(state, 'waiting', message.stopReason === 'error' ? 'Pi 请求失败，正在结束本轮' : '已收到回答，等待 Pi 下一步')
   } else if (type.startsWith('tool_execution_')) {
     const ended = type === 'tool_execution_end'
     activity(state, ended ? 'waiting' : 'tool', ended ? '工具已返回，等待 Pi 下一步' : '正在执行工具', string(payload.toolName))
   } else if (type === 'agent_end') {
     completeOutputs(state)
-    activity(state, 'waiting', 'Pi 本轮已结束，等待进程退出')
+    activity(state, 'waiting', 'Pi 工具循环已结束，等待后续步骤')
   }
 }
 
@@ -309,6 +309,8 @@ function read(state: Projection, raw: string, timestamp: string, adapter: string
       : adapter === 'kimi' && payload.type === 'kimi.session' ? payload.sessionId
         : adapter === 'pi' && payload.type === 'session' ? payload.id : undefined
   if (typeof sessionId === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/.test(sessionId)) state.sessionId = sessionId
+  if (payload.type === 'runtime.permission_requested') { activity(state, 'waiting', '等待工具权限确认', string(object(payload.toolCall)?.title)); return true }
+  if (payload.type === 'runtime.permission_resolved') { activity(state, 'waiting', '已提交权限选择，等待 Runtime'); return true }
   if (adapter === 'codex') readCodex(state, payload, timestamp)
   if (adapter === 'claude') readClaude(state, payload, timestamp)
   if (adapter === 'kimi') readKimi(state, payload, timestamp)
@@ -387,13 +389,13 @@ const activityLabelsEn: Record<string, string> = {
   '正在启动 Runtime': 'Starting runtime', '正在检索网页': 'Searching the web', '正在调用工具': 'Calling tool', '等待 Runtime 输出': 'Waiting for runtime output',
   '正在生成回答': 'Generating response', '正在思考': 'Thinking', '等待 Runtime 下一步': 'Waiting for the next runtime step',
   '已收到回答，等待 Runtime 下一步': 'Response received; waiting for the next runtime step', '工具已返回，等待 Runtime 下一步': 'Tool returned; waiting for the next runtime step',
-  'Runtime 返回异常，等待进程结束': 'Runtime error; waiting for process exit', '回答已完成，等待进程结束': 'Response complete; waiting for process exit',
+  'Runtime 返回异常，正在结束本轮': 'Runtime error; finishing the turn', '回答已完成，正在结束本轮': 'Response complete; finishing the turn',
   '检索已完成，等待 Runtime 下一步': 'Search complete; waiting for the next runtime step', '正在执行工具': 'Running tool',
   '等待工具权限确认': 'Waiting for tool permission', '已提交权限选择，等待 Runtime': 'Permission choice submitted; waiting for runtime',
-  '回答已结束，等待 Runtime 退出': 'Response ended; waiting for runtime exit', '正在更新执行计划': 'Updating execution plan',
-  '等待 Pi 输出': 'Waiting for Pi output', 'Pi 请求失败，等待进程结束': 'Pi request failed; waiting for process exit',
+  '回答已结束，正在结束本轮': 'Response ended; finishing the turn', '正在更新执行计划': 'Updating execution plan',
+  '等待 Pi 输出': 'Waiting for Pi output', 'Pi 请求失败，正在结束本轮': 'Pi request failed; finishing the turn',
   '已收到回答，等待 Pi 下一步': 'Response received; waiting for the next Pi step', '工具已返回，等待 Pi 下一步': 'Tool returned; waiting for the next Pi step',
-  'Pi 本轮已结束，等待进程退出': 'Pi turn ended; waiting for process exit', 'Runtime 已启动': 'Runtime started',
+  'Pi 工具循环已结束，等待后续步骤': 'Pi tool loop ended; waiting for follow-up work', 'Runtime 已启动': 'Runtime started',
   '正在接收 Runtime 输出': 'Receiving runtime output', '执行完成': 'Run complete', '执行失败': 'Run failed',
   '已停止': 'Stopped', '执行已中断': 'Run interrupted', '等待 Runtime': 'Waiting for runtime',
 }

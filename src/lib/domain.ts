@@ -152,14 +152,17 @@ export function mergeRecoveredEvents(state: AppState, events: RuntimeEvent[]): A
   return tasks.every((task, index) => task === state.tasks[index]) ? state : { ...state, tasks }
 }
 
-export function recoverInterruptedState(state: AppState): AppState {
+export function recoverInterruptedState(state: AppState, activeTurns: readonly { runId: string; memberId: string }[] = []): AppState {
+  const active = new Set(activeTurns.map(turn => `${turn.runId}:${turn.memberId}`))
+  const live = (runId?: string, memberId?: string) => active.has(`${runId}:${memberId}`)
   const tasks = state.tasks.map(task => {
     // Old application versions persisted raw delta events without deriving
     // public messages. Rebuild from the trace even when delivery IDs are
     // already present, while retaining saved chat when a trace is unavailable.
-    const messages = new Map(task.messages.map(message => [message.id, message.streaming ? { ...message, streaming: false } : message]))
+    const messages = new Map(task.messages.map(message => [message.id, message.streaming && !live(message.runId, message.memberId) ? { ...message, streaming: false } : message]))
     if (!task.demo) for (const run of task.runs) for (const member of run.members) {
-      const outputs = getRuntimeOutput(task, run, member)
+      const restoredMember = live(run.id, member.id) && member.status === 'interrupted' ? { ...member, status: 'running' as const } : member
+      const outputs = getRuntimeOutput(task, run, restoredMember)
       const prefix = `runtime:${run.id}:${member.id}:`
       if (member.runtime.adapter === 'claude' && outputs.length) {
         // Older versions ignored deltas and saved only the final result. The
@@ -175,10 +178,11 @@ export function recoverInterruptedState(state: AppState): AppState {
         }
       }
       for (const output of outputs) {
+        const streaming = output.streaming && live(run.id, member.id)
         const id = `${prefix}${output.key}`
         const previous = messages.get(id)
-        if (!previous || previous.role !== 'assistant' || previous.memberId !== member.id || previous.runId !== run.id || previous.text !== output.text || previous.createdAt !== output.createdAt || previous.streaming || previous.kind !== output.kind) {
-          messages.set(id, { id, role: 'assistant', memberId: member.id, runId: run.id, text: output.text, createdAt: output.createdAt, streaming: false, kind: output.kind })
+        if (!previous || previous.role !== 'assistant' || previous.memberId !== member.id || previous.runId !== run.id || previous.text !== output.text || previous.createdAt !== output.createdAt || previous.streaming !== streaming || previous.kind !== output.kind) {
+          messages.set(id, { id, role: 'assistant', memberId: member.id, runId: run.id, text: output.text, createdAt: output.createdAt, streaming, kind: output.kind })
         }
       }
     }
@@ -186,7 +190,7 @@ export function recoverInterruptedState(state: AppState): AppState {
     const runs = task.runs.map(run => {
       const members = run.members.map(member => {
         const sessionId = getRuntimeSessionId(task, run, member)
-        const status = member.status === 'running' ? 'interrupted' as const : member.status
+        const status = live(run.id, member.id) && (member.status === 'running' || member.status === 'interrupted') ? 'running' as const : member.status === 'running' ? 'interrupted' as const : member.status
         return sessionId !== member.sessionId || status !== member.status ? { ...member, sessionId, status } : member
       })
       return members.every((member, index) => member === run.members[index]) ? run : { ...run, members }

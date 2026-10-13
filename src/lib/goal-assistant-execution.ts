@@ -26,7 +26,7 @@ export interface GoalAssistantInvocation {
   member: RunMember
   threadId?: string
   turnId?: string
-  /** Confirmed by app-server thread creation/resume; distinct from the saved request selection. */
+  /** Reported by the native session/message; distinct from the saved request selection. */
   nativeModel?: string
   nativeProvider?: string
   nativeSessionReasoning?: string
@@ -39,6 +39,15 @@ function usage(value: unknown): GoalAssistantTokenUsage | undefined {
   const source = object(value)
   if (!source) return undefined
   const result: GoalAssistantTokenUsage = { input: count(source.inputTokens), cachedInput: count(source.cachedInputTokens), output: count(source.outputTokens), reasoningOutput: count(source.reasoningOutputTokens), total: count(source.totalTokens) }
+  return Object.values(result).some(item => item !== undefined) ? result : undefined
+}
+
+function messageUsage(value: unknown, adapter: 'claude' | 'pi'): GoalAssistantTokenUsage | undefined {
+  const source = object(value)
+  if (!source) return undefined
+  const result: GoalAssistantTokenUsage = adapter === 'claude'
+    ? { input: count(source.input_tokens), cachedInput: count(source.cache_read_input_tokens), output: count(source.output_tokens) }
+    : { input: count(source.input), cachedInput: count(source.cacheRead), output: count(source.output), total: count(source.totalTokens) }
   return Object.values(result).some(item => item !== undefined) ? result : undefined
 }
 
@@ -56,6 +65,38 @@ export function getGoalAssistantInvocations(task: Task, run: Run): GoalAssistant
       if (entry.memberId !== member.id) continue
       const payload = frame(entry)
       if (!payload) continue
+      if (member.runtime.adapter === 'claude') {
+        const sessionId = text(payload.session_id)
+        if (sessionId && result.threadId && sessionId !== result.threadId) continue
+        if (sessionId) result.threadId = sessionId
+        if (payload.type === 'system' && payload.subtype === 'init') result.nativeModel = text(payload.model) ?? result.nativeModel
+        if (payload.type === 'assistant') {
+          const message = object(payload.message)
+          result.nativeModel = text(message?.model) ?? result.nativeModel
+          result.latestUsage = messageUsage(message?.usage, 'claude') ?? result.latestUsage
+        }
+        if (payload.type === 'result') result.latestUsage = messageUsage(payload.usage, 'claude') ?? result.latestUsage
+        continue
+      }
+      if (member.runtime.adapter === 'pi') {
+        if (payload.type === 'runtime.session_ready') {
+          const sessionId = text(payload.sessionId)
+          if (!sessionId || (result.threadId && result.threadId !== sessionId)) continue
+          result.threadId = sessionId
+          const model = object(payload.model)
+          result.nativeModel = text(model?.id)
+          result.nativeProvider = text(model?.provider)
+          result.nativeSessionReasoning = text(payload.reasoningEffort)
+        }
+        if (payload.type === 'message_end') {
+          const message = object(payload.message)
+          if (message?.role !== 'assistant') continue
+          result.nativeModel = text(message.model) ?? result.nativeModel
+          result.nativeProvider = text(message.provider) ?? result.nativeProvider
+          result.latestUsage = messageUsage(message.usage, 'pi') ?? result.latestUsage
+        }
+        continue
+      }
       if (payload.type === 'codex.app_server.thread_ready') {
         const threadId = text(payload.threadId)
         if (!threadId || (result.threadId && result.threadId !== threadId)) continue
