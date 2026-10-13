@@ -1,5 +1,6 @@
 import type { Run, RunMember, RunStatus, RuntimeEvent, Task } from './types'
 import { getCurrentLanguage } from '@/i18n'
+import { getCodexItemEvent } from './trace-events'
 
 type JsonObject = Record<string, unknown>
 const object = (value: unknown): JsonObject | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : undefined
@@ -20,6 +21,7 @@ export interface RunActivity {
 interface TextBlock { type: string; text: string }
 interface Projection {
   sessionId?: string
+  codexTurnId?: string
   outputs: PublicOutput[]
   genericText: string
   genericAt?: string
@@ -142,8 +144,53 @@ function readClaude(state: Projection, payload: JsonObject, timestamp: string) {
 }
 
 function readCodex(state: Projection, payload: JsonObject, timestamp: string) {
-  const type = string(payload.type)
-  const item = object(payload.item)
+  const method = string(payload.method)
+  const params = object(payload.params)
+  if (params && ['turn/started', 'item/agentMessage/delta', 'item/reasoning/summaryTextDelta', 'item/reasoning/summaryPartAdded', 'item/mcpToolCall/progress', 'thread/tokenUsage/updated', 'model/rerouted'].includes(method)) {
+    const threadId = string(params.threadId)
+    const turnId = string(params.turnId) || string(object(params.turn)?.id)
+    // Native routes one correlated turn. Preserve that boundary during journal
+    // replay as well, so a foreign frame cannot change the visible activity.
+    if (threadId && state.sessionId && threadId !== state.sessionId) return
+    if (turnId && state.codexTurnId && turnId !== state.codexTurnId) return
+    if (turnId) state.codexTurnId ??= turnId
+  }
+  if (method === 'turn/started' || payload.type === 'codex.app_server.thread_ready') {
+    activity(state, 'waiting', '等待 Runtime 输出')
+    return
+  }
+  if (method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/summaryPartAdded') {
+    const itemId = string(params?.itemId)
+    const index = params?.summaryIndex
+    if (!itemId || !Number.isInteger(index) || (index as number) < 0) return
+    const key = `codex:${itemId}:reasoning:${index}`
+    const previous = state.outputs.find(output => output.key === key)?.text ?? ''
+    if (method.endsWith('summaryTextDelta') && typeof params?.delta === 'string') upsert(state, key, previous + params.delta, timestamp, true, 'reasoning')
+    activity(state, 'waiting', '正在思考', previous + string(params?.delta))
+    return
+  }
+  if (method === 'item/mcpToolCall/progress') {
+    activity(state, 'tool', '正在执行工具', string(params?.message))
+    return
+  }
+  // Metadata and usage are observable trace records, not a new execution phase.
+  if (method === 'thread/tokenUsage/updated' || method === 'model/rerouted') return
+  // Goal assistant's app-server supplies genuine public deltas. Persist only
+  // each delta in the trace; growing item snapshots would amplify it quadratically.
+  if (method === 'item/agentMessage/delta') {
+    const itemId = string(params?.itemId)
+    if (!itemId || typeof params?.delta !== 'string') return
+    const key = `codex:${itemId}`
+    const previous = state.outputs.find(output => output.key === key)?.text ?? ''
+    upsert(state, key, previous + params.delta, timestamp, true)
+    activity(state, 'responding', '正在生成回答')
+    return
+  }
+  const normalized = getCodexItemEvent(payload)
+  if (normalized?.threadId && state.sessionId && normalized.threadId !== state.sessionId) return
+  if (normalized?.turnId && state.codexTurnId && normalized.turnId !== state.codexTurnId) return
+  const type = normalized?.type ?? string(payload.type)
+  const item = normalized?.item
   if (['item.started', 'item.updated', 'item.completed'].includes(type) && item) {
     const complete = type === 'item.completed'
     if (item.type === 'agent_message') {
@@ -156,7 +203,7 @@ function readCodex(state: Projection, payload: JsonObject, timestamp: string) {
       const action = object(item.action)
       const query = string(item.query) || string(action?.query) || string(action?.url)
       activity(state, complete ? 'waiting' : 'web-search', complete ? '检索已完成，等待 Runtime 下一步' : '正在检索网页', query)
-    } else if (['command_execution', 'mcp_tool_call', 'file_change', 'collab_tool_call'].includes(string(item.type))) {
+    } else if (['command_execution', 'mcp_tool_call', 'dynamic_tool_call', 'file_change', 'collab_tool_call', 'plan'].includes(string(item.type))) {
       const toolName = string(item.tool)
       const detail = item.type === 'command_execution' ? '执行本机命令'
         : item.type === 'file_change' ? '更新工作区文件' : toolName || '调用工具'
@@ -164,13 +211,20 @@ function readCodex(state: Projection, payload: JsonObject, timestamp: string) {
         : item.type === 'file_change' ? 'Update workspace files' : toolName ? undefined : 'Call tool'
       activity(state, complete ? 'waiting' : 'tool', complete ? '工具已返回，等待 Runtime 下一步' : '正在执行工具', detail, detailEn)
     } else if (item.type === 'reasoning') {
-      activity(state, 'waiting', '等待 Runtime 输出')
+      if (normalized?.appServer && Array.isArray(item.summary)) {
+        item.summary.forEach((part, index) => { if (typeof part === 'string') upsert(state, `codex:${string(item.id)}:reasoning:${index}`, part, timestamp, !complete, 'reasoning') })
+        if (complete) state.outputs.filter(output => output.key.startsWith(`codex:${string(item.id)}:reasoning:`)).forEach(output => { output.streaming = false })
+        activity(state, 'waiting', complete ? '等待 Runtime 下一步' : '正在思考', item.summary.filter(part => typeof part === 'string').join('\n'))
+      } else activity(state, 'waiting', '等待 Runtime 输出')
     }
   } else if (type === 'thread.started' || type === 'turn.started') {
     activity(state, 'waiting', '等待 Runtime 输出')
   } else if (type === 'turn.completed' || type === 'turn.failed' || type === 'error') {
     completeOutputs(state)
     activity(state, 'waiting', type === 'turn.completed' ? '回答已完成，等待进程结束' : 'Runtime 返回异常，等待进程结束')
+  } else if (type === 'codex.app_server.turn_completed' || type === 'codex.app_server.error' || type === 'codex.app_server.request_rejected') {
+    if (type === 'codex.app_server.turn_completed') completeOutputs(state)
+    activity(state, 'waiting', type === 'codex.app_server.turn_completed' && payload.status === 'completed' ? '回答已完成，等待进程结束' : 'Runtime 返回异常，等待进程结束')
   }
 }
 

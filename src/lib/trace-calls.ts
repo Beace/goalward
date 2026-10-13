@@ -1,4 +1,4 @@
-import { getTraceEntries, type TraceCategory, type TraceEntry } from './trace-events'
+import { getCodexItemEvent, getTraceEntries, type TraceCategory, type TraceEntry } from './trace-events'
 import { getCurrentLanguage } from '@/i18n'
 import type { Run, RunMember, RuntimeEvent, Task } from './types'
 
@@ -50,7 +50,7 @@ function select(value: JsonObject, keys: string[]): JsonObject | undefined {
   return Object.keys(result).length ? result : undefined
 }
 function failed(value: JsonObject) {
-  return value.is_error === true || ['failed', 'error', 'errored'].includes(string(value.status))
+  return value.is_error === true || value.success === false || ['failed', 'error', 'errored'].includes(string(value.status))
     || typeof value.exit_code === 'number' && value.exit_code !== 0
     || typeof value.exitCode === 'number' && value.exitCode !== 0
 }
@@ -69,12 +69,13 @@ function codexInput(item: JsonObject): unknown {
   if (item.type === 'command_execution') return select(item, ['command', 'cwd'])
   if (item.type === 'file_change') return select(item, ['changes'])
   if (item.type === 'todo_list') return select(item, ['items'])
+  if (item.type === 'plan') return select(item, ['text'])
   if (item.arguments !== undefined) return item.arguments
   if (item.input !== undefined) return item.input
   return select(item, ['prompt', 'receiver_thread_ids'])
 }
 function codexOutput(item: JsonObject, terminal: boolean): unknown {
-  const output = select(item, ['aggregated_output', 'stdout', 'stderr', 'output', 'result', 'results', 'error', 'exit_code', 'exitCode', 'agents_states'])
+  const output = select(item, ['aggregated_output', 'stdout', 'stderr', 'output', 'result', 'results', 'error', 'exit_code', 'exitCode', 'agents_states', 'contentItems', 'success'])
   if (output) return output
   if (terminal && item.type === 'file_change') return select(item, ['changes'])
   return undefined
@@ -106,6 +107,7 @@ const displayLabelsEn: Record<string, string> = {
   '读取网页': 'Read web page', '网页搜索': 'Web search', '执行命令': 'Run command', '文件变更': 'File changes', '调用工具': 'Call tool',
   '执行中': 'Running', '完成': 'Completed', '失败': 'Failed', '已停止': 'Stopped', '未完成': 'Incomplete', '进行中': 'In progress', '已接收': 'Received',
   'Agent 回复': 'Agent response', '思考过程': 'Reasoning', '生成回复': 'Generating response',
+  '思考摘要': 'Reasoning summary',
   '执行已停止，未收到工具的最终结果。': 'Run stopped before a final tool result was received.',
   '本次执行失败，未收到此工具的最终结果。': 'This run failed before the final tool result was received.',
   '本次执行已结束，未收到工具的最终结果。': 'This run ended before the final tool result was received.',
@@ -150,9 +152,11 @@ function buildTraceDisplayEntries(task: Task): TraceDisplayEntry[] {
   const messages = new Map<string, TraceDisplayEntry & { message: TraceMessageStream }>()
   const claudeMessages = new Map<string, MessageEntry>()
   const piEpochs = new Map<string, string>()
-  const messageParts = new Map<TraceMessageStream, { chunks: string[]; sources: Set<string> }>()
+  const messageParts = new Map<TraceMessageStream, { chunks: string[]; sources: Set<string>; records?: Set<string> }>()
   const reasoningStreams = new Map<string, ReasoningEntry>()
   const reasoningRecords = new Map<ReasoningEntry, { records: Set<string>; sources: Set<string> }>()
+  const codexContexts = new Map<string, { threadId: string; turnId: string }>()
+  const codexSummaryParts = new Map<ReasoningEntry, Map<number, string>>()
   const finishMessage = (route: string, status: TraceMessageStream['status']) => {
     const entry = messages.get(route)
     if (!entry) return
@@ -163,7 +167,8 @@ function buildTraceDisplayEntries(task: Task): TraceDisplayEntry[] {
   }
   const appendMessageRecord = (entry: MessageEntry, record: TraceEntry, text = '', authoritative = false) => {
     const parts = messageParts.get(entry.message)!
-    if (!entry.message.records.some(item => item.id === record.id)) entry.message.records.push(record)
+    const records = parts.records ??= new Set(entry.message.records.map(item => item.id))
+    if (!records.has(record.id)) { records.add(record.id); entry.message.records.push(record) }
     for (const id of record.sourceIds) parts.sources.add(id)
     if (authoritative) parts.chunks = [text]
     else if (text) parts.chunks.push(text)
@@ -176,7 +181,7 @@ function buildTraceDisplayEntries(task: Task): TraceDisplayEntry[] {
   }
   const finishClaudeMessagesForRoute = (route: string, status: string) => {
     for (const entry of claudeMessages.values()) {
-      if (routeFor(entry.runId, entry.memberId) !== route || entry.message.status !== 'running') continue
+      if (routeFor(entry.runId, entry.memberId) !== route || entry.message.status !== 'running' && !(status === 'stopped' && entry.message.status === 'incomplete')) continue
       finishClaudeMessage(entry, status === 'completed' ? 'completed' : status === 'stopped' ? 'stopped' : 'incomplete')
     }
   }
@@ -208,7 +213,7 @@ function buildTraceDisplayEntries(task: Task): TraceDisplayEntry[] {
   }
   const finishReasoningForRoute = (route: string, status: string) => {
     for (const entry of reasoningStreams.values()) {
-      if (routeFor(entry.runId, entry.memberId) !== route || entry.reasoning.status !== 'running') continue
+      if (routeFor(entry.runId, entry.memberId) !== route || entry.reasoning.status !== 'running' && !(status === 'stopped' && entry.reasoning.status === 'incomplete')) continue
       finishReasoning(entry, status === 'completed' ? 'completed' : status === 'stopped' ? 'stopped' : 'incomplete')
     }
   }
@@ -328,12 +333,84 @@ function buildTraceDisplayEntries(task: Task): TraceDisplayEntry[] {
     }
 
     if (adapter === 'codex') {
-      const type = string(payload.type)
-      if (type === 'turn.completed' || type === 'turn.failed') finish(route, type.endsWith('failed') ? 'failed' : 'completed')
-      const item = object(payload.item)
+      const params = object(payload.params)
+      const method = string(payload.method)
+      const normalized = getCodexItemEvent(payload)
+      const previousContext = codexContexts.get(route)
+      const threadId = normalized?.threadId || string(params?.threadId) || string(payload.threadId) || string(payload.thread_id) || previousContext?.threadId || ''
+      const turnId = normalized?.turnId || string(params?.turnId) || string(object(params?.turn)?.id) || string(payload.turnId) || previousContext?.turnId || ''
+      if (threadId || turnId) codexContexts.set(route, { threadId, turnId })
+      const scope = JSON.stringify([route, threadId, turnId])
+      const keyFor = (itemId: string) => JSON.stringify([scope, 'codex', itemId])
+      const type = normalized?.type ?? string(payload.type)
+      if (type === 'turn.completed' || type === 'turn.failed' || type === 'codex.app_server.turn_completed') {
+        const status = type === 'turn.failed' || payload.status === 'failed' ? 'failed' : payload.status === 'interrupted' ? 'interrupted' : 'completed'
+        finish(route, status, record.timestamp, scope)
+        for (const [key, entry] of claudeMessages) if (JSON.parse(key)[0] === scope && entry.message.status === 'running') finishClaudeMessage(entry, status === 'completed' ? 'completed' : 'incomplete')
+        for (const [key, entry] of reasoningStreams) if (JSON.parse(key)[0] === scope && entry.reasoning.status === 'running') finishReasoning(entry, status === 'completed' ? 'completed' : 'incomplete')
+      }
+      const item = normalized?.item
       const id = string(item?.id)
+      const messageId = method === 'item/agentMessage/delta' ? string(params?.itemId) : item?.type === 'agent_message' ? id : ''
+      if (messageId && (method === 'item/agentMessage/delta' && typeof params?.delta === 'string' || item?.type === 'agent_message' && typeof item.text === 'string')) {
+        const key = keyFor(messageId)
+        let entry = claudeMessages.get(key)
+        if (!entry && threadId && turnId) {
+          // Older native traces lacked scope on item.started. Once a real delta
+          // identifies its turn, keep that pending row and its first-byte ID.
+          for (const pendingScope of [JSON.stringify([route, '', '']), JSON.stringify([route, threadId, ''])]) {
+            const pendingKey = JSON.stringify([pendingScope, 'codex', messageId])
+            const pending = claudeMessages.get(pendingKey)
+            if (pending?.message.status !== 'running') continue
+            entry = pending; claudeMessages.delete(pendingKey); claudeMessages.set(key, entry); break
+          }
+        }
+        if (!entry) {
+          entry = { ...record, category: 'message', title: '生成回复', phase: '进行中', summary: undefined, sourceIds: [], message: { text: '', status: 'running', records: [] } }
+          claudeMessages.set(key, entry)
+          messageParts.set(entry.message, { chunks: [], sources: new Set() })
+          display.push(entry)
+        }
+        const startedAfterDelta = type === 'item.started' && messageParts.get(entry.message)!.chunks.some(Boolean)
+        appendMessageRecord(entry, record, method === 'item/agentMessage/delta' ? string(params?.delta) : startedAfterDelta ? '' : string(item?.text), method !== 'item/agentMessage/delta' && !startedAfterDelta)
+        if (type === 'item.completed') finishClaudeMessage(entry, 'completed')
+        else if (type === 'item.failed' || failed(item ?? {})) finishClaudeMessage(entry, 'incomplete')
+        continue
+      }
+      const reasoningId = method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/summaryPartAdded' ? string(params?.itemId) : normalized?.appServer && item?.type === 'reasoning' ? id : ''
+      const summaryIndex = params?.summaryIndex
+      if (reasoningId && (item?.type === 'reasoning' || Number.isInteger(summaryIndex) && (summaryIndex as number) >= 0)) {
+        const key = JSON.stringify([scope, 'codex-summary', reasoningId])
+        let entry = reasoningStreams.get(key)
+        if (!entry) {
+          entry = { ...record, category: 'reasoning', title: '思考摘要', phase: '进行中', summary: undefined, sourceIds: [], reasoning: { text: '', status: 'running', records: [] } }
+          reasoningStreams.set(key, entry)
+          reasoningRecords.set(entry, { records: new Set(), sources: new Set() })
+          codexSummaryParts.set(entry, new Map())
+          display.push(entry)
+        }
+        appendReasoningRecord(entry, record)
+        const parts = codexSummaryParts.get(entry)!
+        if (Array.isArray(item?.summary)) {
+          if (type === 'item.completed') parts.clear()
+          item.summary.forEach((text, index) => { if (typeof text === 'string') parts.set(index, text) })
+        } else if (method === 'item/reasoning/summaryTextDelta' && typeof params?.delta === 'string') parts.set(summaryIndex as number, (parts.get(summaryIndex as number) ?? '') + params.delta)
+        else if (!parts.has(summaryIndex as number)) parts.set(summaryIndex as number, '')
+        entry.reasoning.text = [...parts].sort(([a], [b]) => a - b).map(([, text]) => text).join('\n\n')
+        entry.summary = compact(entry.reasoning.text)
+        if (type === 'item.completed') finishReasoning(entry, 'completed')
+        continue
+      }
+      if (method === 'item/mcpToolCall/progress' && string(params?.itemId)) {
+        const entry = register(keyFor(string(params?.itemId)), string(params?.itemId), record)
+        entry.summary = compact(string(params?.message))
+        updateState(entry)
+        continue
+      }
       if (!item || !id || !toolCategories.has(record.category) || !['item.started', 'item.updated', 'item.completed', 'item.failed'].includes(type)) { display.push(record); continue }
-      const entry = register(JSON.stringify([route, 'codex', id]), id, record)
+      const entry = register(keyFor(id), id, record)
+      entry.category = record.category
+      entry.title = record.title
       const call = entry.call
       if (type === 'item.started' && !call.startedAt && call.status === 'running') call.startedAt = record.timestamp
       if (record.summary) entry.summary = record.summary

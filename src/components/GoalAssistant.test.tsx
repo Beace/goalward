@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { useState } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GoalAssistant, GoalTaskProposals } from './GoalAssistant'
 import { GoalsPage } from './GoalsPage'
 import { createInitialState } from '@/lib/domain'
 import { createGoal } from '@/lib/goals'
-import { confirmGoalAssistantDraft } from '@/lib/goal-assistant'
-import { createWorkspaceTask } from '@/lib/workspace'
+import { confirmGoalAssistantDraft, createGoalAssistantTask } from '@/lib/goal-assistant'
+import { captureRunContext, createWorkspaceTask } from '@/lib/workspace'
 import type { AppState } from '@/lib/types'
 import type { GoalAssistantDraft } from '@/lib/goal-types'
 
@@ -30,6 +30,144 @@ function seed(): AppState {
   goal.assistant = { draft: structuredClone(draft), input: '补充这条约束' }
   return { ...state, tasks: [], goals: [goal], agents: [], activeGoalId: goal.id }
 }
+
+describe('Goal assistant live conversation', () => {
+  function runningState() {
+    const state = seed(), goal = state.goals[0]
+    const task = createGoalAssistantTask(state.settings, { goalId: goal.id, directory: '/app/assistant' })
+    task.runs = [{ id: 'live-run', createdAt: '', prompt: '', directory: task.directory, members: [{ ...task.members[0], runtime: state.settings.runtimes[0], model: '', status: 'running' }] }]
+    task.messages = [{ id: 'user', role: 'user', text: '我想改善这个流程', createdAt: '', runId: 'live-run' }]
+    state.tasks = [task]; goal.assistant!.taskId = task.id
+    return state
+  }
+  const props = { onStart: vi.fn(), onConfirm: vi.fn(), onChange: vi.fn(), onSend: vi.fn(), onStop: vi.fn() }
+  it.each(['completed', 'failed', 'stopped'] as const)('updates one message in place before completion and clears loading on %s', status => {
+    let state = runningState()
+    const view = render(<GoalAssistant {...props} state={state} goal={state.goals[0]} />)
+    const transcript = view.container.querySelector('.goal-assistant-transcript')!
+    expect(within(transcript as HTMLElement).getByRole('status').textContent).toBe('正在思考…')
+    expect(transcript.querySelector('[data-slot=spinner]')).toBeTruthy()
+    const stop = screen.getByRole('button', { name: '停止目标助手' }); stop.focus()
+    const append = (text: string) => {
+      state = { ...state, tasks: [{ ...state.tasks[0], messages: [state.tasks[0].messages[0], { id: 'reply', role: 'assistant', text, createdAt: '', runId: 'live-run', streaming: true }] }] }
+      view.rerender(<GoalAssistant {...props} state={state} goal={state.goals[0]} />)
+    }
+    append('先确定')
+    const article = transcript.querySelector('.goal-assistant-message-assistant')!
+    expect(article.textContent).toContain('先确定')
+    expect(within(transcript as HTMLElement).getByRole('status').textContent).toBe('正在回复…')
+    append('先确定成功标准。\n\n```go')
+    expect(transcript.querySelector('.goal-assistant-message-assistant')).toBe(article)
+    expect(article.textContent).toContain('先确定成功标准。')
+    expect(article.textContent).not.toContain('```go')
+    expect(document.activeElement).toBe(stop)
+    append('先确定成功标准。\n\n```goalward\n{"draft":null}\n```')
+    expect(article.textContent).not.toContain('draft')
+    state = { ...state, tasks: [{ ...state.tasks[0], runs: [{ ...state.tasks[0].runs[0], members: [{ ...state.tasks[0].runs[0].members[0], status }] }] }] }
+    view.rerender(<GoalAssistant {...props} state={state} goal={state.goals[0]} />)
+    expect(transcript.querySelector('[data-slot=spinner]')).toBeNull()
+    expect(article.textContent).toContain('先确定成功标准。')
+    if (status !== 'completed') expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
+  })
+  it('shows a pending reply immediately during dispatch and retains input on failure', async () => {
+    const state = seed()
+    let reject!: (error: Error) => void
+    const onSend = vi.fn(() => new Promise<void>((_, fail) => { reject = fail }))
+    const view = render(<GoalAssistant {...props} state={state} goal={state.goals[0]} onSend={onSend} />)
+    fireEvent.click(screen.getByRole('button', { name: '发送给目标助手' }))
+    const transcript = view.container.querySelector('.goal-assistant-transcript') as HTMLElement
+    expect(within(transcript).getByRole('status').textContent).toBe('正在连接目标助手…')
+    await act(async () => reject(new Error('连接失败')))
+    expect(transcript.querySelector('[data-slot=spinner]')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('连接失败')
+    expect((screen.getByLabelText('给目标助手的消息') as HTMLTextAreaElement).value).toBe('补充这条约束')
+  })
+  it('preserves the reading position during streaming and supports jumping back to the latest reply', () => {
+    let state = runningState()
+    const view = render(<GoalAssistant {...props} state={state} goal={state.goals[0]} />)
+    const transcript = view.container.querySelector('.goal-assistant-transcript') as HTMLElement
+    Object.defineProperties(transcript, { scrollHeight: { configurable: true, value: 1800 }, clientHeight: { configurable: true, value: 500 } })
+    transcript.scrollTop = 300; fireEvent.scroll(transcript)
+    state = { ...state, tasks: [{ ...state.tasks[0], messages: [...state.tasks[0].messages, { id: 'reply', role: 'assistant', text: '逐步到达的回复', createdAt: '', runId: 'live-run', streaming: true }] }] }
+    view.rerender(<GoalAssistant {...props} state={state} goal={state.goals[0]} />)
+    expect(transcript.scrollTop).toBe(300)
+    fireEvent.click(screen.getByRole('button', { name: '回到最新' }))
+    expect(transcript.scrollTop).toBe(1800)
+    expect(screen.queryByRole('button', { name: '回到最新' })).toBeNull()
+  })
+})
+
+describe('Task proposal execution progress', () => {
+  function planningState() {
+    const state = seed(), goal = state.goals[0]
+    const task = createGoalAssistantTask(state.settings, { goalId: goal.id, directory: '/app/assistant' })
+    goal.assistant = { ...goal.assistant, taskId: task.id, requestPhase: 'plan' }
+    state.tasks = [task]
+    task.runs = [{ id: 'planning-run', createdAt: new Date().toISOString(), prompt: '本轮规划指令', directory: task.directory, context: captureRunContext(state, task), members: [{ ...task.members[0], runtime: state.settings.runtimes[0], model: 'plan-model', status: 'running' }] }]
+    return state
+  }
+  it('shows a scoped planning run in the task tab and stops that assistant immediately', async () => {
+    const state = planningState(), stop = vi.fn(async () => {})
+    render(<GoalTaskProposals state={state} goal={state.goals[0]} onChange={vi.fn()} onCreateTask={vi.fn()} onOpenTask={vi.fn()} onStop={stop} />)
+    expect(screen.getByRole('button', { name: /调用详情/ })).toBeTruthy()
+    expect(screen.getByText(/Codex · plan-model/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /停止/ }))
+    await waitFor(() => expect(stop).toHaveBeenCalledOnce())
+  })
+  it('does not show an earlier planning run when a newer clarification is active', () => {
+    const state = planningState(), task = state.tasks[0]
+    task.runs[0].members[0].status = 'completed'
+    state.goals[0].assistant!.requestPhase = 'clarify'
+    task.runs.push({ ...task.runs[0], id: 'new-clarification', context: captureRunContext(state, task), members: [{ ...task.runs[0].members[0], status: 'running' }] })
+    render(<GoalTaskProposals state={state} goal={state.goals[0]} onChange={vi.fn()} onCreateTask={vi.fn()} onOpenTask={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /调用详情/ })).toBeNull()
+    expect(screen.getByText('目标助手正在对话，请等待本轮结束后再整理任务建议。')).toBeTruthy()
+  })
+  it('keeps planning launch visible before a run exists and clears it on failure', async () => {
+    const initial = seed()
+    let latest = initial, reject!: (error: Error) => void
+    const send = vi.fn(() => new Promise<void>((_, fail) => { reject = fail }))
+    function Harness() {
+      const [state, setState] = useState(latest)
+      return <GoalsPage state={state} onCreateTask={vi.fn()} onOpenTask={vi.fn()} onOpenAgent={vi.fn()} onSendAssistant={send} onChange={async reducer => { latest = reducer(latest); setState(latest) }} />
+    }
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: '目标助手' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认目标并安排任务' }))
+    await waitFor(() => expect(send).toHaveBeenCalledOnce())
+    expect(screen.getByText('正在启动任务建议…')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '重新提议' }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => reject(new Error('规划启动失败')))
+    expect(screen.queryByText('正在启动任务建议…')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('规划启动失败')
+    expect(latest.goals[0].assistant!.confirmedVersion).toBe(latest.goals[0].version)
+  })
+  it('restores planning history, blocks adoption while pending, and exposes recovery retry after failure', async () => {
+    const state = planningState()
+    state.tasks[0].historyPending = true
+    state.goals[0].assistant!.proposals = [{ id: 'p', title: '用户保留的任务', delivery: '结果', acceptance: '验收', deadline: '', dependsOn: [], status: 'suggested', baseGoalVersion: state.goals[0].version }]
+    const prepare = vi.fn().mockRejectedValueOnce(new Error('规划历史恢复失败')).mockResolvedValueOnce(undefined)
+    render(<GoalTaskProposals state={state} goal={state.goals[0]} onChange={vi.fn()} onCreateTask={vi.fn()} onOpenTask={vi.fn()} onPrepare={prepare} onRetry={vi.fn()} />)
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('规划历史恢复失败'))
+    expect(prepare).toHaveBeenCalledWith(state.tasks[0].id)
+    expect((screen.getByRole('button', { name: '采用' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '重新提议' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '重试恢复历史' }))
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(2))
+    expect(state.goals[0].assistant!.proposals![0].title).toBe('用户保留的任务')
+  })
+  it('keeps model completion distinct from publishing validated task proposals', () => {
+    const state = planningState()
+    state.tasks[0].runs[0].members[0].status = 'completed'
+    const view = render(<GoalTaskProposals state={state} goal={state.goals[0]} onChange={vi.fn()} onCreateTask={vi.fn()} onOpenTask={vi.fn()} />)
+    expect(screen.getByText('模型回复已完成，正在核对任务建议…')).toBeTruthy()
+    state.goals[0].assistant = { ...state.goals[0].assistant, processedRunId: 'planning-run', error: '结构化任务建议格式无效' }
+    view.rerender(<GoalTaskProposals state={state} goal={state.goals[0]} onChange={vi.fn()} onCreateTask={vi.fn()} onOpenTask={vi.fn()} />)
+    expect(screen.queryByText('模型回复已完成，正在核对任务建议…')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('结构化任务建议格式无效')
+    expect(screen.getByRole('button', { name: /调用详情/ })).toBeTruthy()
+  })
+})
 
 describe('Goal assistant boundaries', () => {
   it('persists a new exploration across Goal navigation and clears it only with the saved Goal', async () => {

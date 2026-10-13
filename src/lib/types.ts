@@ -93,4 +93,6 @@ export interface StartRequest {
   model: string; directory: string; prompt: string
   reasoningEffort?: ReasoningEffort
   sessionId?: string
+  /** Goal assistant Codex conversations use app-server's public text deltas. */
+  codexStreaming?: boolean
 }

@@ -85,6 +85,20 @@ function mergePlanningProposals(previous: GoalTaskProposal[], incoming: GoalTask
   return [...adopted, ...edited, ...incoming.filter(item => !retainedIds.has(item.id))]
 }
 
+/** Show public prose as it arrives, without flashing a split internal action fence. */
+export function goalAssistantMessageText(response: string): string {
+  const action = /^```goalward[ \t]*(?:\r?\n|$)/m.exec(response)
+  const prose = action ? response.slice(0, action.index) : response
+  const lastLine = prose.slice(prose.lastIndexOf('\n') + 1)
+  const candidate = lastLine.replace(/\r$/, '')
+  // The opening fence can arrive one character at a time. Hold only an
+  // ambiguous final line; ordinary Markdown fences remain readable once known.
+  const preceding = prose.slice(0, prose.length - lastLine.length)
+  const insideCode = ((preceding.match(/^```[^\n]*$/gm)?.length ?? 0) % 2) === 1
+  const partial = !insideCode && candidate.length > 0 && '```goalward'.startsWith(candidate)
+  return (partial ? prose.slice(0, prose.length - lastLine.length) : prose).trim()
+}
+
 /** The action must be the last Markdown block. No status, evidence or task IDs are trusted. */
 export function parseGoalAssistantResponse(response: string, baseGoalVersion: number, phase?: GoalAssistantPhase, goalDeadline = '', previousProposals: GoalTaskProposal[] = []): GoalAssistantAction {
   if (typeof response !== 'string' || response.length > 1024 * 1024) return fail('助手回复格式无效。', 'Invalid assistant reply.')

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowUp, Check, ListChecks, Plus, RefreshCw, Square, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ListChecks, Plus, RefreshCw, Square, X } from 'lucide-react'
 import type { AppState } from '@/lib/types'
 import type { Goal, GoalAssistantDraft, GoalTaskProposal } from '@/lib/goal-types'
-import { adoptGoalTaskProposal, adoptGoalTaskProposals, dismissGoalTaskProposal, rollbackGoalAssistantAction } from '@/lib/goal-assistant'
+import { adoptGoalTaskProposal, adoptGoalTaskProposals, dismissGoalTaskProposal, goalAssistantMessageText, rollbackGoalAssistantAction } from '@/lib/goal-assistant'
 import type { GoalAssistantDraftSource } from '@/lib/goal-assistant'
+import { getGoalAssistantRun } from '@/lib/goal-assistant-execution'
 import { isDesktop } from '@/lib/bridge'
 import { canConfigureTask } from '@/lib/onboarding'
 import { Button } from '@/components/ui/button'
@@ -13,10 +14,12 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Spinner } from '@/components/ui/spinner'
 import { Collapsible, CollapsibleContent, CollapsibleIndicator, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { MarkdownMessage } from './MarkdownMessage'
 import { RuntimeApprovalPanel } from './RuntimeApprovalPanel'
 import { RuntimeLogo } from './RuntimeLogo'
+import { GoalAssistantRunDetails } from './GoalAssistantRunDetails'
 import { useI18n } from '@/i18n'
 import './goal-assistant.css'
 
@@ -57,6 +60,8 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
   const selectedRuntime = eligible.find(item => item.id === runtimeId) ?? eligible[0]
   const [input, setInput] = useState(goal?.assistant?.input ?? state.goalExplorationInput ?? '')
   const [busy, setBusy] = useState(false)
+  const [requestPending, setRequestPending] = useState(false)
+  const [following, setFollowing] = useState(true)
   const [error, setError] = useState('')
   const action = useRef(false)
   const transcript = useRef<HTMLDivElement>(null)
@@ -69,9 +74,9 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
   const historyPending = Boolean(task?.historyPending)
   const latestStatus = latestRun?.members.find(member => member.status === 'failed' || member.status === 'interrupted' || member.status === 'stopped')?.status
 
-  useEffect(() => { setInput(goal?.assistant?.input ?? state.goalExplorationInput ?? ''); setError(''); follow.current = true }, [goal?.id]) // Drafts are scoped to the Goal.
+  useEffect(() => { setInput(goal?.assistant?.input ?? state.goalExplorationInput ?? ''); setError(''); follow.current = true; setFollowing(true) }, [goal?.id]) // Drafts are scoped to the Goal.
   useEffect(() => { if (task?.historyPending && onPrepare) void onPrepare(task.id).catch(cause => setError(String(cause instanceof Error ? cause.message : cause))) }, [task?.id, task?.historyPending, onPrepare])
-  useEffect(() => { if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight }, [task?.messages])
+  useEffect(() => { if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight }, [task?.messages, running, requestPending])
   const commitDraft = async (next: GoalAssistantDraft) => {
     if (!goal || !draftSource) return
     const source = draftSource
@@ -94,11 +99,17 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
     try { await work() } catch (cause) { setError(String(cause instanceof Error ? cause.message : cause)) }
     finally { action.current = false; setBusy(false) }
   }
+  async function request(work: () => Promise<void>) {
+    await perform(async () => {
+      follow.current = true; setFollowing(true); setRequestPending(true)
+      try { await work() } finally { setRequestPending(false) }
+    })
+  }
   const send = async (event?: FormEvent) => {
     event?.preventDefault()
     const prompt = input.trim()
     if (!prompt || running || historyPending) return
-    await perform(async () => {
+    await request(async () => {
       if (goal) {
         if (!isDesktop || !onSend || !selectedRuntime) throw new Error(t('请在桌面应用中配置 Runtime 后发送；也可直接手动整理目标。', 'Configure a runtime in the desktop app to send, or organize the goal manually.'))
         await onSend(goal.id, prompt, 'clarify', selectedRuntime.id)
@@ -108,20 +119,28 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
     })
   }
   const canSend = Boolean(!goal || (isDesktop && onSend && selectedRuntime))
-  const visibleMessages = task?.messages.filter(message => message.kind !== 'reasoning' && message.role !== 'system') ?? []
+  const visibleMessages = (task?.messages ?? []).filter(message => message.kind !== 'reasoning' && message.role !== 'system')
+    .map(message => ({ ...message, text: message.role === 'assistant' ? goalAssistantMessageText(message.text) : message.text }))
+    .filter(message => message.text)
+  const responding = visibleMessages.some(message => message.role === 'assistant' && message.runId === latestRun?.id)
+  const pending = running || requestPending
+  const pendingLabel = running
+    ? responding ? t('正在回复…', 'Replying…') : t('正在思考…', 'Thinking…')
+    : t('正在连接目标助手…', 'Connecting to goal assistant…')
   return <div className={`goal-assistant${!goal ? ' goal-assistant-start' : ''}`}>
     <div className="goal-assistant-conversation">
-      <div className="goal-assistant-transcript" ref={transcript} onScroll={event => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 56 }}>
-        {!goal ? <div className="goal-assistant-intro"><h1>{t('开始一件事', 'Start something')}</h1><p>{t('先说说你想推进的事情。目标助手会和你一起明确结果、成功条件与下一步。', 'Describe what you want to move forward. The goal assistant will help clarify the outcome, success criteria, and next steps.')}</p></div> : !visibleMessages.length ? <div className="goal-assistant-intro"><h2>{t('目标助手', 'Goal assistant')}</h2><p>{t('哪里还不明确？可以描述现状、补充材料，或告诉助手你的约束。', 'What is still unclear? Describe the context, add references, or explain your constraints.')}</p></div> : visibleMessages.map(message => <article className={`goal-assistant-message goal-assistant-message-${message.role}`} key={message.id}><div className="goal-assistant-message-label">{message.role === 'user' ? t('你', 'You') : t('目标助手', 'Goal assistant')}</div><MarkdownMessage text={message.role === 'assistant' ? message.text.replace(/^```goalward[ \t]*\r?\n[\s\S]*$/m, '').trim() : message.text} /></article>)}
+      <div className="goal-assistant-transcript" ref={transcript} onScroll={event => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 56; setFollowing(follow.current) }}>
+        {!goal ? <div className="goal-assistant-intro"><h1>{t('开始一件事', 'Start something')}</h1><p>{t('先说说你想推进的事情。目标助手会和你一起明确结果、成功条件与下一步。', 'Describe what you want to move forward. The goal assistant will help clarify the outcome, success criteria, and next steps.')}</p></div> : !visibleMessages.length && !pending ? <div className="goal-assistant-intro"><h2>{t('目标助手', 'Goal assistant')}</h2><p>{t('哪里还不明确？可以描述现状、补充材料，或告诉助手你的约束。', 'What is still unclear? Describe the context, add references, or explain your constraints.')}</p></div> : visibleMessages.map(message => <article className={`goal-assistant-message goal-assistant-message-${message.role}`} key={message.id}><div className="goal-assistant-message-label">{message.role === 'user' ? t('你', 'You') : t('目标助手', 'Goal assistant')}</div><MarkdownMessage text={message.text} /></article>)}
+        {pending && <div className="goal-assistant-pending">{!responding && <div className="goal-assistant-message-label">{t('目标助手', 'Goal assistant')}</div>}<div className="goal-assistant-pending-status" role="status"><Spinner aria-hidden="true" role="presentation" aria-label={undefined} /><span>{pendingLabel}</span></div></div>}
         {historyPending && <p role="status" className="goal-meta">{t('正在恢复目标助手的历史…', 'Restoring assistant history…')}</p>}
       </div>
+      {!following && <div className="goal-assistant-follow"><Button type="button" size="sm" variant="outline" onClick={() => { follow.current = true; setFollowing(true); if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight }}><ArrowDown size={12} />{t('回到最新', 'Jump to latest')}</Button></div>}
       {task && <RuntimeApprovalPanel task={task} />}
       <form className="goal-assistant-composer" onSubmit={event => void send(event)}>
         <Textarea aria-label={t('给目标助手的消息', 'Message to goal assistant')} placeholder={goal ? t('补充想法或约束…', 'Add ideas or constraints…') : t('我想…', 'I want to…')} value={input} onChange={event => changeInput(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }} rows={3} />
         <div className="goal-assistant-composer-tools"><div className="goal-assistant-runtime"><Select value={selectedRuntime?.id ?? '__none__'} onValueChange={setRuntimeId} disabled={busy || running || !eligible.length}><SelectTrigger aria-label={t('目标助手 Runtime', 'Goal assistant runtime')}><SelectValue /></SelectTrigger><SelectContent>{!eligible.length && <SelectItem value="__none__">{t('待配置 Runtime', 'Configure runtime')}</SelectItem>}{eligible.map(runtime => <SelectItem key={runtime.id} value={runtime.id}><span className="inline-flex items-center gap-2"><RuntimeLogo runtime={runtime} size={14} />{runtime.name}</span></SelectItem>)}</SelectContent></Select><span className="goal-meta">{selectedRuntime?.defaultModel || t('Runtime 默认模型', 'Runtime default model')}</span></div>{onSettings && <Button type="button" size="sm" variant="ghost" onClick={onSettings}>{t('配置', 'Settings')}</Button>}{running && onStop ? <Button type="button" size="icon-sm" aria-label={t('停止目标助手', 'Stop goal assistant')} disabled={busy} onClick={() => goal && void perform(() => onStop(goal.id))}><Square size={13} /></Button> : <Button type="submit" size="icon-sm" aria-label={!goal ? t('开始整理目标', 'Start clarifying goal') : t('发送给目标助手', 'Send to goal assistant')} disabled={busy || running || historyPending || !input.trim() || !canSend}><ArrowUp size={15} /></Button>}</div>
         {!isDesktop && <p className="goal-meta">{t('浏览器预览可手动整理；真实对话请在桌面应用运行。', 'Organize manually in browser preview. Real conversations run in the desktop app.')}</p>}
-        {running && <p className="goal-meta" role="status">{t('目标助手正在处理…', 'Goal assistant is working…')}</p>}
-        {latestStatus && !running && <div className="goal-assistant-error" role="status"><span>{latestStatus === 'failed' ? t('上次运行失败，输入与已有目标已保留。', 'The last run failed. Your input and goal are preserved.') : t('上次运行已停止，可以继续对话。', 'The last run stopped. You can continue the conversation.')}</span>{isDesktop && onSend && selectedRuntime && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => goal && void perform(() => onSend(goal.id, [...(task?.messages ?? [])].reverse().find(message => message.role === 'user')?.text || input, goal.assistant?.requestPhase ?? 'clarify', selectedRuntime.id))}><RefreshCw size={12} />{t('重试', 'Retry')}</Button>}</div>}
+        {latestStatus && !running && <div className="goal-assistant-error" role="status"><span>{latestStatus === 'failed' ? t('上次运行失败，输入与已有目标已保留。', 'The last run failed. Your input and goal are preserved.') : t('上次运行已停止，可以继续对话。', 'The last run stopped. You can continue the conversation.')}</span>{isDesktop && onSend && selectedRuntime && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => goal && void request(() => onSend(goal.id, [...(task?.messages ?? [])].reverse().find(message => message.role === 'user')?.text || input, goal.assistant?.requestPhase ?? 'clarify', selectedRuntime.id))}><RefreshCw size={12} />{t('重试', 'Retry')}</Button>}</div>}
         {(error || goal?.assistant?.error) && <p className="goal-form-error" role="alert">{error || goal?.assistant?.error}</p>}{error && historyPending && onPrepare && task && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => onPrepare(task.id))}>{t('重试恢复历史', 'Retry restoring history')}</Button>}
       </form>
     </div>
@@ -129,16 +148,29 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
   </div>
 }
 
-export function GoalTaskProposals({ state, goal, onChange, onCreateTask, onOpenTask, onRetry }: { state: AppState; goal: Goal; onChange: Change; onCreateTask: () => void; onOpenTask: (id: string) => void; onRetry?: () => Promise<void> }) {
+export function GoalTaskProposals({ state, goal, onChange, onCreateTask, onOpenTask, onRetry, onStop, onPrepare, requestPending = false }: { state: AppState; goal: Goal; onChange: Change; onCreateTask: () => void; onOpenTask: (id: string) => void; onRetry?: () => Promise<void>; onStop?: () => Promise<void>; onPrepare?: (taskId: string) => Promise<void>; requestPending?: boolean }) {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [retryPending, setRetryPending] = useState(false)
   const lock = useRef(false)
+  const preparing = useRef('')
   const proposals = goal.assistant?.proposals ?? []
   const pending = proposals.filter(item => item.status === 'suggested')
   const task = state.tasks.find(item => item.id === goal.assistant?.taskId && item.kind === 'goal_assistant' && item.goalId === goal.id)
   const running = Boolean(task?.runs.some(run => run.members.some(member => member.status === 'running')))
+  const run = getGoalAssistantRun(task, goal.id)
+  const planRunning = Boolean(run?.members.some(member => member.status === 'running'))
+  const historyPending = Boolean(task?.historyPending)
+  const requestStarting = requestPending || retryPending
+  const unavailable = busy || running || requestStarting || historyPending
+  useEffect(() => {
+    if (!task?.historyPending) { preparing.current = ''; return }
+    if (!onPrepare || preparing.current === task.id) return
+    preparing.current = task.id
+    void onPrepare(task.id).catch(cause => setError(String(cause instanceof Error ? cause.message : cause)))
+  }, [task?.id, task?.historyPending, onPrepare])
   async function perform(action: () => Promise<void>) { if (lock.current) return; lock.current = true; setBusy(true); setError(''); try { await action() } catch (cause) { setError(String(cause instanceof Error ? cause.message : cause)) } finally { lock.current = false; setBusy(false) } }
   const change = (proposal: GoalTaskProposal, field: 'title' | 'delivery' | 'acceptance' | 'deadline', value: string) => void onChange(previous => ({ ...previous, goals: previous.goals.map(item => item.id === goal.id ? { ...item, assistant: { ...item.assistant, proposals: item.assistant?.proposals?.map(p => p.id === proposal.id ? { ...p, [field]: value, edited: true } : p) } } : item) })).catch(cause => setError(String(cause instanceof Error ? cause.message : cause)))
   const dependencies = (proposal: GoalTaskProposal, dependencyId: string, checked: boolean) => void onChange(previous => ({ ...previous, goals: previous.goals.map(item => item.id === goal.id ? { ...item, assistant: { ...item.assistant, proposals: item.assistant?.proposals?.map(p => p.id === proposal.id ? { ...p, edited: true, dependsOn: checked ? [...new Set([...p.dependsOn, dependencyId])] : p.dependsOn.filter(id => id !== dependencyId) } : p) } } : item) })).catch(cause => setError(String(cause instanceof Error ? cause.message : cause)))
-  return <section className="goal-task-proposals" aria-label={t('下一步任务建议', 'Suggested next tasks')}><div className="goal-section-title"><h2><ListChecks size={15} />{t('下一步任务建议', 'Suggested next tasks')}</h2><div className="goal-proposal-toolbar">{onRetry && <Button variant="ghost" size="sm" disabled={busy || running} onClick={() => void perform(onRetry)}><RefreshCw size={13} />{t('重新提议', 'Propose again')}</Button>}{pending.length > 0 && <Button size="sm" disabled={busy || running} onClick={() => void perform(() => persistGoalAssistantAction(onChange, previous => adoptGoalTaskProposals(previous, goal.id)))}>{t('采用全部', 'Adopt all')} {pending.length}</Button>}<Button variant="outline" size="sm" onClick={onCreateTask}><Plus size={13} />{t('手动补充', 'Add manually')}</Button></div></div>{running && <p role="status" className="goal-helper">{t('目标已保存，正在整理任务建议…', 'Goal saved. Preparing task proposals…')}</p>}{!proposals.length && !running && <p className="goal-empty-copy">{t('暂时没有任务建议，可以重试提议或手动补充。', 'No task proposals yet. Retry or add a task manually.')}</p>}{proposals.filter(item => item.status !== 'dismissed').map(proposal => <div className="goal-task-proposal-row" key={proposal.id}><div className="goal-task-proposal-main"><Input aria-label={t(`任务建议名称：${proposal.id}`, `Proposal title: ${proposal.id}`)} value={proposal.title} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'title', event.target.value)} /><div className="goal-task-proposal-actions">{proposal.status === 'adopted' ? <><Badge variant="outline">{t('已采用', 'Adopted')}</Badge>{proposal.taskId && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onOpenTask(proposal.taskId!)}>{t('打开任务', 'Open task')}</Button>}</> : <><Button size="icon-sm" variant="ghost" aria-label={t(`不采纳：${proposal.title}`, `Dismiss: ${proposal.title}`)} disabled={busy || running} onClick={() => void perform(() => persistGoalAssistantAction(onChange, previous => dismissGoalTaskProposal(previous, goal.id, proposal.id)))}><X size={13} /></Button><Button size="sm" disabled={busy || running} onClick={() => void perform(() => persistGoalAssistantAction(onChange, previous => adoptGoalTaskProposal(previous, goal.id, proposal.id)))}>{t('采用', 'Adopt')}</Button></>}</div></div><Collapsible><CollapsibleTrigger className="goal-disclosure"><CollapsibleIndicator size={12} />{t('交付、验收与依赖', 'Delivery, acceptance, and dependencies')}{proposal.deadline && ` · ${proposal.deadline}`}{proposal.dependsOn.length > 0 && ` · ${proposal.dependsOn.length} ${t('项依赖', 'dependencies')}`}</CollapsibleTrigger><CollapsibleContent><div className="goal-task-proposal-detail"><Label>{t('交付结果', 'Deliverable')}<Textarea aria-label={t(`交付结果：${proposal.id}`, `Deliverable: ${proposal.id}`)} rows={2} value={proposal.delivery} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'delivery', event.target.value)} /></Label><Label>{t('验收要求', 'Acceptance')}<Textarea aria-label={t(`验收要求：${proposal.id}`, `Acceptance: ${proposal.id}`)} rows={2} value={proposal.acceptance} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'acceptance', event.target.value)} /></Label><Label>{t('期望日期（可选）', 'Target date (optional)')}<Input type="date" aria-label={t(`任务期望日期：${proposal.id}`, `Proposal deadline: ${proposal.id}`)} value={proposal.deadline} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'deadline', event.target.value)} /></Label>{proposal.status === 'suggested' && proposals.filter(item => item.id !== proposal.id && (item.status !== 'dismissed' || proposal.dependsOn.includes(item.id))).map(dependency => <Label className="goal-proposal-dependency" key={dependency.id}><Checkbox aria-label={t(`依赖：${proposal.title} → ${dependency.title}`, `Dependency: ${proposal.title} → ${dependency.title}`)} checked={proposal.dependsOn.includes(dependency.id)} onCheckedChange={checked => dependencies(proposal, dependency.id, checked === true)} />{dependency.title}</Label>)}{proposal.dependsOn.length > 0 && <p className="goal-meta">{t('依赖', 'Depends on')}: {proposal.dependsOn.map(id => proposals.find(item => item.id === id)?.title ?? id).join(' · ')}</p>}</div></CollapsibleContent></Collapsible></div>)}{(error || goal.assistant?.error) && <p className="goal-form-error" role="alert">{error || goal.assistant?.error}</p>}</section>
+  return <section className="goal-task-proposals" aria-label={t('下一步任务建议', 'Suggested next tasks')}><div className="goal-section-title"><h2><ListChecks size={15} />{t('下一步任务建议', 'Suggested next tasks')}</h2><div className="goal-proposal-toolbar">{onRetry && <Button variant="ghost" size="sm" disabled={unavailable} onClick={() => void perform(async () => { setRetryPending(true); try { await onRetry() } finally { setRetryPending(false) } })}><RefreshCw size={13} />{t('重新提议', 'Propose again')}</Button>}{pending.length > 0 && <Button size="sm" disabled={unavailable} onClick={() => void perform(() => persistGoalAssistantAction(onChange, previous => adoptGoalTaskProposals(previous, goal.id)))}>{t('采用全部', 'Adopt all')} {pending.length}</Button>}<Button variant="outline" size="sm" onClick={onCreateTask}><Plus size={13} />{t('手动补充', 'Add manually')}</Button></div></div>{requestStarting && !planRunning ? <div className="goal-assistant-pending-status" role="status"><Spinner aria-hidden="true" role="presentation" aria-label={undefined} /><span>{t('正在启动任务建议…', 'Starting task proposals…')}</span></div> : run && task ? <GoalAssistantRunDetails key={`${task.id}:${run.id}`} task={task} run={run} onStop={onStop} /> : running ? <p role="status" className="goal-helper">{t('目标助手正在对话，请等待本轮结束后再整理任务建议。', 'The assistant is in a conversation. Wait for this turn before planning tasks.')}</p> : null}{task && <RuntimeApprovalPanel task={task} />}{historyPending && <p role="status" className="goal-meta">{t('正在恢复目标助手的历史…', 'Restoring assistant history…')}</p>}{error && historyPending && onPrepare && task && <Button size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => onPrepare(task.id))}>{t('重试恢复历史', 'Retry restoring history')}</Button>}{run && !planRunning && run.members.every(member => member.status === 'completed') && goal.assistant?.processedRunId !== run.id && !historyPending && !goal.assistant?.error && !requestStarting && <p role="status" className="goal-meta">{t('模型回复已完成，正在核对任务建议…', 'Model reply completed. Checking task proposals…')}</p>}{!proposals.length && !running && !requestStarting && !historyPending && <p className="goal-empty-copy">{t('暂时没有任务建议，可以重试提议或手动补充。', 'No task proposals yet. Retry or add a task manually.')}</p>}{proposals.filter(item => item.status !== 'dismissed').map(proposal => <div className="goal-task-proposal-row" key={proposal.id}><div className="goal-task-proposal-main"><Input aria-label={t(`任务建议名称：${proposal.id}`, `Proposal title: ${proposal.id}`)} value={proposal.title} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'title', event.target.value)} /><div className="goal-task-proposal-actions">{proposal.status === 'adopted' ? <><Badge variant="outline">{t('已采用', 'Adopted')}</Badge>{proposal.taskId && <Button size="sm" variant="ghost" disabled={busy} onClick={() => onOpenTask(proposal.taskId!)}>{t('打开任务', 'Open task')}</Button>}</> : <><Button size="icon-sm" variant="ghost" aria-label={t(`不采纳：${proposal.title}`, `Dismiss: ${proposal.title}`)} disabled={unavailable} onClick={() => void perform(() => persistGoalAssistantAction(onChange, previous => dismissGoalTaskProposal(previous, goal.id, proposal.id)))}><X size={13} /></Button><Button size="sm" disabled={unavailable} onClick={() => void perform(() => persistGoalAssistantAction(onChange, previous => adoptGoalTaskProposal(previous, goal.id, proposal.id)))}>{t('采用', 'Adopt')}</Button></>}</div></div><Collapsible><CollapsibleTrigger className="goal-disclosure"><CollapsibleIndicator size={12} />{t('交付、验收与依赖', 'Delivery, acceptance, and dependencies')}{proposal.deadline && ` · ${proposal.deadline}`}{proposal.dependsOn.length > 0 && ` · ${proposal.dependsOn.length} ${t('项依赖', 'dependencies')}`}</CollapsibleTrigger><CollapsibleContent><div className="goal-task-proposal-detail"><Label>{t('交付结果', 'Deliverable')}<Textarea aria-label={t(`交付结果：${proposal.id}`, `Deliverable: ${proposal.id}`)} rows={2} value={proposal.delivery} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'delivery', event.target.value)} /></Label><Label>{t('验收要求', 'Acceptance')}<Textarea aria-label={t(`验收要求：${proposal.id}`, `Acceptance: ${proposal.id}`)} rows={2} value={proposal.acceptance} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'acceptance', event.target.value)} /></Label><Label>{t('期望日期（可选）', 'Target date (optional)')}<Input type="date" aria-label={t(`任务期望日期：${proposal.id}`, `Proposal deadline: ${proposal.id}`)} value={proposal.deadline} disabled={proposal.status === 'adopted'} onChange={event => change(proposal, 'deadline', event.target.value)} /></Label>{proposal.status === 'suggested' && proposals.filter(item => item.id !== proposal.id && (item.status !== 'dismissed' || proposal.dependsOn.includes(item.id))).map(dependency => <Label className="goal-proposal-dependency" key={dependency.id}><Checkbox aria-label={t(`依赖：${proposal.title} → ${dependency.title}`, `Dependency: ${proposal.title} → ${dependency.title}`)} checked={proposal.dependsOn.includes(dependency.id)} onCheckedChange={checked => dependencies(proposal, dependency.id, checked === true)} />{dependency.title}</Label>)}{proposal.dependsOn.length > 0 && <p className="goal-meta">{t('依赖', 'Depends on')}: {proposal.dependsOn.map(id => proposals.find(item => item.id === id)?.title ?? id).join(' · ')}</p>}</div></CollapsibleContent></Collapsible></div>)}{(error || goal.assistant?.error) && <p className="goal-form-error" role="alert">{error || goal.assistant?.error}</p>}</section>
 }

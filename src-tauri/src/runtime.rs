@@ -1,3 +1,6 @@
+mod codex;
+#[cfg(all(test, unix))]
+mod codex_tests;
 mod kimi;
 #[cfg(all(test, unix))]
 mod kimi_tests;
@@ -33,6 +36,7 @@ struct Running {
     stop: AtomicBool,
     done: (Mutex<bool>, Condvar),
     kimi: Mutex<Option<Arc<kimi::KimiSession>>>,
+    codex: Mutex<Option<Arc<codex::CodexSession>>>,
 }
 
 #[derive(Clone)]
@@ -108,6 +112,9 @@ pub fn build_arguments(request: &StartRequest) -> Result<Vec<String>, String> {
         if request.runtime.adapter == "generic" {
             return Err("通用 Runtime 尚无原生会话续接协议".into());
         }
+    }
+    if request.codex_streaming {
+        return codex::arguments(request);
     }
     // Directory-global --last/--continue can attach another task's conversation.
     for arg in &request.runtime.args {
@@ -470,6 +477,7 @@ impl RuntimeManager {
             stop: AtomicBool::new(false),
             done: (Mutex::new(false), Condvar::new()),
             kimi: Mutex::new(None),
+            codex: Mutex::new(None),
         });
         processes.insert(key.clone(), control.clone());
         drop(processes);
@@ -486,8 +494,18 @@ impl RuntimeManager {
             format!("{} process started", sink.request.runtime.name),
             None,
         );
-        let (kimi_session, prompt_writer) = if sink.request.runtime.adapter == "kimi" {
+        let (codex_session, kimi_session, prompt_writer) = if sink.request.codex_streaming {
             (
+                child
+                    .stdin
+                    .take()
+                    .map(|input| codex::CodexSession::new(input, sink.clone())),
+                None,
+                None,
+            )
+        } else if sink.request.runtime.adapter == "kimi" {
+            (
+                None,
                 child
                     .stdin
                     .take()
@@ -500,6 +518,7 @@ impl RuntimeManager {
             // Feed native text adapters through stdin, preserving every byte.
             (
                 None,
+                None,
                 child
                     .stdin
                     .take()
@@ -510,9 +529,15 @@ impl RuntimeManager {
             .kimi
             .lock()
             .map_err(|_| "Kimi protocol state unavailable")? = kimi_session.clone();
+        *control
+            .codex
+            .lock()
+            .map_err(|_| "Codex protocol state unavailable")? = codex_session.clone();
         let processes = self.processes.clone();
         thread::spawn(move || {
-            let stdout_reader = if let Some(session) = &kimi_session {
+            let stdout_reader = if let Some(session) = &codex_session {
+                session.begin(stdout)
+            } else if let Some(session) = &kimi_session {
                 session.begin(stdout)
             } else {
                 stream(stdout, sink.clone(), "stdout")
@@ -526,17 +551,24 @@ impl RuntimeManager {
                     || kimi_session
                         .as_ref()
                         .and_then(|session| session.outcome())
+                        .is_some()
+                    || codex_session
+                        .as_ref()
+                        .and_then(|session| session.outcome())
                         .is_some();
                 if stopping && stopping_since.is_none() {
                     if let Some(session) = &kimi_session {
                         session.cancel();
                     }
-                    if kimi_session.is_none() || !stopped {
+                    if let Some(session) = &codex_session {
+                        session.cancel();
+                    }
+                    if (kimi_session.is_none() && codex_session.is_none()) || !stopped {
                         signal_group(control.pid, libc::SIGTERM);
                     }
                     stopping_since = Some(Instant::now());
                 }
-                if kimi_session.is_some()
+                if (kimi_session.is_some() || codex_session.is_some())
                     && stopping_since
                         .is_some_and(|start| start.elapsed() > Duration::from_millis(300))
                 {
@@ -573,6 +605,15 @@ impl RuntimeManager {
                 ("stopped", "Runtime stopped".into())
             } else if prompt_failed {
                 ("failed", "无法完整发送对话上下文；本次执行未完成".into())
+            } else if let Some(session) = &codex_session {
+                match session.outcome() {
+                    Some(Ok(())) => ("completed", "Codex app-server turn completed".into()),
+                    Some(Err(error)) => ("failed", error),
+                    None => (
+                        "failed",
+                        "Codex app-server exited without a completed turn".into(),
+                    ),
+                }
             } else if let Some(session) = &kimi_session {
                 match session.outcome() {
                     Some(Ok(())) => ("completed", "Kimi ACP prompt completed".into()),
@@ -697,6 +738,11 @@ impl RuntimeManager {
                     session.cancel();
                 }
             }
+            if let Ok(session) = control.codex.lock() {
+                if let Some(session) = &*session {
+                    session.cancel();
+                }
+            }
             signal_group(control.pid, libc::SIGTERM);
         }
         for control in controls {
@@ -737,6 +783,7 @@ mod tests {
             model: String::new(),
             reasoning_effort: None,
             session_id: None,
+            codex_streaming: false,
             directory: directory.to_string_lossy().into_owned(),
             prompt: "literal prompt $(unsafe) ' quoted".into(),
         }
@@ -753,6 +800,7 @@ mod tests {
             stop: AtomicBool::new(false),
             done: (Mutex::new(false), Condvar::new()),
             kimi: Mutex::new(None),
+            codex: Mutex::new(None),
         });
         manager
             .processes

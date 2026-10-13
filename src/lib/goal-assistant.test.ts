@@ -5,7 +5,7 @@ import { captureRunContext, migrateWorkspace } from './workspace'
 import { StatePersistence } from './state-persistence'
 import type { AppState, Run } from './types'
 import type { GoalAssistantDraft, GoalTaskProposal } from './goal-types'
-import { adoptGoalTaskProposal, adoptGoalTaskProposals, confirmGoalAssistantDraft, createGoalAssistantTask, dismissGoalTaskProposal, goalAssistantPrompt, goalAssistantRuntime, parseGoalAssistantResponse, processGoalAssistantRun, rollbackGoalAssistantAction, validateGoalAssistantDate, validateGoalTaskProposals } from './goal-assistant'
+import { adoptGoalTaskProposal, adoptGoalTaskProposals, confirmGoalAssistantDraft, createGoalAssistantTask, dismissGoalTaskProposal, goalAssistantMessageText, goalAssistantPrompt, goalAssistantRuntime, parseGoalAssistantResponse, processGoalAssistantRun, rollbackGoalAssistantAction, validateGoalAssistantDate, validateGoalTaskProposals } from './goal-assistant'
 
 const draft: GoalAssistantDraft = { title: '形成可以验证的方案', intent: '减少后续返工', expected: '完成一个可试用方案并明确限制', constraints: '只处理已约定范围', deadline: '2026-10-30', currentSummary: '现有实现尚待调查', criteria: [{ text: '可试用方案', baseline: '尚无验证', target: '主要流程通过试用', method: '演示约定流程并保存检查记录' }] }
 const block = (action: unknown) => `可读回复。\n\n\`\`\`goalward\n${JSON.stringify(action)}\n\`\`\``
@@ -26,6 +26,23 @@ function responseState(response: string, phase: 'clarify' | 'plan' = 'clarify') 
   state = { ...state, tasks: state.tasks.map(item => item.id === task.id ? { ...item, runs: [run], messages: [{ id: 'reply', role: 'assistant', text: response.replaceAll('VERSION', String(goal.version)), runId: run.id, createdAt: run.createdAt }] } : item) }
   return { state, goal, task, run }
 }
+describe('streamed goal assistant prose', () => {
+  it('shows incomplete prose immediately while withholding every split of the internal action fence', () => {
+    expect(goalAssistantMessageText('先确定')).toBe('先确定')
+    const response = '先确定成功标准。\n\n```goalward\r\n{"draft":null}\n```'
+    const start = response.indexOf('```')
+    for (let end = start; end <= response.length; end++) {
+      expect(goalAssistantMessageText(response.slice(0, end))).toBe('先确定成功标准。')
+    }
+    expect(goalAssistantMessageText('```goalward\n{"draft":null}')).toBe('')
+  })
+  it('preserves ordinary Markdown code blocks and fences mentioned inline', () => {
+    const response = '使用 `goalward` 格式。\n```ts\nconst x = 1\n```\n继续说明。'
+    expect(goalAssistantMessageText(response)).toBe(response)
+    expect(goalAssistantMessageText('```ts\nconst x = 1\n```')).toBe('```ts\nconst x = 1\n```')
+    expect(goalAssistantMessageText('说明 ```goalward 示例')).toBe('说明 ```goalward 示例')
+  })
+})
 describe('untrusted assistant action parsing', () => {
   it('accepts a single final action and derives statuses and source versions itself', () => {
     const action = parseGoalAssistantResponse(block({ type: 'clarify', baseGoalVersion: 1, draft }), 1, 'clarify')

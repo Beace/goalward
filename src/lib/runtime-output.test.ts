@@ -21,7 +21,90 @@ const start = (id: string) => ({ type: 'message_start', message: { id, role: 'as
 const textBlock = (index = 0) => ({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } })
 const delta = (text: string, index = 0) => ({ type: 'content_block_delta', index, delta: { type: 'text_delta', text } })
 
+describe('Codex app-server activity', () => {
+  it('shows turn, public reasoning and typed tool progress without exposing raw reasoning or treating usage as a new phase', () => {
+    const f = fixture('codex')
+    const raw = (method: string, data: object = {}) => f.json({ method, params: { threadId: 'thread', turnId: 'turn', ...data } })
+    const item = (type: string, data: object) => f.json({ type: 'codex.app_server.item', threadId: 'thread', turnId: 'turn', eventType: type, item: data })
+    let state = applyRuntimeEvent(f.state, f.json({ type: 'thread.started', thread_id: 'thread' }))
+    state = applyRuntimeEvent(state, raw('turn/started', { turn: { id: 'turn', status: 'inProgress' } }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', label: '等待 Runtime 输出' })
+    state = applyRuntimeEvent(state, raw('item/reasoning/summaryPartAdded', { itemId: 'thinking', summaryIndex: 0 }))
+    state = applyRuntimeEvent(state, raw('item/reasoning/summaryTextDelta', { itemId: 'thinking', summaryIndex: 0, delta: '先核对' }))
+    state = applyRuntimeEvent(state, raw('item/reasoning/summaryTextDelta', { itemId: 'thinking', summaryIndex: 0, delta: '约束。' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', label: '正在思考', summary: '先核对约束。' })
+    state = applyRuntimeEvent(state, raw('item/reasoning/textDelta', { itemId: 'thinking', delta: 'PRIVATE_RAW_THINKING' }))
+    state = applyRuntimeEvent(state, item('item.completed', { id: 'thinking', type: 'reasoning', summary: ['先核对约束。'], content: ['PRIVATE_CONTENT'], signature: 'PRIVATE_SIGNATURE' }))
+    expect(state.tasks[0].messages).toHaveLength(1)
+    expect(state.tasks[0].messages[0]).toMatchObject({ kind: 'reasoning', text: '先核对约束。', streaming: false })
+    expect(JSON.stringify(state.tasks[0].messages)).not.toContain('PRIVATE')
+    state = applyRuntimeEvent(state, item('item.started', { id: 'search', type: 'webSearch', query: 'API 资料' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'web-search', summary: 'API 资料' })
+    state = applyRuntimeEvent(state, item('item.started', { id: 'mcp', type: 'mcpToolCall', server: 'docs', tool: 'read', arguments: { topic: 'streaming' }, status: 'inProgress' }))
+    state = applyRuntimeEvent(state, raw('item/mcpToolCall/progress', { itemId: 'mcp', message: '正在读取文档' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'tool', summary: '正在读取文档' })
+    state = applyRuntimeEvent(state, raw('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 24, outputTokens: 8 }, total: { inputTokens: 200, outputTokens: 100 } } }))
+    state = applyRuntimeEvent(state, raw('model/rerouted', { fromModel: 'configured', toModel: 'actual', reason: 'capacity' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'tool', summary: '正在读取文档' })
+    state = applyRuntimeEvent(state, item('item.completed', { id: 'mcp', type: 'mcpToolCall', status: 'completed', result: { text: '收到资料' } }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', label: '工具已返回，等待 Runtime 下一步' })
+    state = applyRuntimeEvent(state, raw('item/agentMessage/delta', { itemId: 'answer', delta: '可以继续整理任务。' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('responding')
+    state = applyRuntimeEvent(state, f.event('stopped'))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('stopped')
+    expect(state.tasks[0].messages.every(message => !message.streaming)).toBe(true)
+  })
+
+  it('ignores foreign thread or turn public activity during trace recovery', () => {
+    const f = fixture('codex')
+    let state = applyRuntimeEvent(f.state, f.json({ type: 'thread.started', thread_id: 'thread' }))
+    state = applyRuntimeEvent(state, f.json({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } }))
+    for (const [threadId, turnId] of [['foreign', 'turn'], ['thread', 'other-turn']]) {
+      state = applyRuntimeEvent(state, f.json({ method: 'item/agentMessage/delta', params: { threadId, turnId, itemId: 'answer', delta: 'FOREIGN_REPLY' } }))
+      state = applyRuntimeEvent(state, f.json({ type: 'codex.app_server.item', threadId, turnId, eventType: 'item.started', item: { id: 'tool', type: 'commandExecution', command: 'FOREIGN_COMMAND' } }))
+    }
+    expect(state.tasks[0].messages).toHaveLength(0)
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('waiting')
+  })
+})
+
 describe('public streaming output', () => {
+  it('appends Codex app-server deltas across transport fragments and reconciles the final item without duplicates', () => {
+    const f = fixture('codex')
+    const item = (type: string, text: string) => f.json({ type, item: { id: 'answer', type: 'agent_message', text } })
+    const change = (delta: string) => f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta } })
+    let state = applyRuntimeEvent(f.state, item('item.started', ''))
+    state = applyRuntimeEvent(state, change('先确定'))
+    const first = state.tasks[0].messages[0]
+    expect(first).toMatchObject({ text: '先确定', streaming: true })
+    const frame = change('成功标准。')
+    for (let offset = 0; offset < frame.text.length; offset += 7) {
+      state = applyRuntimeEvent(state, f.event('stdout', frame.text.slice(offset, offset + 7)))
+    }
+    expect(state.tasks[0].messages).toHaveLength(1)
+    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '先确定成功标准。', streaming: true })
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('responding')
+    // Replaying a cache-less persisted trace must append each frame only once.
+    const restored = JSON.parse(JSON.stringify(state)) as AppState
+    const final = item('item.completed', '先确定成功标准。再核对现状。')
+    const replayed = applyRuntimeEvent(restored, final)
+    expect(replayed).toEqual(applyRuntimeEvent(state, final))
+    expect(replayed.tasks[0].messages).toHaveLength(1)
+    expect(replayed.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '先确定成功标准。再核对现状。', streaming: false })
+    expect(first.text).toBe('先确定')
+  })
+
+  it.each(['failed', 'stopped'] as const)('retains a Codex delta-only partial reply after %s and journal recovery', kind => {
+    const f = fixture('codex')
+    const delta = f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '未完成的回复' } })
+    let state = applyRuntimeEvent(f.state, delta)
+    state = applyRuntimeEvent(state, f.event(kind))
+    expect(state.tasks[0].messages[0]).toMatchObject({ text: '未完成的回复', streaming: false })
+    const restored = JSON.parse(JSON.stringify(state)) as AppState
+    restored.tasks[0].messages = []
+    expect(recoverInterruptedState(restored).tasks[0].messages[0]).toMatchObject({ text: '未完成的回复', streaming: false })
+  })
+
   it('shows Claude text before the final message, then replaces the same message without duplicate result text', () => {
     const f = fixture()
     let state = applyRuntimeEvent(f.state, f.stream(start('message-1')))
