@@ -2,6 +2,15 @@
 
 本文件适用于整个项目，包括工作台、设置页、后续页面、共享组件和交互动效。后续设计与开发必须遵循以下要求。
 
+## Working language (mandatory)
+
+- **Write GitHub Pull Request titles and descriptions in English.** This includes headings, change summaries, implementation details, validation results, risks, and limitations. Do not add a parallel non-English description.
+- **Write newly added or edited code comments and docstrings in English**, including comments in production code, tests, scripts, and configuration files.
+- **Write unit test suite and case descriptions in English**, including names passed to `describe`, `it`, and `test`, test helper documentation, and authored assertion or failure messages.
+- **Write development process documents in English**, including implementation plans, progress notes, investigation notes, validation reports, and handoff notes. This applies to intermediate drafts and final engineering notes, whether committed to the repository or saved as task artifacts.
+- Preserve localized product copy, translation keys, test inputs and expected values that exercise non-English behavior, and verbatim user text, evidence, quotations, or command output. Write the surrounding developer explanation in English. User-facing conversation follows the user's requested language.
+- Apply these requirements to the content being added or edited; do not translate unrelated legacy content as part of an unrelated task. Before committing or creating/updating a PR, review the changed comments, test descriptions, process documents, and PR text for compliance. Use the repository's [Pull Request template](.github/pull_request_template.md).
+
 ## 1. 产品与设计依据
 
 - **桌面应用使用 Tauri 2 构建，首个交付平台为 macOS。** 当前前端为 React + TypeScript + Vite，基础组件为 shadcn/ui；不要在后续开发中未经需求变更替换为另一套桌面框架。
