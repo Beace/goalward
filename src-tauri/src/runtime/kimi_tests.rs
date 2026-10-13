@@ -46,6 +46,7 @@ case "$line" in *'"method":"session/prompt"'*) ;; *) exit 15;; esac
         reasoning_effort: None,
         session_id: None,
         codex_streaming: false,
+        additional_directories: vec![],
         directory: directory.to_string_lossy().into(),
         prompt: "literal $(do not execute) 中文".into(),
     }
@@ -109,7 +110,7 @@ while read -r line; do :; done
             output_records += 1;
             output_bytes += event.text.len();
         }
-        if event.text.contains("kimi.permission_requested") {
+        if event.text.contains("runtime.permission_requested") {
             break serde_json::from_str::<serde_json::Value>(&event.text).unwrap();
         }
     };
@@ -157,6 +158,8 @@ fn kimi_stop_sends_cancel_while_permission_is_pending() {
     let directory = tempfile::tempdir().unwrap();
     let ending = format!(
         r#"{PERMISSION}
+case "$line" in *'"id":73'*'"outcome":"cancelled"'*) ;; *) exit 18;; esac
+read -r line
 case "$line" in *'"method":"session/cancel"'*) printf cancelled > cancelled;; *) exit 17;; esac
 exit 0
 "#
@@ -167,7 +170,7 @@ exit 0
             .recv_timeout(Duration::from_secs(5))
             .unwrap()
             .text
-            .contains("kimi.permission_requested")
+            .contains("runtime.permission_requested")
         {
             break;
         }
@@ -713,16 +716,15 @@ fn kimi_resume_failure_never_creates_an_empty_session_or_sends_prompt() {
 }
 
 #[test]
-fn kimi_waits_for_advertised_close_ack_before_terminal_completion() {
+fn kimi_retains_advertised_close_capable_session_after_turn_completion() {
     let directory = tempfile::tempdir().unwrap();
     let request = fixture(
         directory.path(),
         r#"printf '%s\n' '{"jsonrpc":"2.0","id":6,"result":{"stopReason":"end_turn"}}'
-read -r line
-case "$line" in *'"method":"session/close"'*'"sessionId":"fixture-session"'*) ;; *) exit 90;; esac
-printf 'persisted' > close-confirmed
-printf '%s\n' '{"jsonrpc":"2.0","id":7,"result":{}}'
-while read -r line; do :; done
+while read -r line; do
+  printf '%s\n' "$line" >> after-turn-requests
+  case "$line" in *'"method":"session/close"'*) printf '%s\n' '{"jsonrpc":"2.0","id":7,"result":{}}';; esac
+done
 "#,
     );
     let script = fs::read_to_string(&request.runtime.executable)
@@ -733,17 +735,18 @@ while read -r line; do :; done
         );
     fs::write(&request.runtime.executable, script).unwrap();
     let (manager, rx) = manager(directory.path(), request);
-    let events = terminal(&rx);
-    manager.shutdown();
-    assert_eq!(
-        events.last().unwrap().kind,
-        "completed",
-        "{}",
-        events.last().unwrap().text
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    assert_eq!(manager.connections.lock().unwrap().len(), 1);
+    assert!(manager.processes.lock().unwrap().is_empty());
+    assert!(
+        !directory.path().join("after-turn-requests").exists(),
+        "session/close must not discard the live native session"
     );
-    assert_eq!(
-        fs::read_to_string(directory.path().join("close-confirmed")).unwrap(),
-        "persisted"
+    manager.shutdown();
+    assert!(
+        fs::read_to_string(directory.path().join("after-turn-requests"))
+            .unwrap()
+            .contains("session/close")
     );
 }
 
@@ -783,7 +786,7 @@ while read -r line; do :; done
         );
         assert!(!events
             .iter()
-            .any(|event| event.text.contains("kimi.permission_requested")));
+            .any(|event| event.text.contains("runtime.permission_requested")));
         assert_eq!(
             events
                 .iter()
@@ -828,7 +831,7 @@ while read -r line; do :; done
             loop {
                 let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
                 assert_ne!(event.kind, "failed", "{}", event.text);
-                if event.text.contains("kimi.permission_requested") {
+                if event.text.contains("runtime.permission_requested") {
                     let frame: serde_json::Value = serde_json::from_str(&event.text).unwrap();
                     manager
                         .respond_permission(
@@ -852,7 +855,7 @@ while read -r line; do :; done
         );
         assert!(!events
             .iter()
-            .any(|event| event.text.contains("kimi.permission_requested")));
+            .any(|event| event.text.contains("runtime.permission_requested")));
     }
 }
 
@@ -869,11 +872,85 @@ fn kimi_auto_never_selects_a_rejection_or_unknown_option() {
     loop {
         let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_ne!(event.kind, "failed", "{}", event.text);
-        if event.text.contains("kimi.permission_requested") {
+        if event.text.contains("runtime.permission_requested") {
             break;
         }
     }
     manager.stop("run-kimi", None).unwrap();
     assert_eq!(terminal(&rx).last().unwrap().kind, "stopped");
+    manager.shutdown();
+}
+
+#[test]
+fn kimi_native_connection_survives_turn_completion_and_cancel_without_reinitializing() {
+    let directory = tempfile::tempdir().unwrap();
+    let ending = r#"printf '%s\n' "$$" >> connection-pids
+printf '%s\n' '{"jsonrpc":"2.0","id":6,"result":{"stopReason":"end_turn"}}'
+turn=1
+active_id=6
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> continued-requests
+  case "$line" in
+    *'"method":"session/prompt"'*)
+      turn=$((turn + 1))
+      active_id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"continued public partial"}}}}'
+      if [ "$turn" -ne 2 ]; then printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$active_id"; fi;;
+    *'"method":"session/cancel"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$active_id";;
+    *) exit 91;;
+  esac
+done
+"#;
+    let request = fixture(directory.path(), ending);
+    let (manager, rx) = manager(directory.path(), request.clone());
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    for round in 2..=3 {
+        let mut next = request.clone();
+        next.run_id = format!("kimi-turn-{round}");
+        next.session_id = Some("fixture-session".into());
+        next.prompt = format!("turn {round}");
+        let (tx, rx) = mpsc::channel();
+        manager
+            .start(
+                next.clone(),
+                Arc::new(move |event| {
+                    let _ = tx.send(event);
+                }),
+            )
+            .unwrap();
+        if round == 2 {
+            loop {
+                let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                if event.text.contains("continued public partial") {
+                    break;
+                }
+                assert_ne!(event.kind, "failed", "{}", event.text);
+            }
+            assert!(manager
+                .steer(&next.run_id, &next.member_id, "unsupported steering")
+                .is_err());
+            manager.stop(&next.run_id, Some(&next.member_id)).unwrap();
+        }
+        let events = terminal(&rx);
+        assert_eq!(
+            events.last().unwrap().kind,
+            if round == 2 { "stopped" } else { "completed" }
+        );
+        assert!(events.iter().all(|event| event.run_id == next.run_id));
+        assert_eq!(manager.connections.lock().unwrap().len(), 1);
+    }
+    assert_eq!(
+        fs::read_to_string(directory.path().join("connection-pids"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    let requests = fs::read_to_string(directory.path().join("continued-requests")).unwrap();
+    assert!(
+        !requests.contains("initialize")
+            && !requests.contains("session/new")
+            && !requests.contains("unsupported steering")
+    );
     manager.shutdown();
 }

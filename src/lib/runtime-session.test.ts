@@ -34,11 +34,21 @@ describe('task-scoped native session continuity', () => {
     expect(recoverInterruptedState(saved).tasks[0].runs[0].members[0].sessionId).toBe('native-session')
   })
 
-  it('keeps the session when model, effort or permissions change', () => {
+  it('keeps the session when model or effort changes', () => {
     const { task, member, runtime } = fixture()
     task.runs[0].members[0].sessionId = 'same-session'
     task.directory += '/'
     expect(reusableSession(task, { ...member, modelId: 'other-model', reasoningEffort: 'high' }, { ...runtime, defaultModel: 'other-model' })).toBe('same-session')
+  })
+
+  it('starts a new native session when additional roots or permission scope changes', () => {
+    const { task, member, runtime } = fixture()
+    task.runs[0].members[0].sessionId = 'old-scope'
+    task.workingDirectories = [task.directory, '/second-project']
+    expect(reusableSession(task, member, runtime)).toBeUndefined()
+    task.runs[0].workingDirectories = [...task.workingDirectories]
+    expect(reusableSession(task, member, runtime)).toBe('old-scope')
+    expect(reusableSession(task, member, { ...runtime, permissions: { kimi: { mode: 'manual' } } })).toBeUndefined()
   })
 
   it('isolates runtime identity, executable, launch configuration, directories, tasks and members', () => {

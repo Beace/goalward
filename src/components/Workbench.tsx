@@ -4,7 +4,8 @@ import { ArrowDown, ArrowRight, ArrowUp, Brain, CalendarDays, ChartNoAxesCombine
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
+import { WorkspaceMentionInput } from './WorkspaceMentionInput'
+import { useComposerTextarea } from '@/hooks/use-composer-textarea'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -31,6 +32,7 @@ import { groupConversationMessages } from '@/lib/conversation'
 import { formatTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 import { isAcceptedTaskDone } from '@/lib/goal-progress'
+import { canAppendRunInput, queuedRunInput } from '@/lib/runtime-capabilities'
 import type { Member, Message, Settings, Task } from '@/lib/types'
 
 interface Props {
@@ -42,6 +44,7 @@ interface Props {
   taskActions?: ReactNode
   operations?: ReactNode; agentActions?:(memberId:string)=>ReactNode; goalTitle?:string; onGoal?:()=>void
   onGoalProgress?:()=>void; goalProgressLabel?:string
+  workingDirectories?: string[]
 }
 function ReasoningPart({ part }: { part: Message }) {
   const { t } = useI18n()
@@ -55,7 +58,7 @@ function ReasoningPart({ part }: { part: Message }) {
     <CollapsibleContent><pre className="reasoning-content" tabIndex={0} aria-label={t('思考过程', 'Reasoning')}>{part.text}</pre></CollapsibleContent>
   </Collapsible>
 }
-export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange, onSend, onStop, onSettings, onInspector, onToggleInspector, inspectorOpen, onDuplicate, artifacts: suppliedArtifacts, onOpenArtifact, taskActions, operations, agentActions, goalTitle, onGoal, onGoalProgress, goalProgressLabel }: Props) {
+export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange, onSend, onStop, onSettings, onInspector, onToggleInspector, inspectorOpen, onDuplicate, artifacts: suppliedArtifacts, onOpenArtifact, taskActions, operations, agentActions, goalTitle, onGoal, onGoalProgress, goalProgressLabel, workingDirectories }: Props) {
   const { t } = useI18n()
   const artifacts = useMemo(() => suppliedArtifacts ?? getTaskArtifacts(task), [suppliedArtifacts, task.messages, task.events, task.runs, task.directory, task.id, task.artifacts])
   const [tab, setTab] = useState('conversation')
@@ -83,9 +86,13 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
   const chatContent = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
   const running = task.runs.some(r => r.members.some(m => m.status === 'running'))
+  const target = task.mode === 'solo' ? task.members[0]?.id ?? '' : recipient
+  const canAppend = running && canAppendRunInput(task, target)
+  const queuedInput = canAppend && queuedRunInput(task, target)
   const latest = task.runs.at(-1)
   const selectedRun = task.runs.find(r => r.id === selectedRunId) ?? latest
   const historic = !!selectedRun && selectedRun !== latest
+  const mentionDirectories = (running || historic) && selectedRun ? selectedRun.workingDirectories ?? [selectedRun.directory] : workingDirectories ?? task.workingDirectories ?? (task.directory ? [task.directory] : [])
   const visibleArtifacts = historic ? artifacts.filter(item => item.runId === selectedRun?.id) : artifacts
   const displayedMembers = running || historic ? selectedRun?.members ?? task.members : task.members
   const visibleMembers = task.mode === 'solo' && !running && !historic ? displayedMembers.slice(0, 1) : displayedMembers
@@ -115,18 +122,7 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
     if (!members.some(m => m.id === configMemberId)) setConfigMemberId(members[0]?.id ?? '')
   }, [task.members, recipient, memberId, configMemberId, historic, selectedRun])
 
-  useLayoutEffect(() => {
-    const node = instruction.current
-    if (!node) return
-    const resize = () => { node.style.height = '0px'; node.style.height = `${Math.min(160, Math.max(40, node.scrollHeight))}px` }
-    resize()
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(() => {
-      if (node.clientWidth !== width) { width = node.clientWidth; resize() }
-    })
-    let width = node.clientWidth
-    observer?.observe(node)
-    return () => observer?.disconnect()
-  }, [prompt, historic, task.demo, tab])
+  useComposerTextarea(instruction, prompt, `${historic}:${task.demo}:${tab}`)
 
   function patchMember(id: string, patch: Partial<Member>) { onChange({ ...task, members: task.members.map(m => m.id === id ? { ...m, ...patch } : m) }) }
   function changeMode(mode: 'solo' | 'team') {
@@ -140,7 +136,7 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
     onChange({ ...task, mode, members })
   }
   async function send() {
-    if ((!prompt.trim() && !clipboard.attachments.length) || clipboard.pending.current || sendPending.current || running || historic || task.demo) return
+    if ((!prompt.trim() && !clipboard.attachments.length) || clipboard.pending.current || sendPending.current || (running && !canAppend) || historic || task.demo) return
     sendPending.current = true
     const submitted = prompt
     const submittedAttachments = clipboard.attachments
@@ -194,7 +190,7 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
             <div className="message-body">
               <div className="message-heading"><strong>{message.role === 'user' ? t('你', 'You') : message.role === 'system' ? t('执行记录', 'Run history') : member?.name ?? 'Agent'}</strong>{message.role === 'assistant' && <span className="member-label">{member?.role}</span>}<time>{formatTime(message.createdAt)}</time></div>
               <div className="message-text">{message.role === 'assistant' ? message.parts.map(part => <div className={`message-part message-part-${part.kind ?? 'message'}`} key={part.id}>{part.kind === 'reasoning' ? <ReasoningPart part={part} /> : <MarkdownMessage text={part.text} onOpenLink={onOpenArtifact ? href => {
-                const artifact = artifactFromLink(href, { directory: task.runs.find(run => run.id === part.runId)?.directory ?? task.directory, runId: part.runId, memberId: part.memberId, sourceId: part.id, createdAt: part.createdAt }, task.id)
+                const artifact = artifactFromLink(href, { directory: task.runs.find(run => run.id === part.runId)?.directory ?? task.legacyArtifactDirectory ?? task.directory, runId: part.runId, memberId: part.memberId, sourceId: part.id, createdAt: part.createdAt }, task.id)
                 if (artifact) onOpenArtifact(artifacts.find(item => item.id === artifact.id) ?? artifact)
               } : undefined} />}</div>) : message.role === 'user' ? <UserMessage text={message.text} /> : message.text}</div>
               {messageArtifacts.length > 0 && <TooltipProvider><div className="message-artifacts" role="group" aria-label={t('回复产物', 'Response artifacts')}>
@@ -219,8 +215,8 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
       <div className="composer">
         <div className="composer-recipient" ref={node => { recipientTrigger.current = node?.querySelector('button') ?? null }}><ComposerRecipient task={task} settings={settings} selectedRun={selectedRun} historic={historic} running={running} recipient={recipient} onRecipient={setRecipient} onPatch={patchMember} onManage={() => setManaging(true)} onSettings={onSettings} /></div>
         <ComposerAttachments attachments={clipboard.attachments} importing={clipboard.importing} onRemove={clipboard.remove} />
-        <Textarea ref={instruction} onPaste={clipboard.onPaste} aria-label={t('任务指令', 'Task instruction')} aria-describedby="composer-keyboard-hint" disabled={task.demo || historic} placeholder={task.demo ? t('创建真实任务后开始执行…', 'Create a real task to start…') : historic ? t('历史执行只读', 'Past runs are read-only') : running ? t('可以先写下下一条指令，当前执行结束后发送…', 'Write your next instruction; send it when this run finishes…') : t('描述任务，或粘贴图片和文件…', 'Describe the task, or paste images and files…')} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); void send() } }} />
-        <div className="composer-send-row"><span id="composer-keyboard-hint" className="sr-only">{t('⌘ Enter 或 Ctrl Enter 发送，Enter 换行', 'Press Command+Enter or Control+Enter to send; Enter adds a line')}</span><Button className="composer-send" size="icon" onClick={() => void send()} disabled={task.demo || historic || sending || running || clipboard.importing || (!prompt.trim() && !clipboard.attachments.length)} aria-label={sending ? t('正在发送指令', 'Sending instruction') : t('发送指令', 'Send instruction')} title={running ? t('当前执行结束后可发送', 'You can send after the current run finishes') : t('发送指令（⌘ Enter / Ctrl Enter）', 'Send instruction (Command+Enter / Control+Enter)')}>{sending ? <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" /> : <ArrowUp size={16} />}</Button></div>
+        <WorkspaceMentionInput ref={instruction} directories={mentionDirectories} onPaste={clipboard.onPaste} aria-label={t('任务指令', 'Task instruction')} aria-describedby="composer-keyboard-hint" disabled={task.demo || historic} placeholder={task.demo ? t('创建真实任务后开始执行…', 'Create a real task to start…') : historic ? t('历史执行只读', 'Past runs are read-only') : canAppend ? queuedInput ? t('追加消息会排队处理；输入 @ 引用文件或文件夹…', 'Queue a follow-up; type @ to reference a file or folder…') : t('向运行中的 Agent 追加消息；输入 @ 引用文件或文件夹…', 'Message the running agent; type @ to reference a file or folder…') : running ? t('可以先写下下一条指令，当前执行结束后发送…', 'Write your next instruction; send it when this run finishes…') : t('描述任务，输入 @ 引用文件，或粘贴图片和文件…', 'Describe the task, type @ to reference files, or paste images and files…')} value={prompt} onValueChange={setPrompt} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); void send() } }} />
+        <div className="composer-send-row"><span id="composer-keyboard-hint" className={canAppend ? 'text-xs text-muted-foreground' : 'sr-only'}>{canAppend ? queuedInput ? t('排队追加消息 · 当前执行继续', 'Queue a follow-up · Current work continues') : t('追加消息到当前执行', 'Append to current run') : t('⌘ Enter 或 Ctrl Enter 发送，Enter 换行', 'Press Command+Enter or Control+Enter to send; Enter adds a line')}</span><Button className="composer-send" size="icon" onClick={() => void send()} disabled={task.demo || historic || sending || (running && !canAppend) || clipboard.importing || (!prompt.trim() && !clipboard.attachments.length)} aria-label={sending ? t('正在发送指令', 'Sending instruction') : canAppend ? queuedInput ? t('排队追加消息', 'Queue follow-up message') : t('追加消息', 'Append message') : t('发送指令', 'Send instruction')} title={running && !canAppend ? t('当前 Runtime 暂不支持运行中追加消息', 'This runtime does not support messages during a run') : t('发送指令（⌘ Enter / Ctrl Enter）', 'Send instruction (Command+Enter / Control+Enter)')}>{sending ? <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" /> : <ArrowUp size={16} />}</Button></div>
       </div>
     </div>
     }<Dialog open={managing} onOpenChange={setManaging}><DialogContent onCloseAutoFocus={event => { event.preventDefault(); recipientTrigger.current?.focus() }}><DialogHeader><DialogTitle>{t('成员与 Runtime', 'Members & runtimes')}</DialogTitle><DialogDescription>{t('管理成员与下一次执行配置。查看或配置成员不会改变发送目标。', 'Manage members and their next-run settings. Viewing or configuring a member does not change the message recipient.')}</DialogDescription></DialogHeader>{configuration}{!historic && !task.demo && agentActions?.(configMemberId)}</DialogContent></Dialog>

@@ -125,6 +125,8 @@ export interface GoalReview {
 }
 export interface Goal {
   id: string
+  /** Ordered fixed roots; the first directory is the native Agent cwd. */
+  workingDirectories?: string[]
   title: string
   intent: string
   expected: string

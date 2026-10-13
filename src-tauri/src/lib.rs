@@ -12,6 +12,7 @@ mod runtime;
 mod storage;
 mod traex_query;
 mod types;
+mod workspace_files;
 
 use runtime::RuntimeManager;
 use serde_json::Value;
@@ -122,17 +123,21 @@ async fn ensure_goal_assistant_directory(
 }
 
 #[tauri::command]
-fn start_run(
+async fn start_run(
     request: StartRequest,
     app: tauri::AppHandle,
     services: State<'_, AppServices>,
 ) -> Result<(), String> {
-    services.runtimes.start(
-        request,
-        Arc::new(move |event| {
-            let _ = app.emit("runtime-event", event);
-        }),
-    )
+    let runtimes = services.runtimes.clone();
+    let pending = runtimes.prepare_start(&request)?;
+    let callback = Arc::new(move |event| {
+        let _ = app.emit("runtime-event", event);
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        runtimes.start_prepared(request, callback, pending)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -142,6 +147,26 @@ fn stop_run(
     services: State<'_, AppServices>,
 ) -> Result<(), String> {
     services.runtimes.stop(&run_id, member_id.as_deref())
+}
+
+#[tauri::command]
+fn active_runtime_turns(
+    services: State<'_, AppServices>,
+) -> Result<Vec<crate::types::ActiveRuntimeTurn>, String> {
+    services.runtimes.active_turns()
+}
+
+#[tauri::command]
+async fn steer_run(
+    run_id: String,
+    member_id: String,
+    prompt: String,
+    services: State<'_, AppServices>,
+) -> Result<(), String> {
+    let runtimes = services.runtimes.clone();
+    tauri::async_runtime::spawn_blocking(move || runtimes.steer(&run_id, &member_id, &prompt))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -280,6 +305,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             fonts::list_system_fonts,
+            workspace_files::search_workspace_entries,
             load_state,
             load_workspace_summary,
             load_task_event_page,
@@ -292,6 +318,8 @@ pub fn run() {
             ensure_goal_assistant_directory,
             start_run,
             stop_run,
+            steer_run,
+            active_runtime_turns,
             respond_runtime_permission,
             export_task,
             open_external_url,

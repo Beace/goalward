@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { applyRuntimeEvent, createInitialState, mergeRecoveredEvents, recoverInterruptedState } from '@/lib/domain'
-import { loadState, loadTaskHistory, loadTraceEvents, onRuntimeEvent, saveState } from '@/lib/bridge'
+import { activeRuntimeTurns, loadState, loadTaskHistory, loadTraceEvents, onRuntimeEvent, saveState } from '@/lib/bridge'
 import { migrateWorkspace, reconcileSteps } from '@/lib/workspace'
 import type { AppState, RuntimeEvent, Task } from '@/lib/types'
 import { completionNotifications } from '@/lib/completion-notifications'
@@ -87,6 +87,7 @@ export function useAppState() {
         if (!latest) throw new Error(translate('任务已不存在', 'The task no longer exists'))
         const historyTask = { ...latest, events }
         const tail = await loadTraceEvents({ ...snapshot, tasks: [historyTask] })
+        const active = await activeRuntimeTurns()
         signal?.throwIfAborted()
         // Merge into the current metadata, preserving edits made while loading.
         // Live events were buffered so an incomplete protocol prefix could not
@@ -96,7 +97,7 @@ export function useAppState() {
           if (!target) throw new Error(translate('任务已不存在', 'The task no longer exists'))
           const base = { ...state, tasks: [{ ...target, events, historyPending: undefined }] }
           const merged = mergeRecoveredEvents(base, [...tail, ...(buffered.current.get(taskId) ?? [])])
-          const recovered = recoverInterruptedState(merged).tasks[0]
+          const recovered = recoverInterruptedState(merged, active).tasks[0]
           buffered.current.delete(taskId)
           return { ...state, tasks: state.tasks.map(task => task.id === taskId ? reconcileSteps(recovered) : task) }
         })
@@ -127,9 +128,6 @@ export function useAppState() {
           const events = await loadTraceEvents(data)
           if (disposed) return
           initial = mergeRecoveredEvents(initial, events)
-          initial = recoverInterruptedState(initial)
-          const tasks = initial.tasks.map(reconcileSteps)
-          if (tasks.some((task, index) => task !== initial.tasks[index])) initial = { ...initial, tasks }
         }
         current.current = initial
         unlisten = await onRuntimeEvent(event => {
@@ -141,6 +139,25 @@ export function useAppState() {
           } else void update(s => { const next = applyRuntimeEvent(s, event); return next === s ? s : { ...next, tasks: next.tasks.map(reconcileSteps) } }).catch(() => {})
         })
         if (disposed) { release(); return }
+        // Subscribe before reconciling live status. A native process survives a
+        // webview reload; retain its turn instead of falsely unlocking edits.
+        const active = await activeRuntimeTurns()
+        if (disposed) { release(); return }
+        if (data && !deferredHistory) {
+          // A terminal record may have been written between the first history
+          // read and subscription. The backend removes native active keys only
+          // after the terminal trace is durable, so read this bounded tail.
+          const activeKeys = new Set(active.map(turn => `${turn.runId}:${turn.memberId}`))
+          const uncertain = current.current!.tasks.filter(task => task.runs.some(run => run.members.some(member => member.status === 'running' && !activeKeys.has(`${run.id}:${member.id}`))))
+          if (uncertain.length) {
+            const tail = await loadTraceEvents({ ...current.current!, tasks: uncertain })
+            if (disposed) { release(); return }
+            current.current = mergeRecoveredEvents(current.current!, tail)
+          }
+          current.current = migrateWorkspace(recoverInterruptedState(current.current!, active))
+          const tasks = current.current.tasks.map(reconcileSteps)
+          if (tasks.some((task, index) => task !== current.current!.tasks[index])) current.current = { ...current.current, tasks }
+        }
         // A clean reopen has no migration/recovery changes to commit. Avoid a
         // full IPC upload, serialization and fsync of the entire saved history.
         if (current.current !== data) await persist(current.current)

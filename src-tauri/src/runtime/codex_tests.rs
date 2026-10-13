@@ -426,7 +426,7 @@ fn codex_public_progress_and_metadata_are_emitted_before_completion_and_sanitize
         .unwrap();
     assert_eq!(
         metadata,
-        &serde_json::json!({"type":"codex.app_server.thread_ready","threadId":"fixture-thread","model":"fixture-model","modelProvider":"fixture-provider","reasoningEffort":"medium"})
+        &serde_json::json!({"type":"codex.app_server.thread_ready","source":"server","threadId":"fixture-thread","model":"fixture-model","modelProvider":"fixture-provider","reasoningEffort":"medium"})
     );
     for method in [
         "turn/started",
@@ -521,12 +521,12 @@ fn codex_public_progress_requires_the_exact_current_thread_and_turn() {
 }
 
 #[test]
-fn codex_streaming_defaults_off_and_rejects_non_readonly_or_custom_arguments() {
+fn codex_uses_native_protocol_by_default_and_preserves_readonly_restrictions() {
     let directory = tempfile::tempdir().unwrap();
     let mut request = fixture(directory.path(), COMPLETE, false);
     assert_eq!(build_arguments(&request).unwrap()[0], "app-server");
     request.codex_streaming = false;
-    assert_eq!(build_arguments(&request).unwrap()[0], "exec");
+    assert_eq!(build_arguments(&request).unwrap()[0], "app-server");
     request.codex_streaming = true;
     request.runtime.args = vec!["--yolo".into()];
     assert!(build_arguments(&request).is_err());
@@ -655,4 +655,773 @@ fn installed_codex_goal_assistant_streams_real_model_and_resumes() {
     }
     manager.shutdown();
     assert!(manager.processes.lock().unwrap().is_empty());
+}
+
+fn persistent_fixture(directory: &std::path::Path, prompt: &str) -> StartRequest {
+    let mut request = fixture(directory, "exit 0", false);
+    request.codex_streaming = false;
+    request.prompt = prompt.into();
+    fs::write(&request.runtime.executable, r##"#!/bin/sh
+set -eu
+[ "$1" = app-server ]
+printf '%s\n' "$$" >> connection-pids
+turn=0
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> native-requests
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"id":%s,"result":{"userAgent":"fixture"}}\n' "$id";;
+    *'"method":"initialized"'*) :;;
+    *'"method":"thread/start"'*|*'"method":"thread/resume"'*) printf '{"id":%s,"result":{"thread":{"id":"fixture-thread"},"approvalPolicy":"on-request","sandbox":{"type":"readOnly","networkAccess":false}}}\n' "$id";;
+    *'"method":"turn/start"'*)
+      turn=$((turn + 1))
+      if [ "$turn" -gt 1 ]; then
+        printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"fixture-thread","turnId":"turn-1","itemId":"old-message","delta":"STALE_OLD_TURN"}}'
+      fi
+      printf '{"id":%s,"result":{"turn":{"id":"turn-%s","status":"inProgress"}}}\n' "$id" "$turn"
+      printf '{"method":"item/agentMessage/delta","params":{"threadId":"fixture-thread","turnId":"turn-%s","itemId":"message-%s","delta":"live partial"}}\n' "$turn" "$turn"
+      case "$line" in
+        *'approve-tool'*) printf '{"id":71,"method":"item/commandExecution/requestApproval","params":{"threadId":"fixture-thread","turnId":"turn-%s","command":"echo tool"}}\n' "$turn";;
+        *'wait-for-control'*) :;;
+        *) printf '{"method":"turn/completed","params":{"threadId":"fixture-thread","turn":{"id":"turn-%s","status":"completed","items":[]}}}\n' "$turn";;
+      esac;;
+    *'"method":"turn/steer"'*)
+      case "$line" in *'"expectedTurnId":"turn-1"'*) ;; *) exit 71;; esac
+      printf '{"id":%s,"result":{"turnId":"turn-%s"}}\n' "$id" "$turn"
+      printf '{"method":"item/commandExecution/outputDelta","params":{"threadId":"fixture-thread","turnId":"turn-%s","itemId":"tool-1","delta":"live tool progress"}}\n' "$turn"
+      printf '{"method":"turn/completed","params":{"threadId":"fixture-thread","turn":{"id":"turn-%s","status":"completed","items":[]}}}\n' "$turn";;
+    *'"method":"turn/interrupt"'*)
+      printf '{"id":%s,"result":{}}\n' "$id"
+      printf '{"method":"turn/completed","params":{"threadId":"fixture-thread","turn":{"id":"turn-%s","status":"interrupted","items":[]}}}\n' "$turn";;
+    *'"id":71'*'"decision":"accept"'*)
+      touch tool-approved
+      printf '{"method":"turn/completed","params":{"threadId":"fixture-thread","turn":{"id":"turn-%s","status":"completed","items":[]}}}\n' "$turn";;
+    *) exit 72;;
+  esac
+done
+"##).unwrap();
+    request
+}
+
+#[test]
+fn business_codex_reuses_one_connection_and_thread_but_separates_turn_traces() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "first turn");
+    let (manager, rx) = manager(directory.path(), request.clone());
+    let first = terminal(&rx);
+    assert_eq!(first.last().unwrap().kind, "completed");
+    assert_eq!(manager.connections.lock().unwrap().len(), 1);
+    assert!(manager.processes.lock().unwrap().is_empty());
+    assert!(
+        manager.active_turns().unwrap().is_empty(),
+        "An idle native connection is not an active Turn after webview reload"
+    );
+    let mut second_request = request.clone();
+    second_request.run_id = "run-codex-2".into();
+    second_request.session_id = Some("fixture-thread".into());
+    second_request.prompt = "second turn".into();
+    let (tx, second_rx) = mpsc::channel();
+    manager
+        .start(
+            second_request.clone(),
+            Arc::new(move |event| {
+                let _ = tx.send(event);
+            }),
+        )
+        .unwrap();
+    let second = terminal(&second_rx);
+    assert_eq!(
+        second.last().unwrap().kind,
+        "completed",
+        "{}",
+        second.last().unwrap().text
+    );
+    assert!(second
+        .iter()
+        .all(|event| event.run_id == second_request.run_id));
+    assert!(!second
+        .iter()
+        .any(|event| event.text.contains("STALE_OLD_TURN")));
+    assert_eq!(
+        fs::read_to_string(directory.path().join("connection-pids"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    let requests = fs::read_to_string(directory.path().join("native-requests")).unwrap();
+    assert_eq!(requests.matches("\"method\":\"initialize\"").count(), 1);
+    assert_eq!(requests.matches("\"method\":\"turn/start\"").count(), 2);
+    // Idle app-server is not an active task; update guard closes its connection.
+    manager.while_idle(|| Ok(())).unwrap();
+    assert!(manager.connections.lock().unwrap().is_empty());
+}
+
+#[test]
+fn codex_interrupt_preserves_live_conversation_for_the_next_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "wait-for-control");
+    let (manager, rx) = manager(directory.path(), request.clone());
+    loop {
+        let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        if event.text.contains("item/agentMessage/delta") {
+            break;
+        }
+        assert_ne!(event.kind, "failed", "{}", event.text);
+    }
+    manager
+        .stop(&request.run_id, Some(&request.member_id))
+        .unwrap();
+    assert_eq!(terminal(&rx).last().unwrap().kind, "stopped");
+    assert_eq!(manager.connections.lock().unwrap().len(), 1);
+    let mut next = request;
+    next.run_id = "run-after-stop".into();
+    next.prompt = "continue".into();
+    next.session_id = Some("fixture-thread".into());
+    let (tx, next_rx) = mpsc::channel();
+    manager
+        .start(
+            next,
+            Arc::new(move |event| {
+                let _ = tx.send(event);
+            }),
+        )
+        .unwrap();
+    assert_eq!(terminal(&next_rx).last().unwrap().kind, "completed");
+    assert_eq!(
+        fs::read_to_string(directory.path().join("connection-pids"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    manager.shutdown();
+}
+
+#[test]
+fn codex_native_steering_and_tool_progress_are_correlated_to_active_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "wait-for-control");
+    let (manager, rx) = manager(directory.path(), request.clone());
+    loop {
+        let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        if event.text.contains("item/agentMessage/delta") {
+            break;
+        }
+        assert_ne!(event.kind, "failed", "{}", event.text);
+    }
+    manager
+        .steer(&request.run_id, &request.member_id, "additional input")
+        .unwrap();
+    let events = terminal(&rx);
+    assert_eq!(events.last().unwrap().kind, "completed");
+    assert!(events
+        .iter()
+        .any(|event| event.text.contains("live tool progress")));
+    assert!(manager
+        .steer(&request.run_id, &request.member_id, "after completion")
+        .is_err());
+    manager.shutdown();
+}
+
+#[test]
+fn codex_native_approvals_round_trip_only_the_selected_request() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "approve-tool");
+    let (manager, rx) = manager(directory.path(), request.clone());
+    let token = loop {
+        let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_ne!(event.kind, "failed", "{}", event.text);
+        if event.text.contains("runtime.permission_requested") {
+            let value: serde_json::Value = serde_json::from_str(&event.text).unwrap();
+            break value["requestId"].as_str().unwrap().to_owned();
+        }
+    };
+    assert!(manager
+        .respond_permission(
+            &request.run_id,
+            &request.member_id,
+            &token,
+            Some("invented-approval")
+        )
+        .is_err());
+    manager
+        .respond_permission(&request.run_id, &request.member_id, &token, Some("accept"))
+        .unwrap();
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    assert!(directory.path().join("tool-approved").exists());
+    manager.shutdown();
+}
+
+#[test]
+fn native_connection_scope_change_closes_old_process_before_the_next_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let extra = directory.path().join("additional-root");
+    fs::create_dir(&extra).unwrap();
+    let request = persistent_fixture(directory.path(), "first");
+    let (manager, rx) = manager(directory.path(), request.clone());
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    let original = manager
+        .connections
+        .lock()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .clone();
+    let mut changed = request;
+    changed.run_id = "changed-root-turn".into();
+    changed.session_id = Some("fixture-thread".into());
+    changed.additional_directories = vec![extra.to_string_lossy().into_owned()];
+    let (tx, rx) = mpsc::channel();
+    manager
+        .start(
+            changed,
+            Arc::new(move |event| {
+                let _ = tx.send(event);
+            }),
+        )
+        .unwrap();
+    assert!(
+        *original.done.0.lock().unwrap(),
+        "Old connection must be fully reaped before a new scope starts"
+    );
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    assert_eq!(manager.connections.lock().unwrap().len(), 1);
+    assert_eq!(
+        fs::read_to_string(directory.path().join("connection-pids"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    let requests = fs::read_to_string(directory.path().join("native-requests")).unwrap();
+    assert!(requests.contains("sandbox_workspace_write.writable_roots"));
+    manager.shutdown();
+}
+
+#[test]
+fn native_manager_rejects_parallel_turns_on_the_same_member_even_if_scope_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "wait-for-control");
+    let (manager, rx) = manager(directory.path(), request.clone());
+    loop {
+        let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        if event.text.contains("item/agentMessage/delta") {
+            break;
+        }
+        assert_ne!(event.kind, "failed", "{}", event.text);
+    }
+    for model in ["fixture-model", "another-model"] {
+        let mut parallel = request.clone();
+        parallel.run_id = "parallel-turn".into();
+        parallel.model = model.into();
+        assert!(manager.start(parallel, Arc::new(|_| {})).is_err());
+    }
+    assert_eq!(
+        fs::read_to_string(directory.path().join("connection-pids"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    manager.stop(&request.run_id, None).unwrap();
+    assert_eq!(terminal(&rx).last().unwrap().kind, "stopped");
+    manager.shutdown();
+}
+
+#[test]
+fn native_manager_does_not_replay_a_disconnected_or_unresponsive_turn() {
+    for disconnect in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let request = persistent_fixture(directory.path(), "wait-for-control");
+        let script = fs::read_to_string(&request.runtime.executable).unwrap();
+        let script = if disconnect {
+            script.replace(
+                "*'wait-for-control'*) :;;",
+                "*'wait-for-control'*) exit 0;;",
+            )
+        } else {
+            script.replace("*'\"method\":\"turn/interrupt\"'*)", "*'\"method\":\"turn/interrupt\"'*) while :; do sleep 1; done;;\n    *'unused-interrupt'*)")
+        };
+        fs::write(&request.runtime.executable, script).unwrap();
+        let (manager, rx) = manager(directory.path(), request.clone());
+        if !disconnect {
+            loop {
+                let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                if event.text.contains("item/agentMessage/delta") {
+                    break;
+                }
+            }
+            manager.stop(&request.run_id, None).unwrap();
+            assert!(
+                manager
+                    .active_turns()
+                    .unwrap()
+                    .iter()
+                    .any(|turn| turn.run_id == request.run_id
+                        && turn.member_id == request.member_id
+                        && turn.stopping),
+                "Reload must retain an actually stopping native Turn"
+            );
+        }
+        let terminal_event = terminal(&rx).pop().unwrap();
+        assert_eq!(
+            terminal_event.kind,
+            if disconnect { "failed" } else { "stopped" }
+        );
+        manager.shutdown();
+        assert_eq!(
+            fs::read_to_string(directory.path().join("connection-pids"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        assert_eq!(
+            fs::read_to_string(directory.path().join("native-requests"))
+                .unwrap()
+                .matches("\"method\":\"turn/start\"")
+                .count(),
+            1
+        );
+        assert!(manager.connections.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn codex_native_stdin_preserves_large_unicode_prompt_without_argv_or_truncation() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut request = persistent_fixture(directory.path(), "first");
+    request.prompt = "历史记录 中文\n".repeat(20_000);
+    let expected = request.prompt.clone();
+    let (manager, rx) = manager(directory.path(), request);
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    manager.shutdown();
+    let requests = fs::read_to_string(directory.path().join("native-requests")).unwrap();
+    let prompt = requests
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|frame| frame["method"] == "turn/start")
+        .unwrap();
+    assert_eq!(prompt["params"]["input"][0]["text"], expected);
+}
+
+#[test]
+fn codex_native_launch_preserves_supported_config_flags_and_rejects_batch_scope_overrides() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut request = persistent_fixture(directory.path(), "configuration");
+    request.reasoning_effort = None;
+    request.runtime.args = vec![
+        "--profile".into(),
+        "development".into(),
+        "-c".into(),
+        "model_provider=local-provider".into(),
+        "--config=notify=[\"literal notifier\"]".into(),
+        "--enable".into(),
+        "shell_tool".into(),
+        "--disable=collab".into(),
+        "--strict-config".into(),
+    ];
+    let args = build_arguments(&request).unwrap();
+    assert_eq!(
+        &args[..5],
+        [
+            "--profile",
+            "development",
+            "app-server",
+            "--listen",
+            "stdio://"
+        ]
+    );
+    assert!(args
+        .windows(2)
+        .any(|pair| pair == ["-c", "model_provider=local-provider"]));
+    assert!(args
+        .windows(2)
+        .any(|pair| pair == ["-c", "notify=[\"literal notifier\"]"]));
+    assert!(args.windows(2).any(|pair| pair == ["--disable", "collab"]));
+    for extra in [
+        vec!["exec"],
+        vec!["--json"],
+        vec!["--listen", "ws://0.0.0.0:1234"],
+        vec!["--last"],
+        vec!["--sandbox", "danger-full-access"],
+        vec!["-c", "sandbox_mode='danger-full-access'"],
+        vec!["-c", "'sandbox_workspace_write' .network_access=true"],
+        vec!["-c", "notify=['{prompt}']"],
+        vec!["--enable"],
+        vec!["--profile", "--last"],
+    ] {
+        request.runtime.args = extra.iter().map(|s| (*s).into()).collect();
+        assert!(build_arguments(&request).is_err(), "Rejected: {extra:?}");
+    }
+    request.runtime.args = vec!["-c".into(), "model_reasoning_effort=high".into()];
+    assert!(build_arguments(&request).is_ok());
+    request.reasoning_effort = Some("low".into());
+    assert!(build_arguments(&request).is_err());
+    request.codex_streaming = true;
+    request.runtime.args = vec!["--strict-config".into()];
+    assert!(
+        build_arguments(&request).is_err(),
+        "Restricted goal assistant must not accept user launch overrides"
+    );
+}
+
+#[test]
+fn codex_workspace_write_inherits_native_network_and_preserves_existing_and_goal_roots() {
+    let directory = tempfile::tempdir().unwrap();
+    let extra = directory.path().join("extra");
+    let inherited = directory.path().join("native-root");
+    fs::create_dir(&extra).unwrap();
+    fs::create_dir(&inherited).unwrap();
+    let mut request = persistent_fixture(directory.path(), "workspace permissions");
+    request.runtime.permissions = Some(
+        serde_json::from_value(
+            serde_json::json!({"codex":{"sandbox":"workspace-write","network":"inherit"}}),
+        )
+        .unwrap(),
+    );
+    request.additional_directories = vec![extra.to_string_lossy().into_owned()];
+    let script = fs::read_to_string(&request.runtime.executable).unwrap();
+    let old = r#""sandbox":{"type":"readOnly","networkAccess":false}"#;
+    let new=serde_json::json!({"type":"workspaceWrite","networkAccess":true,"writableRoots":[inherited]}).to_string();
+    fs::write(
+        &request.runtime.executable,
+        script.replace(old, &format!("\"sandbox\":{new}")),
+    )
+    .unwrap();
+    let (manager, rx) = manager(directory.path(), request.clone());
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    manager.shutdown();
+    let requests = fs::read_to_string(directory.path().join("native-requests")).unwrap();
+    let turn = requests
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|frame| frame["method"] == "turn/start")
+        .unwrap();
+    let sandbox = &turn["params"]["sandboxPolicy"];
+    assert_eq!(sandbox["networkAccess"], true);
+    let roots = sandbox["writableRoots"].as_array().unwrap();
+    for root in [directory.path(), extra.as_path(), inherited.as_path()] {
+        assert!(roots
+            .iter()
+            .any(|value| value.as_str() == Some(root.to_str().unwrap())));
+    }
+}
+
+#[test]
+fn native_connection_cache_eviction_starts_the_seventeenth_idle_conversation_without_retry() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "cache capacity");
+    let manager = RuntimeManager::new(Arc::new(
+        Storage::new(directory.path().join("cache-data")).unwrap(),
+    ));
+    for index in 0..17 {
+        let mut next = request.clone();
+        next.task_id = format!("task-cache-{index}");
+        next.run_id = format!("run-cache-{index}");
+        let (tx, rx) = mpsc::channel();
+        manager
+            .start(
+                next,
+                Arc::new(move |event| {
+                    let _ = tx.send(event);
+                }),
+            )
+            .expect("Idle cache cleanup must continue this user turn without requiring a retry");
+        assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+        assert!(manager.connections.lock().unwrap().len() <= 16);
+    }
+    assert_eq!(
+        fs::read_to_string(directory.path().join("connection-pids"))
+            .unwrap()
+            .lines()
+            .count(),
+        17
+    );
+    manager.shutdown();
+    assert!(manager.connections.lock().unwrap().is_empty());
+}
+
+#[test]
+fn codex_steering_waits_for_matching_acceptance_and_rejections_do_not_fail_the_turn() {
+    let acknowledgement =
+        "printf '{\"id\":%s,\"result\":{\"turnId\":\"turn-%s\"}}\\n' \"$id\" \"$turn\"";
+    for mode in [
+        "rejected",
+        "foreign-turn",
+        "foreign-id",
+        "completed-before-ack",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let request = persistent_fixture(directory.path(), "wait-for-control");
+        let script = fs::read_to_string(&request.runtime.executable).unwrap();
+        let replacement=match mode {
+            "rejected"=>"printf '{\"id\":%s,\"error\":{\"code\":-32000,\"message\":\"native turn no longer accepts input\"}}\\n' \"$id\"".into(),
+            "foreign-turn"=>"printf '{\"id\":%s,\"result\":{\"turnId\":\"another-turn\"}}\\n' \"$id\"".into(),
+            "foreign-id"=>format!("printf '%s\\n' '{{\"id\":9999,\"result\":{{\"turnId\":\"turn-1\"}}}}'\n{acknowledgement}"),
+            _=>format!("printf '{{\"method\":\"turn/completed\",\"params\":{{\"threadId\":\"fixture-thread\",\"turn\":{{\"id\":\"turn-%s\",\"status\":\"completed\",\"items\":[]}}}}}}\\n' \"$turn\"\n{acknowledgement}"),
+        };
+        assert!(script.contains(acknowledgement));
+        fs::write(
+            &request.runtime.executable,
+            script.replace(acknowledgement, &replacement),
+        )
+        .unwrap();
+        let (manager, rx) = manager(directory.path(), request.clone());
+        loop {
+            let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            if event.text.contains("item/agentMessage/delta") {
+                break;
+            }
+            assert_ne!(event.kind, "failed", "{}", event.text);
+        }
+        let result = manager.steer(
+            &request.run_id,
+            &request.member_id,
+            "keep my draft if rejected",
+        );
+        assert_eq!(result.is_ok(), mode == "foreign-id", "{mode}: {result:?}");
+        let events = terminal(&rx);
+        assert_eq!(events.last().unwrap().kind, "completed", "{mode}");
+        assert_eq!(
+            events
+                .iter()
+                .any(|event| event.text.contains("runtime.input_accepted")),
+            mode == "foreign-id",
+            "{mode}"
+        );
+        manager.shutdown();
+    }
+}
+
+#[test]
+fn codex_steering_ack_timeout_preserves_turn_and_ignores_late_acknowledgement() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "wait-for-control");
+    let script = fs::read_to_string(&request.runtime.executable).unwrap();
+    let acknowledgement =
+        "printf '{\"id\":%s,\"result\":{\"turnId\":\"turn-%s\"}}\\n' \"$id\" \"$turn\"";
+    fs::write(
+        &request.runtime.executable,
+        script.replace(
+            acknowledgement,
+            &format!("while [ ! -e release-steer-ack ]; do sleep 0.02; done\n{acknowledgement}"),
+        ),
+    )
+    .unwrap();
+    let (manager, rx) = manager(directory.path(), request.clone());
+    loop {
+        let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        if event.text.contains("item/agentMessage/delta") {
+            break;
+        }
+    }
+    let since = Instant::now();
+    let error = manager
+        .steer(
+            &request.run_id,
+            &request.member_id,
+            "bounded acknowledgement",
+        )
+        .unwrap_err();
+    assert!(error.contains("5 秒"), "{error}");
+    assert!(since.elapsed() < Duration::from_secs(7));
+    assert!(
+        manager.while_idle(|| Ok(())).is_err(),
+        "An input ACK timeout must not falsely complete the original turn"
+    );
+    fs::write(directory.path().join("release-steer-ack"), "release").unwrap();
+    let events = terminal(&rx);
+    assert_eq!(events.last().unwrap().kind, "completed");
+    assert!(!events
+        .iter()
+        .any(|event| event.text.contains("runtime.input_accepted")));
+    manager.shutdown();
+}
+
+#[test]
+fn codex_permission_profile_approval_grants_only_the_requested_profile_for_this_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "approve-tool");
+    let script=fs::read_to_string(&request.runtime.executable).unwrap().replace("item/commandExecution/requestApproval","item/permissions/requestApproval").replace("\"command\":\"echo tool\"","\"permissions\":{\"network\":{\"enabled\":true}},\"reason\":\"Network access for current turn\"").replace("*'\"id\":71'*'\"decision\":\"accept\"'*)","*'\"id\":71'*'\"enabled\":true'*'\"scope\":\"turn\"'*)");
+    fs::write(&request.runtime.executable, script).unwrap();
+    let (manager, rx) = manager(directory.path(), request.clone());
+    let token = loop {
+        let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_ne!(event.kind, "failed", "{}", event.text);
+        if event.text.contains("runtime.permission_requested") {
+            let value: serde_json::Value = serde_json::from_str(&event.text).unwrap();
+            assert_eq!(
+                value["toolCall"]["rawInput"]["permissions"]["network"]["enabled"],
+                true
+            );
+            break value["requestId"].as_str().unwrap().to_owned();
+        }
+    };
+    manager
+        .respond_permission(&request.run_id, &request.member_id, &token, Some("accept"))
+        .unwrap();
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    manager.shutdown();
+    let requests = fs::read_to_string(directory.path().join("native-requests")).unwrap();
+    let grant = requests
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|frame| frame["id"] == 71)
+        .unwrap();
+    assert_eq!(
+        grant["result"],
+        serde_json::json!({"permissions":{"network":{"enabled":true}},"scope":"turn"})
+    );
+}
+
+#[test]
+fn codex_native_feature_configuration_does_not_replace_inherited_profile_permissions() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut request = persistent_fixture(directory.path(), "inherit native scope");
+    request.runtime.permissions = None;
+    request.runtime.args = vec!["-c".into(), "features.shell_tool=true".into()];
+    let (manager, rx) = manager(directory.path(), request);
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    manager.shutdown();
+    let requests = fs::read_to_string(directory.path().join("native-requests")).unwrap();
+    let frames: Vec<serde_json::Value> = requests
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let start = frames
+        .iter()
+        .find(|frame| frame["method"] == "thread/start")
+        .unwrap();
+    assert!(start["params"]["sandbox"].is_null() && start["params"]["approvalPolicy"].is_null());
+    let turn = frames
+        .iter()
+        .find(|frame| frame["method"] == "turn/start")
+        .unwrap();
+    assert_eq!(turn["params"]["sandboxPolicy"]["type"], "readOnly");
+    assert!(turn["params"]["approvalPolicy"].is_null());
+}
+
+#[test]
+fn pending_native_reservation_is_visible_and_can_be_stopped_before_worker_dispatch() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "must never launch");
+    let manager = RuntimeManager::new(Arc::new(
+        Storage::new(directory.path().join("pending-data")).unwrap(),
+    ));
+    let pending = manager.prepare_start(&request).unwrap();
+    let active = manager.active_turns().unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].run_id, request.run_id);
+    assert!(!active[0].stopping);
+    assert!(
+        manager.while_idle(|| Ok(())).is_err(),
+        "An async pending start is not idle"
+    );
+    manager.stop(&request.run_id, None).unwrap();
+    assert!(manager.active_turns().unwrap()[0].stopping);
+    let (tx, rx) = mpsc::channel();
+    manager
+        .start_prepared(
+            request,
+            Arc::new(move |event| {
+                let _ = tx.send(event);
+            }),
+            pending,
+        )
+        .unwrap();
+    let events = terminal(&rx);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "stopped")
+            .count(),
+        1
+    );
+    assert!(!events
+        .iter()
+        .any(|event| event.kind == "started" || event.kind == "failed"));
+    assert!(!directory.path().join("connection-pids").exists());
+    assert!(manager.active_turns().unwrap().is_empty());
+    manager.shutdown();
+}
+
+#[test]
+fn stopping_pending_scope_cleanup_never_spawns_or_sends_input_after_the_wait() {
+    let directory = tempfile::tempdir().unwrap();
+    let request = persistent_fixture(directory.path(), "first old scope");
+    // Keep the old idle process alive until manager escalation, creating a
+    // deterministic cancellation window rather than racing a fast spawn.
+    let script = fs::read_to_string(&request.runtime.executable)
+        .unwrap()
+        .replace("set -eu\n", "set -eu\ntrap '' TERM\n");
+    fs::write(&request.runtime.executable, script).unwrap();
+    let (manager, rx) = manager(directory.path(), request.clone());
+    assert_eq!(terminal(&rx).last().unwrap().kind, "completed");
+    let mut next = request.clone();
+    next.run_id = "pending-new-scope".into();
+    next.model = "changed-model".into();
+    next.prompt = "cancel before spawning this prompt".into();
+    let pending = manager.prepare_start(&next).unwrap();
+    let native_manager = manager.clone();
+    let started_request = next.clone();
+    let (tx, rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        native_manager.start_prepared(
+            started_request,
+            Arc::new(move |event| {
+                let _ = tx.send(event);
+            }),
+            pending,
+        )
+    });
+    let until = Instant::now() + Duration::from_secs(3);
+    loop {
+        if manager
+            .connections
+            .lock()
+            .unwrap()
+            .values()
+            .any(|connection| connection.closing.load(Ordering::SeqCst))
+        {
+            break;
+        }
+        assert!(Instant::now() < until, "Old scope must enter cleanup");
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(manager
+        .active_turns()
+        .unwrap()
+        .iter()
+        .any(|turn| turn.run_id == next.run_id));
+    manager.stop(&next.run_id, Some(&next.member_id)).unwrap();
+    assert!(worker.join().unwrap().is_ok());
+    let events = terminal(&rx);
+    assert_eq!(events.last().unwrap().kind, "stopped");
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "stopped")
+            .count(),
+        1
+    );
+    assert!(!events
+        .iter()
+        .any(|event| event.kind == "failed" || event.kind == "started"));
+    assert_eq!(
+        fs::read_to_string(directory.path().join("connection-pids"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    assert!(
+        !fs::read_to_string(directory.path().join("native-requests"))
+            .unwrap()
+            .contains(&next.prompt)
+    );
+    assert!(manager.active_turns().unwrap().is_empty());
+    manager.shutdown();
 }

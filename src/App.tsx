@@ -33,7 +33,8 @@ import { applyRuntimeEvent, buildPrompt, createTask, getTaskStatus } from '@/lib
 import { validateRuntimePermissions } from '@/lib/runtime-permissions'
 import { resolveReasoningEffort } from '@/lib/reasoning'
 import { reusableSession } from '@/lib/runtime-session'
-import { chooseDirectory, ensureGoalAssistantDirectory, exportTask, isDesktop, startRun, stopRun } from '@/lib/bridge'
+import { appendRunInput, ensureGoalAssistantDirectory, exportTask, isDesktop, startRun, stopRun } from '@/lib/bridge'
+import { runInputTargets } from '@/lib/runtime-capabilities'
 import type { AppState, OnboardingState, Run, RunMember, Settings, StartRequest, Task } from '@/lib/types'
 import { WorkspaceNavigation, type WorkspacePage } from '@/components/WorkspaceNavigation'
 import { WorkspaceLayout } from '@/components/WorkspaceLayout'
@@ -49,6 +50,7 @@ import { memberFromAgent } from '@/lib/agent-profiles'
 import { createDueGoalReview } from '@/lib/goals'
 import { createGoalAssistantTask, goalAssistantPrompt, goalAssistantRuntime, processGoalAssistantRun, type GoalAssistantPhase } from '@/lib/goal-assistant'
 import { getGoalProgress } from '@/lib/goal-progress'
+import { applyGoalWorkingDirectories, getGoalWorkingDirectories, getTaskWorkingDirectories, inheritTaskWorkingDirectories, normalizeWorkingDirectories } from '@/lib/working-directories'
 import type { ExecutionStep } from '@/lib/task-types'
 import './components/workspace.css'
 import { GoalsPage } from '@/components/GoalsPage'
@@ -276,15 +278,56 @@ export default function App() {
   function newFromGoal(goalId: string, title?: string) { openNew();setNewGoalId(goalId); if(title)setNewTitle(title) }
   function newFromAgent(agentId: string, goalId?: string) { openNew();setNewAgentId(agentId);setNewGoalId(goalId??'none') }
   function newSubtask(parent:Task) { openNew();setNewParentId(parent.id);setNewGoalId(parent.goalId??'none');setNewDirectory(parent.directory) }
+  async function workspaceSnapshot(): Promise<AppState> {
+    let snapshot!: AppState
+    await update(current => { snapshot = current; return current })
+    return snapshot
+  }
+  async function ensureGoalWorkspace(goalId: string): Promise<string[]> {
+    const snapshot = await workspaceSnapshot()
+    const goal = snapshot.goals.find(item => item.id === goalId)
+    if (!goal) throw new Error(t('目标不存在', 'Goal does not exist'))
+    const known = getGoalWorkingDirectories(snapshot, goal)
+    const fallback = known.length ? known : isDesktop ? [await ensureGoalAssistantDirectory(goalId)] : []
+    let roots = fallback
+    await update(current => {
+      const latest = current.goals.find(item => item.id === goalId)
+      if (!latest) throw new Error(t('目标不存在', 'Goal does not exist'))
+      roots = getGoalWorkingDirectories(current, latest)
+      if (!roots.length) roots = fallback
+      return roots.length ? applyGoalWorkingDirectories(current, goalId, roots) : current
+    })
+    return roots
+  }
+  async function ensureTaskWorkspace(taskId: string): Promise<void> {
+    const snapshot = await workspaceSnapshot()
+    const selected = snapshot.tasks.find(item => item.id === taskId)
+    if (!selected) throw new Error(t('任务不存在', 'Task not found'))
+    if (selected.goalId) { await ensureGoalWorkspace(selected.goalId); return }
+    const known = getTaskWorkingDirectories(snapshot, selected)
+    const fallback = known.length ? known : isDesktop ? [await ensureGoalAssistantDirectory(`task-${taskId}`)] : []
+    await update(current => ({ ...current, tasks: current.tasks.map(task => {
+      if (task.id !== taskId) return task
+      const roots = getTaskWorkingDirectories(current, task)
+      return roots.length ? inheritTaskWorkingDirectories(current, task) : { ...task, directory: fallback[0] ?? '', workingDirectories: fallback }
+    }) }))
+  }
   async function create() {
     if (!state) return
     try {
+      if (!newTitle.trim()) throw new Error(t('请输入任务名称', 'Enter a task name'))
       let created = '', createdGoal = ''
+      const requestedGoalId = state.tasks.find(task => task.id === newParentId)?.goalId ?? (newGoalId === 'none' ? undefined : newGoalId)
+      if (requestedGoalId) await ensureGoalWorkspace(requestedGoalId)
+      const standaloneFallback = !requestedGoalId && !newDirectory.trim() && isDesktop ? await ensureGoalAssistantDirectory(`task-${crypto.randomUUID()}`) : newDirectory
       await update(s=>{
         const profile=s.agents.find(a=>a.id===newAgentId)
         const parent=s.tasks.find(t=>t.id===newParentId)
         if(newParentId&&!parent)throw new Error(t('父任务已不存在，请重新创建任务', 'The parent task no longer exists. Create the task again.'))
-        const next=createWorkspaceTask(s.settings,{title:newTitle,directory:newDirectory,mode:newMode,goalId:parent?.goalId??(newGoalId==='none'?undefined:newGoalId),parentTaskId:parent?.id,acceptance:newAcceptance,executor:newExecutor,members:newExecutor==='human'?[]:profile?[memberFromAgent(profile)]:undefined})
+        const goalId = parent?.goalId ?? (newGoalId === 'none' ? undefined : newGoalId)
+        const goal = s.goals.find(goal => goal.id === goalId)
+        const roots = goal ? getGoalWorkingDirectories(s, goal) : parent ? getTaskWorkingDirectories(s, parent) : normalizeWorkingDirectories([standaloneFallback || s.settings.defaultDirectory])
+        const next=createWorkspaceTask(s.settings,{title:newTitle,workingDirectories:roots,mode:newMode,goalId,parentTaskId:parent?.id,acceptance:newAcceptance,executor:newExecutor,members:newExecutor==='human'?[]:profile?[memberFromAgent(profile)]:undefined})
         created=next.id; createdGoal=next.goalId ?? ''
         const createdState = {...s,tasks:[next,...s.tasks],activeTaskId:next.id}
         return editWorkspaceTask(createdState, next.id, {title: next.title, acceptance: next.acceptance ?? '', directory: next.directory, goalId: next.goalId, priority: next.priority, dependencies: [], deadline: newDeadline, delivery: newDelivery})
@@ -304,13 +347,16 @@ export default function App() {
     const fail = async (memberId: string, text: string) => update(s => applyRuntimeEvent(s, { id: crypto.randomUUID(), taskId, runId: id, memberId, timestamp: new Date().toISOString(), kind: 'failed', text }))
     try {
       await ensureTaskReady(taskId)
+      await ensureTaskWorkspace(taskId)
       // Validate and reserve against the latest state after history recovery.
       await update(s => {
         const current = s.tasks.find(t => t.id === taskId)
         if (!current || current.demo) throw new Error(t('请先创建真实任务', 'Create a real task first'))
         assertTaskReady(s,current)
         if (step) { validatePlan(current); if(!readySteps(current).some(entry=>entry.id===step.id)) throw new Error(t('步骤依赖尚未完成或已经开始执行', 'Step dependencies are incomplete or the step has already started')) }
-        if (!current.directory.trim()) throw new Error(t('任务缺少工作目录', 'The task has no working directory'))
+        const roots = getTaskWorkingDirectories(s, current)
+        if (!roots.length) throw new Error(t('目标缺少工作目录，请在目标中添加。', 'Add a working directory to this goal.'))
+        const executionTask = { ...current, directory: roots[0], workingDirectories: roots }
         if ((!step || current.orchestration !== 'running') && current.runs.some(r => r.members.some(m => m.status === 'running'))) throw new Error(t('请等待当前批次结束，或停止执行后再发送。', 'Wait for the current run to finish, or stop it before sending.'))
         const selected = step ? current.members.filter(m=>step.memberIds.includes(m.id)) : current.mode === 'solo' ? current.members.slice(0, 1) : recipient === 'all' ? current.members : current.members.filter(m => m.id === recipient)
         const count = s.tasks.flatMap(t => t.runs).flatMap(r => r.members).filter(m => m.status === 'running').length
@@ -325,13 +371,13 @@ export default function App() {
           if (runtime.adapter === 'generic' && !runtime.args.some(a => a.includes('{prompt}'))) throw new Error(t(`${runtime.name} 需要在设置中配置含 {prompt} 的启动参数。`, `${runtime.name} needs a launch argument containing {prompt} in Settings.`))
           if (member.modelId && !s.settings.models.some(m => m.enabled && m.modelId === member.modelId && m.runtimeIds.includes(runtime.id))) throw new Error(t(`${member.name} 的模型已禁用或未绑定此 Runtime，请重新选择模型。`, `${member.name}'s model is disabled or not linked to this runtime. Choose another model.`))
           const effectiveReasoningEffort = resolveReasoningEffort(member, runtime, s.settings.models)
-          return { ...member, runtime: structuredClone(runtime), model: member.modelId, effectiveReasoningEffort, sessionId: reusableSession(current, member, runtime), status: 'running' }
+          return { ...member, runtime: structuredClone(runtime), model: member.modelId, effectiveReasoningEffort, sessionId: reusableSession(executionTask, member, runtime), status: 'running' }
         })
         const context=captureRunContext(s,current,step)
-        const run: Run = { id, createdAt: new Date().toISOString(), directory: current.directory, prompt, members, context, stepId:step?.id }
-        requests.push(...members.map(member => ({ taskId: current.id, runId: id, memberId: member.id, runtime: member.runtime, model: member.model, reasoningEffort: member.effectiveReasoningEffort, sessionId: member.sessionId, codexStreaming: current.kind === 'goal_assistant' && member.runtime.adapter === 'codex', directory: run.directory, prompt: buildPrompt(current, prompt, member, Boolean(member.sessionId))+contextPrompt(context) })))
+        const run: Run = { id, createdAt: new Date().toISOString(), directory: roots[0], workingDirectories: roots, prompt, members, context, stepId:step?.id }
+        requests.push(...members.map(member => ({ taskId: current.id, runId: id, memberId: member.id, runtime: member.runtime, model: member.model, reasoningEffort: member.effectiveReasoningEffort, sessionId: member.sessionId, codexStreaming: current.kind === 'goal_assistant' && member.runtime.adapter === 'codex', directory: run.directory, additionalDirectories: roots.slice(1), prompt: buildPrompt(executionTask, prompt, member, Boolean(member.sessionId))+contextPrompt(context) })))
         reserved = true
-        return { ...s, tasks: s.tasks.map(t => t.id !== current.id ? t : { ...t, businessStatus:'in_progress', plan:step?t.plan?.map(entry=>entry.id===step.id?{...entry,status:'running',runId:id}:entry):t.plan, runs: [...t.runs, run], messages: [...t.messages, { id: crypto.randomUUID(), role: 'user', text: displayPrompt ?? prompt, createdAt: run.createdAt, runId: id }] }) }
+        return { ...s, tasks: s.tasks.map(t => t.id !== current.id ? t : { ...t, legacyArtifactDirectory: t.legacyArtifactDirectory ?? (t.directory !== roots[0] ? t.directory : undefined), directory: roots[0], workingDirectories: roots, businessStatus:'in_progress', plan:step?t.plan?.map(entry=>entry.id===step.id?{...entry,status:'running',runId:id}:entry):t.plan, runs: [...t.runs, run], messages: [...t.messages, { id: crypto.randomUUID(), role: 'user', text: displayPrompt ?? prompt, createdAt: run.createdAt, runId: id }] }) }
       })
       if(taskId===state.activeTaskId) setRunId(id)
       await Promise.all(requests.map(async request => {
@@ -353,7 +399,11 @@ export default function App() {
   }
   async function sendGoalAssistant(goalId: string, input: string, phase: GoalAssistantPhase, runtimeId?: string) {
     if (!isDesktop) throw new Error(t('浏览器预览支持手动整理目标；连接 Runtime 请打开桌面应用。', 'Browser preview supports manual goal planning. Open the desktop app to connect a runtime.'))
-    const directory = await ensureGoalAssistantDirectory(goalId)
+    const snapshot = await workspaceSnapshot()
+    const active = snapshot.tasks.find(item => item.id === snapshot.goals.find(goal => goal.id === goalId)?.assistant?.taskId && item.kind === 'goal_assistant' && item.goalId === goalId)
+    if (active && isTaskRunning(active)) { await appendForTask(active.id, input, 'all'); return }
+    const roots = await ensureGoalWorkspace(goalId)
+    const directory = roots[0]
     const existing = state?.tasks.find(item => item.id === state.goals.find(goal => goal.id === goalId)?.assistant?.taskId && item.kind === 'goal_assistant' && item.goalId === goalId)
     if (existing) await ensureTaskReady(existing.id)
     let assistantTaskId = '', requestPrompt = ''
@@ -365,7 +415,7 @@ export default function App() {
       const selectedRuntime = runtimeId || previous?.members[0]?.runtimeId || s.settings.defaultRuntime
       const template = createGoalAssistantTask(s.settings, { goalId, directory, runtimeId: selectedRuntime })
       const sameRuntime = previous?.members[0]?.runtimeId === selectedRuntime
-      const assistantTask = previous ? { ...previous, directory, mode: 'solo' as const, members: sameRuntime ? [{ ...template.members[0], id: previous.members[0].id }] : template.members } : template
+      const assistantTask = previous ? { ...previous, directory, workingDirectories: roots, mode: 'solo' as const, members: sameRuntime ? [{ ...template.members[0], id: previous.members[0].id }] : template.members } : { ...template, workingDirectories: roots }
       assistantTaskId = assistantTask.id
       const requestingGoal = { ...goal, assistant: { ...goal.assistant, taskId: assistantTask.id, requestPhase: phase, error: undefined } }
       requestPrompt = goalAssistantPrompt(requestingGoal, phase, input)
@@ -401,7 +451,24 @@ export default function App() {
       void update(s => processGoalAssistantRun(s, goal.id, run.id)).catch(report).finally(() => processingAssistantRuns.current.delete(run.id))
     }
   }, [state, saved, update])
-  const send=(prompt:string,recipient:string)=>task?sendForTask(task.id,prompt,recipient):Promise.resolve()
+  async function appendForTask(taskId: string, prompt: string, recipient: string) {
+    const current = await ensureTaskReady(taskId)
+    const targets = runInputTargets(current, recipient)
+    if (!targets.length || targets.some(({ capabilities }) => !capabilities.steer && !capabilities.followUp)) throw new Error(t('当前接收者暂不支持运行中追加消息，请等待本轮结束。', 'The selected recipients cannot receive input during a run. Wait for this turn to finish.'))
+    const accepted: typeof targets = []
+    const failed: string[] = []
+    for (const target of targets) {
+      try { await appendRunInput(target.run.id, target.member.id, prompt); accepted.push(target) }
+      catch (cause) { failed.push(`${target.member.name}: ${String(cause instanceof Error ? cause.message : cause)}`) }
+    }
+    if (!accepted.length) throw new Error(failed.join('\n'))
+    // Accepted input must not be resent if a later renderer save fails. The
+    // native connection retains its durable trace, and the UI reports the save.
+    try { await update(s => ({ ...s, tasks: s.tasks.map(item => item.id !== taskId ? item : { ...item, messages: [...item.messages, ...accepted.map(({ run, member }) => ({ id: crypto.randomUUID(), role: 'user' as const, text: prompt, memberId: member.id, runId: run.id, createdAt: new Date().toISOString() }))] }) })) }
+    catch (cause) { report(t(`追加消息已提交，但对话保存失败：${String(cause)}`, `The input was submitted, but saving the conversation failed: ${String(cause)}`)) }
+    if (failed.length) report(t(`部分成员未接收追加消息：${failed.join('; ')}`, `Some members did not accept the message: ${failed.join('; ')}`))
+  }
+  const send=(prompt:string,recipient:string)=>task ? isTaskRunning(task) ? appendForTask(task.id,prompt,recipient) : sendForTask(task.id,prompt,recipient) : Promise.resolve()
   const runStep=(target:Task,step:ExecutionStep)=>sendForTask(target.id,[step.title,step.instructions,t(`预期输出：${step.expectedOutput}`, `Expected output: ${step.expectedOutput}`),t(`前置步骤结果：${(target.plan??[]).filter(s=>step.dependsOn.includes(s.id)).map(s=>s.title+': '+(s.output??'')).join('\n')}`, `Previous step results: ${(target.plan??[]).filter(s=>step.dependsOn.includes(s.id)).map(s=>s.title+': '+(s.output??'')).join('\n')}`)].join('\n\n'),'all',step)
   async function stopExecution(taskId:string,id:string) {
     cancelled.current.add(id)
@@ -445,7 +512,7 @@ export default function App() {
     check();const timer=setInterval(check,30000);return()=>clearInterval(timer)
   },[!!state,update])
   function doExport() { if (task) void ensureTaskReady(task.id).then(exportTask).then(path => notify.success(t(`已导出：${path}`, `Exported: ${path}`))).catch(report) }
-  function duplicate() { if (!task) return; openNew(); setNewTitle(task.title); setNewMode(task.mode); setNewDirectory(state?.settings.defaultDirectory ?? '') }
+  function duplicate() { if (!task) return; openNew(); setNewTitle(task.title); setNewMode(task.mode); setNewGoalId(task.goalId ?? 'none'); setNewDirectory(task.directory || state?.settings.defaultDirectory || '') }
   const chosenRun = task?.runs.find(r => r.id === runId) ?? task?.runs.at(-1)
   const taskGoal = state?.goals.find(goal => goal.id === task?.goalId)
   const taskGoalProgress = taskGoal && state ? getGoalProgress(taskGoal, state.tasks) : undefined
@@ -468,11 +535,11 @@ export default function App() {
           const linked = artifactFromLink(href, { ...previewArtifact, directory }, task.id)
           if (linked) openArtifactPreview({ ...linked, directory: previewArtifact.directory })
         }} onSaved={recordSavedArtifact}/> : <ArtifactPreviewEmpty onOpenUrl={openWebPreview}/> },
-      ].filter(tab => inspectorTabs.includes(tab.id))}/>}><Workbench key={task.id} task={task} settings={state.settings} artifacts={artifacts} onOpenArtifact={openArtifactPreview} selectedRunId={runId} onSelectRun={id => { setRunId(id); setPreviewSelection(undefined); activateInspectorTab('trace') }} onChange={changeTask} onSend={send} onStop={stop} onSettings={() => openSettings()} onInspector={() => { activateInspectorTab('trace'); setInspectorOpen(true) }} onToggleInspector={() => { if (!inspectorTabs.length) activateInspectorTab('trace'); setInspectorOpen(o => !o) }} inspectorOpen={inspectorOpen} onDuplicate={duplicate} taskActions={<TaskActionButtons compact task={task} onAction={openTaskAction}/>} goalTitle={state.goals.find(g=>g.id===task.goalId)?.title} onGoal={returnToTaskGoal} onGoalProgress={() => task.goalId && showGoalView(task.goalId, 'overview', true)} goalProgressLabel={goalProgressLabel} agentActions={memberId=><AgentMemberActions task={task} state={state} memberId={memberId} onChange={update} onOpenAgent={openAgent}/>} operations={!task.demo?<TaskOperations key={task.id} task={task} state={state} onChange={changeControl} onEdit={trigger=>openTaskAction('edit',task,trigger)} onGoal={openGoal} onSubtask={newSubtask} onTask={selectTask} onRunStep={step=>runStep(task,step)} onOrchestrate={start=>orchestrate(task,start)}/>:undefined} /></InspectorLayout> : <div className="app-loading"><h1>{t('创建第一项任务', 'Create your first task')}</h1><Button onClick={openNew}><Plus />{t('新建任务', 'New task')}</Button></div>}</TasksPage>}
+      ].filter(tab => inspectorTabs.includes(tab.id))}/>}><Workbench key={task.id} task={task} workingDirectories={getTaskWorkingDirectories(state,task)} settings={state.settings} artifacts={artifacts} onOpenArtifact={openArtifactPreview} selectedRunId={runId} onSelectRun={id => { setRunId(id); setPreviewSelection(undefined); activateInspectorTab('trace') }} onChange={changeTask} onSend={send} onStop={stop} onSettings={() => openSettings()} onInspector={() => { activateInspectorTab('trace'); setInspectorOpen(true) }} onToggleInspector={() => { if (!inspectorTabs.length) activateInspectorTab('trace'); setInspectorOpen(o => !o) }} inspectorOpen={inspectorOpen} onDuplicate={duplicate} taskActions={<TaskActionButtons compact task={task} onAction={openTaskAction}/>} goalTitle={state.goals.find(g=>g.id===task.goalId)?.title} onGoal={returnToTaskGoal} onGoalProgress={() => task.goalId && showGoalView(task.goalId, 'overview', true)} goalProgressLabel={goalProgressLabel} agentActions={memberId=><AgentMemberActions task={task} state={state} memberId={memberId} onChange={update} onOpenAgent={openAgent}/>} operations={!task.demo?<TaskOperations key={task.id} task={task} state={state} onChange={changeControl} onEdit={trigger=>openTaskAction('edit',task,trigger)} onGoal={openGoal} onSubtask={newSubtask} onTask={selectTask} onRunStep={step=>runStep(task,step)} onOrchestrate={start=>orchestrate(task,start)}/>:undefined} /></InspectorLayout> : <div className="app-loading"><h1>{t('创建第一项任务', 'Create your first task')}</h1><Button onClick={openNew}><Plus />{t('新建任务', 'New task')}</Button></div>}</TasksPage>}
     </WorkspaceLayout></>}
-    <footer className="statusbar"><span><span className={`status-dot ${!isDesktop ? 'preview-dot' : ''}`} />{isDesktop ? t('本地桌面应用', 'Local desktop app') : t('浏览器预览', 'Browser preview')}</span><span>{state ? (activeCount ? t(`${activeCount} 个成员运行中`, `${activeCount} members running`) : t('无运行中的进程', 'No running processes')) : t('运行状态待读取', 'Waiting for run status')}</span><span className="ml-auto">{!state ? (storageError ? t('读取失败', 'Load failed') : t('正在读取本地数据…', 'Loading local data…')) : saved ? t('已保存到本地', 'Saved locally') : t('正在保存…', 'Saving…')}</span><span>v{appVersion}</span></footer>
+    <footer className="statusbar"><span><span className={`status-dot ${!isDesktop ? 'preview-dot' : ''}`} />{isDesktop ? t('本地桌面应用', 'Local desktop app') : t('浏览器预览', 'Browser preview')}</span><span>{state ? (activeCount ? t(`${activeCount} 个成员运行中`, `${activeCount} members running`) : t('无执行中的成员', 'No active runs')) : t('运行状态待读取', 'Waiting for run status')}</span><span className="ml-auto">{!state ? (storageError ? t('读取失败', 'Load failed') : t('正在读取本地数据…', 'Loading local data…')) : saved ? t('已保存到本地', 'Saved locally') : t('正在保存…', 'Saving…')}</span><span>v{appVersion}</span></footer>
     {state&&<TaskActionDialogs action={taskAction} state={state} onChange={changeControl} onClose={()=>setTaskAction(null)} onSaved={()=>{clearError();notify.success(t('任务已更新', 'Task updated'))}} onDeleted={taskDeleted} onOpenTask={selectTask}/>}
-    <Dialog open={newOpen} onOpenChange={setNewOpen}><DialogContent className="task-dialog"><DialogHeader><DialogTitle>{t('新建任务', 'New task')}</DialogTitle><DialogDescription>{t('先记录要完成的行动，执行时再补齐 Runtime 与工作目录。', 'Record what needs to be done now; add a runtime and working directory before execution.')}</DialogDescription></DialogHeader><div className="new-task-form"><Label htmlFor="task-title">{t('任务目标', 'Task objective')}</Label><Input id="task-title" placeholder={t('例如：为工作台增加全局命令面板', 'For example: add a global command palette')} value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create() }} /><Label>{t('所属目标', 'Goal')}</Label><Select value={newGoalId} disabled={!!newParentId} onValueChange={setNewGoalId}><SelectTrigger aria-label={t('新任务所属目标', 'Goal for new task')}><SelectValue/></SelectTrigger><SelectContent><SelectItem value="none">{t('独立任务', 'Standalone task')}</SelectItem>{state?.goals.map(g=><SelectItem value={g.id} key={g.id}>{g.title}</SelectItem>)}</SelectContent></Select><Label htmlFor="task-acceptance">{t('验收要求（可稍后补充）', 'Acceptance criteria (optional for now)')}</Label><Input id="task-acceptance" value={newAcceptance} onChange={e=>setNewAcceptance(e.target.value)} placeholder={t('怎样确认这项行动已完成', 'How will you know this task is done?')}/><Label htmlFor="task-delivery">{t('预期产物', 'Expected delivery')}</Label><Input id="task-delivery" value={newDelivery} onChange={e=>setNewDelivery(e.target.value)}/><Label htmlFor="task-deadline">{t('任务 DDL', 'Task deadline')}</Label><DatePicker id="task-deadline" max={state?.goals.find(goal=>goal.id===newGoalId)?.deadline || undefined} value={newDeadline} onValueChange={setNewDeadline}/><Label>{t('执行者', 'Executor')}</Label><Select value={newExecutor==='human'?'human':newAgentId} onValueChange={v=>{setNewExecutor(v==='human'?'human':'agent');if(v!=='human')setNewAgentId(v)}}><SelectTrigger aria-label={t('新任务执行者', 'Executor for new task')}><SelectValue/></SelectTrigger><SelectContent><SelectItem value="default">{t('临时 Agent · 使用默认 Runtime', 'Temporary agent · Default runtime')}</SelectItem><SelectItem value="human">{t('人工 / 应用外完成', 'Human / completed outside the app')}</SelectItem>{state?.agents.filter(a=>a.enabled).map(a=><SelectItem value={a.id} key={a.id}>{a.name} · v{a.version}</SelectItem>)}</SelectContent></Select><Label htmlFor="task-directory">{t('工作目录（执行前填写）', 'Working directory (required before execution)')}</Label><div className="flex gap-2"><Input id="task-directory" placeholder="/Users/you/Projects/my-project" value={newDirectory} onChange={e => setNewDirectory(e.target.value)} /><Button variant="outline" size="icon-sm" aria-label={t('选择任务工作目录', 'Choose task working directory')} onClick={() => { void chooseDirectory().then(value => { if (value) setNewDirectory(value) }).catch(e => setNewError(String(e).replace('Error: ', ''))) }}><FolderOpen /></Button></div><Label>{t('执行模式', 'Execution mode')}</Label><Select value={newMode} onValueChange={v => setNewMode(v as 'solo' | 'team')}><SelectTrigger aria-label={t('新任务执行模式', 'Execution mode for new task')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solo">{t('单 Agent · 独立完成任务', 'Single agent · Work independently')}</SelectItem><SelectItem value="team">{t('协作 · 配置多个成员', 'Collaboration · Configure multiple members')}</SelectItem></SelectContent></Select>{newMode === 'team' && <p className="text-muted-foreground text-xs">{t('成员可单独接收指令，也可并行接收同一指令。当前版本共用任务目录。', 'Members can receive separate instructions or work in parallel. They currently share the task directory.')}</p>}{newError && <p role="alert" className="text-destructive text-xs">{newError}</p>}</div><DialogFooter><Button variant="outline" onClick={() => setNewOpen(false)}>{t('取消', 'Cancel')}</Button><Button onClick={() => void create()}>{t('创建任务', 'Create task')}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={newOpen} onOpenChange={setNewOpen}><DialogContent className="task-dialog"><DialogHeader><DialogTitle>{t('新建任务', 'New task')}</DialogTitle><DialogDescription>{t('记录要完成的行动；任务自动继承目标的工作目录。', 'Describe the action. Tasks automatically inherit their goal’s working directories.')}</DialogDescription></DialogHeader><div className="new-task-form"><Label htmlFor="task-title">{t('任务目标', 'Task objective')}</Label><Input id="task-title" placeholder={t('例如：为工作台增加全局命令面板', 'For example: add a global command palette')} value={newTitle} onChange={e => setNewTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create() }} /><Label>{t('所属目标', 'Goal')}</Label><Select value={newGoalId} disabled={!!newParentId} onValueChange={setNewGoalId}><SelectTrigger aria-label={t('新任务所属目标', 'Goal for new task')}><SelectValue/></SelectTrigger><SelectContent><SelectItem value="none">{t('独立任务', 'Standalone task')}</SelectItem>{state?.goals.map(g=><SelectItem value={g.id} key={g.id}>{g.title}</SelectItem>)}</SelectContent></Select><Label htmlFor="task-acceptance">{t('验收要求（可稍后补充）', 'Acceptance criteria (optional for now)')}</Label><Input id="task-acceptance" value={newAcceptance} onChange={e=>setNewAcceptance(e.target.value)} placeholder={t('怎样确认这项行动已完成', 'How will you know this task is done?')}/><Label htmlFor="task-delivery">{t('预期产物', 'Expected delivery')}</Label><Input id="task-delivery" value={newDelivery} onChange={e=>setNewDelivery(e.target.value)}/><Label htmlFor="task-deadline">{t('任务 DDL', 'Task deadline')}</Label><DatePicker id="task-deadline" max={state?.goals.find(goal=>goal.id===newGoalId)?.deadline || undefined} value={newDeadline} onValueChange={setNewDeadline}/><Label>{t('执行者', 'Executor')}</Label><Select value={newExecutor==='human'?'human':newAgentId} onValueChange={v=>{setNewExecutor(v==='human'?'human':'agent');if(v!=='human')setNewAgentId(v)}}><SelectTrigger aria-label={t('新任务执行者', 'Executor for new task')}><SelectValue/></SelectTrigger><SelectContent><SelectItem value="default">{t('临时 Agent · 使用默认 Runtime', 'Temporary agent · Default runtime')}</SelectItem><SelectItem value="human">{t('人工 / 应用外完成', 'Human / completed outside the app')}</SelectItem>{state?.agents.filter(a=>a.enabled).map(a=><SelectItem value={a.id} key={a.id}>{a.name} · v{a.version}</SelectItem>)}</SelectContent></Select><p className="text-muted-foreground text-xs">{newGoalId !== 'none' ? t('使用目标的固定工作目录，无需重复填写。', 'Uses the goal’s fixed working directories; no directory entry is needed.') : newDirectory ? t(`工作目录：${newDirectory}`, `Working directory: ${newDirectory}`) : t('自动创建任务专属工作目录。', 'A dedicated working directory is created automatically.')}</p><Label>{t('执行模式', 'Execution mode')}</Label><Select value={newMode} onValueChange={v => setNewMode(v as 'solo' | 'team')}><SelectTrigger aria-label={t('新任务执行模式', 'Execution mode for new task')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solo">{t('单 Agent · 独立完成任务', 'Single agent · Work independently')}</SelectItem><SelectItem value="team">{t('协作 · 配置多个成员', 'Collaboration · Configure multiple members')}</SelectItem></SelectContent></Select>{newMode === 'team' && <p className="text-muted-foreground text-xs">{t('成员可单独接收指令，也可并行接收同一指令。当前版本共用任务目录。', 'Members can receive separate instructions or work in parallel. They currently share the task directory.')}</p>}{newError && <p role="alert" className="text-destructive text-xs">{newError}</p>}</div><DialogFooter><Button variant="outline" onClick={() => setNewOpen(false)}>{t('取消', 'Cancel')}</Button><Button onClick={() => void create()}>{t('创建任务', 'Create task')}</Button></DialogFooter></DialogContent></Dialog>
     <CommandDialog open={commandOpen} onOpenChange={setCommandOpen} title={t('全局命令', 'Command palette')} description={t('搜索任务、打开设置或新建任务', 'Search tasks, open Settings, or create a task')}><CommandInput placeholder={t('搜索任务或命令…', 'Search tasks or commands…')} /><CommandList><CommandEmpty>{t('没有找到结果', 'No results found')}</CommandEmpty><CommandGroup heading={t('操作', 'Actions')}><CommandItem onSelect={() => { setCommandOpen(false); if (page === 'settings') { notify.info(t('请先保存或放弃设置更改，再新建任务。', 'Save or discard your Settings changes before creating a task.')); return }; openNew() }}><Plus />{t('新建任务', 'New task')} <kbd className="ml-auto">⌘ N</kbd></CommandItem><CommandItem onSelect={() => { setCommandOpen(false); if (page !== 'settings') openSettings() }}><Settings2 />{t('打开设置', 'Open Settings')}</CommandItem><CommandItem onSelect={() => { setCommandOpen(false); doExport() }}><Download />{t('导出当前任务', 'Export current task')}</CommandItem></CommandGroup>{page !== 'settings' && <><CommandSeparator /><CommandGroup heading={t('任务', 'Tasks')}>{state?.tasks.filter(item => item.kind !== 'goal_assistant').map(taskItem => <CommandItem key={taskItem.id} value={taskItem.title + taskItem.id} onSelect={() => selectTask(taskItem.id)}><Terminal />{taskItem.title}</CommandItem>)}</CommandGroup></>}</CommandList></CommandDialog>
   </div><Toaster theme={appearanceTheme} /></TooltipProvider>
 

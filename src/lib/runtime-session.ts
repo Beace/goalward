@@ -12,9 +12,11 @@ export function reusableSession(task: Task, member: Member, runtime: RuntimeConf
     const previous = run.members.find(candidate => candidate.id === member.id)
     if (!previous) continue
     if (directoryKey(run.directory) !== directoryKey(task.directory)
+      || JSON.stringify((run.workingDirectories ?? [run.directory]).map(directoryKey)) !== JSON.stringify((task.workingDirectories ?? [task.directory]).map(directoryKey))
       || previous.runtime.id !== runtime.id || previous.runtime.adapter !== runtime.adapter
       || previous.runtime.executable !== runtime.executable
-      || JSON.stringify(previous.runtime.args) !== JSON.stringify(runtime.args)) return
+      || JSON.stringify(previous.runtime.args) !== JSON.stringify(runtime.args)
+      || JSON.stringify(previous.runtime.permissions) !== JSON.stringify(runtime.permissions)) return
     // A real turn without a recorded id is a legacy/unrecoverable session.
     // Do not skip it and accidentally resume an older, incomplete context.
     return getRuntimeSessionId(task, run, previous)

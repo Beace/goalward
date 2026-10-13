@@ -53,8 +53,12 @@ export interface Settings {
 export interface Member { agentProfileId?: string; agentProfileVersion?: number; instructions?: string; id: string; name: string; role: string; runtimeId: string; modelId: string; reasoningEffort?: ReasoningEffort }
 export interface Message { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: string; memberId?: string; runId?: string; streaming?: boolean; kind?: 'message' | 'reasoning' }
 export interface RunMember extends Member { runtime: RuntimeConfig; model: string; status: RunStatus; effectiveReasoningEffort?: ReasoningEffort; sessionId?: string }
-export interface Run { context?: RunContext; stepId?: string; id: string; createdAt: string; prompt: string; members: RunMember[]; directory: string }
+export interface Run { context?: RunContext; stepId?: string; id: string; createdAt: string; prompt: string; members: RunMember[]; directory: string; /** Immutable roots actually used by this turn. */ workingDirectories?: string[] }
 export interface Task {
+  /** Current workspace snapshot; a linked Goal remains authoritative for future turns. */
+  workingDirectories?: string[]
+  /** Keeps legacy relative artifact links stable when they have no associated Run. */
+  legacyArtifactDirectory?: string
   /** Internal goal conversations reuse the same durable Runtime protocol. */
   kind?: 'goal_assistant'
   deadline?: string
@@ -91,8 +95,9 @@ export interface StorageInfo { path: string; bytes: number }
 export interface StartRequest {
   taskId: string; runId: string; memberId: string; runtime: RuntimeConfig
   model: string; directory: string; prompt: string
+  additionalDirectories?: string[]
   reasoningEffort?: ReasoningEffort
   sessionId?: string
-  /** Goal assistant Codex conversations use app-server's public text deltas. */
+  /** Legacy flag: enforce the goal assistant read-only policy. All Codex uses app-server. */
   codexStreaming?: boolean
 }

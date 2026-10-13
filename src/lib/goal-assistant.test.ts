@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createInitialState } from './domain'
+import { applyRuntimeEvent, createInitialState } from './domain'
 import { createGoal, reviseGoal, setGoalStatus, updateCriterion, updateGoalState } from './goals'
 import { captureRunContext, migrateWorkspace } from './workspace'
 import { StatePersistence } from './state-persistence'
-import type { AppState, Run } from './types'
+import type { AppState, Run, RuntimeEvent } from './types'
 import type { GoalAssistantDraft, GoalTaskProposal } from './goal-types'
 import { adoptGoalTaskProposal, adoptGoalTaskProposals, confirmGoalAssistantDraft, createGoalAssistantTask, dismissGoalTaskProposal, goalAssistantMessageText, goalAssistantPrompt, goalAssistantRuntime, parseGoalAssistantResponse, processGoalAssistantRun, rollbackGoalAssistantAction, validateGoalAssistantDate, validateGoalTaskProposals } from './goal-assistant'
 
@@ -79,6 +79,69 @@ describe('untrusted assistant action parsing', () => {
   })
 })
 describe('real Runtime results remain suggestions', () => {
+  it.each(['clarify', 'plan'] as const)('applies only the final %s reply after Claude follow-up results in one Run', phase => {
+    const fixture = responseState('', phase)
+    const task = fixture.state.tasks.find(item => item.id === fixture.task.id)!
+    task.messages = []
+    task.runs[0].members[0] = { ...task.runs[0].members[0], runtime: { ...task.runs[0].members[0].runtime, adapter: 'claude' }, status: 'running' }
+    const response = (latest: boolean) => block(phase === 'clarify'
+      ? { type: phase, baseGoalVersion: fixture.goal.version, draft: { ...draft, title: latest ? '追加约束后的目标' : '第一版目标' } }
+      : { type: phase, baseGoalVersion: fixture.goal.version, proposals: [planInput({ title: latest ? '追加约束后的任务' : '第一版任务' })] })
+    let state = fixture.state, sequence = 0
+    const emit = (payload: unknown) => {
+      const event: RuntimeEvent = { id: `follow-up-${++sequence}`, taskId: task.id, runId: fixture.run.id, memberId: task.members[0].id, timestamp: new Date(Date.parse(fixture.run.createdAt) + sequence * 1000).toISOString(), kind: 'stdout', text: JSON.stringify(payload) + '\n' }
+      state = applyRuntimeEvent(state, event)
+    }
+    // Real Claude streaming-input transport emits a full stream and a success
+    // result for both the original input and the queued follow-up.
+    for (const latest of [false, true]) {
+      const id = latest ? 'reply-follow-up' : 'reply-original', text = response(latest)
+      emit({ type: 'stream_event', event: { type: 'message_start', message: { id, role: 'assistant', content: [] } } })
+      emit({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
+      emit({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } })
+      emit({ type: 'stream_event', event: { type: 'message_stop' } })
+      emit({ type: 'assistant', message: { id, content: [{ type: 'text', text }] } })
+      emit({ type: 'result', subtype: 'success', is_error: false, result: text, uuid: `result-${id}` })
+      expect(processGoalAssistantRun(state, fixture.goal.id, fixture.run.id)).toBe(state)
+    }
+    state = applyRuntimeEvent(state, { id: 'follow-ups-completed', taskId: task.id, runId: fixture.run.id, memberId: task.members[0].id, timestamp: '2026-10-10T00:01:00Z', kind: 'completed', text: '' })
+    const next = processGoalAssistantRun(state, fixture.goal.id, fixture.run.id)
+    expect(next.goals[0].assistant?.error).toBeUndefined()
+    if (phase === 'clarify') expect(next.goals[0].assistant?.draft?.title).toBe('追加约束后的目标')
+    else expect(next.goals[0].assistant?.proposals?.[0].title).toBe('追加约束后的任务')
+    expect(next.tasks).toBe(state.tasks)
+    expect(next.tasks.find(item => item.id === task.id)!.messages.map(item => item.text)).toEqual([response(false), response(true)])
+    expect(processGoalAssistantRun(next, fixture.goal.id, fixture.run.id)).toBe(next)
+  })
+  it('does not fall back to a previous action when the final follow-up is malformed', () => {
+    const fixture = responseState(block({ type: 'clarify', baseGoalVersion: 1, draft }))
+    const task = fixture.state.tasks.find(item => item.id === fixture.task.id)!
+    task.messages.push({ ...task.messages[0], id: 'latest-reply', text: '最后一条回复缺少结构化结果。' })
+    const next = processGoalAssistantRun(fixture.state, fixture.goal.id, fixture.run.id)
+    expect(next.goals[0].assistant?.draft).toBeUndefined()
+    expect(next.goals[0].assistant?.error).toContain('goalward')
+  })
+  it.each(['claude', 'pi'] as const)('rejects an empty final %s reply even though it has no public chat message', adapter => {
+    const fixture = responseState('')
+    const task = fixture.state.tasks.find(item => item.id === fixture.task.id)!
+    task.messages = []
+    task.runs[0].members[0] = { ...task.runs[0].members[0], runtime: { ...task.runs[0].members[0].runtime, adapter }, status: 'running' }
+    let state = fixture.state, sequence = 0
+    const emit = (payload: unknown) => { state = applyRuntimeEvent(state, { id: `empty-follow-up-${++sequence}`, taskId: task.id, runId: fixture.run.id, memberId: task.members[0].id, timestamp: new Date(Date.parse(fixture.run.createdAt) + sequence * 1000).toISOString(), kind: 'stdout', text: JSON.stringify(payload) + '\n' }) }
+    const text = block({ type: 'clarify', baseGoalVersion: fixture.goal.version, draft })
+    if (adapter === 'claude') {
+      emit({ type: 'result', subtype: 'success', is_error: false, result: text })
+      emit({ type: 'result', subtype: 'success', is_error: false, result: '' })
+    } else {
+      emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text }], stopReason: 'stop' } })
+      emit({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'stop' } })
+    }
+    state = applyRuntimeEvent(state, { id: 'empty-final-completed', taskId: task.id, runId: fixture.run.id, memberId: task.members[0].id, timestamp: '2026-10-10T00:01:00Z', kind: 'completed', text: '' })
+    const next = processGoalAssistantRun(state, fixture.goal.id, fixture.run.id)
+    expect(next.goals[0].assistant?.draft).toBeUndefined()
+    expect(next.goals[0].assistant?.error).toContain('goalward')
+    expect(next.tasks.find(item => item.id === task.id)!.messages.map(message => message.text)).toEqual([text])
+  })
   it('only processes a successful latest assistant Run once and preserves the immutable Run context', () => {
     const fixture = responseState(block({ type: 'clarify', baseGoalVersion: 'VERSION', draft }))
     // The mock source version is a number in the actual final reply.
@@ -319,7 +382,9 @@ describe('additive state and limited assistant Runtime settings', () => {
     expect(task).toMatchObject({ kind: 'goal_assistant', mode: 'solo', goalId: state.goals[0].id, runs: [] })
     expect(goalAssistantRuntime(state.settings.runtimes[0]).permissions?.codex).toEqual({ sandbox: 'read-only', network: 'inherit', additionalDirectories: [] })
     const pi = goalAssistantRuntime({ ...state.settings.runtimes.find(item => item.id === 'pi')!, enabled: true })
-    expect(pi.args).toContain('--no-tools')
+    expect(pi.args).toContain('--tools')
+    expect(pi.args).toContain('read,grep,find,ls')
+    expect(pi.args).toContain('--no-mcp')
     expect(state.settings).toEqual(snapshot)
     expect(() => goalAssistantRuntime({ ...state.settings.runtimes[0], adapter: 'generic' })).toThrow('通用 CLI')
     expect(() => createGoalAssistantTask(state.settings, { goalId: '../project', directory: '/app/goal-workspace' })).toThrow('标识')

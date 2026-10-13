@@ -68,7 +68,7 @@ function buildTaskArtifacts(task: Task): Artifact[] {
   for (const message of task.messages) {
     if (message.role !== 'assistant' || message.kind === 'reasoning') continue
     const run = task.runs.find(run => run.id === message.runId)
-    const base = { directory: run?.directory ?? task.directory, runId: message.runId, memberId: message.memberId, sourceId: message.id, createdAt: message.createdAt }
+    const base = { directory: run?.directory ?? task.legacyArtifactDirectory ?? task.directory, runId: message.runId, memberId: message.memberId, sourceId: message.id, createdAt: message.createdAt }
     let block = 0
     const proseLines: string[] = []
     const lines = message.text.split('\n')
@@ -106,7 +106,7 @@ function buildTaskArtifacts(task: Task): Artifact[] {
         if (payload.type === 'kimi.acp.update') paths.push(...toolPaths(payload.update?.locations))
       } catch { /* malformed raw records stay in trace */ }
     }
-    for (const path of new Set(paths)) add({ path, source: 'tool', directory: run?.directory ?? task.directory, runId: entry.runId, memberId: entry.memberId, sourceId: entry.id, createdAt: entry.call.endedAt ?? entry.timestamp })
+    for (const path of new Set(paths)) add({ path, source: 'tool', directory: run?.directory ?? task.legacyArtifactDirectory ?? task.directory, runId: entry.runId, memberId: entry.memberId, sourceId: entry.id, createdAt: entry.call.endedAt ?? entry.timestamp })
   }
   for (const item of saved.values()) artifacts.set(item.id, item)
   return [...artifacts.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))

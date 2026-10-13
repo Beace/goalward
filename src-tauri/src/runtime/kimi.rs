@@ -1,12 +1,15 @@
 //! Kimi Code ACP transport. No file/terminal client capabilities are advertised:
 //! Kimi executes its own tools and asks this client for approval in default mode.
-use super::EventSink;
+use super::{EventSink, NativeSession, RoutedSink};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Read, Write},
     process::ChildStdin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -14,7 +17,6 @@ use std::{
 const MAX_FRAME: u64 = 4 * 1024 * 1024;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const PROMPT_STAGE: u64 = 6;
-const CLOSE_STAGE: u64 = 7;
 
 struct Pending {
     rpc_id: Value,
@@ -24,18 +26,24 @@ struct Inner {
     input: ChildStdin,
     session: Option<String>,
     stage: u64,
+    request_id: u64,
+    next_id: u64,
     since: Instant,
     pending: HashMap<String, Pending>,
     outcome: Option<Result<(), String>>,
     cancelled: bool,
     config_options: Value,
     thinking_config: Option<(String, String)>,
-    can_close: bool,
+
     auto_approve: bool,
+    can_close: bool,
+    closing_id: Option<u64>,
+    closed: bool,
 }
 pub(super) struct KimiSession {
     inner: Mutex<Inner>,
-    sink: Arc<EventSink>,
+    sink: RoutedSink,
+    disconnected: AtomicBool,
     storage: Arc<crate::storage::Storage>,
 }
 
@@ -57,16 +65,22 @@ impl KimiSession {
                 input,
                 session: None,
                 stage: 1,
+                request_id: 0,
+                next_id: 1,
                 since: Instant::now(),
                 pending: HashMap::new(),
                 outcome: None,
                 cancelled: false,
                 config_options: Value::Null,
                 thinking_config: None,
-                can_close: false,
+
                 auto_approve,
+                can_close: false,
+                closing_id: None,
+                closed: false,
             }),
-            sink,
+            sink: RoutedSink::new(sink),
+            disconnected: AtomicBool::new(false),
             storage,
         })
     }
@@ -82,9 +96,12 @@ impl KimiSession {
     fn request(inner: &mut Inner, id: u64, method: &str, params: Value) -> Result<(), String> {
         inner.stage = id;
         inner.since = Instant::now();
+        let rpc_id = inner.next_id.max(id);
+        inner.next_id = rpc_id + 1;
+        inner.request_id = rpc_id;
         Self::write(
             inner,
-            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
+            json!({"jsonrpc":"2.0", "id":rpc_id, "method":method, "params":params}),
         )
     }
     fn emit(&self, value: Value) {
@@ -98,7 +115,7 @@ impl KimiSession {
             while end < bytes.len() && (bytes[end] & 0xc0) == 0x80 {
                 end -= 1;
             }
-            self.sink.output("stdout", &bytes[start..end]);
+            self.sink.current().output("stdout", &bytes[start..end]);
             start = end;
         }
     }
@@ -152,6 +169,7 @@ impl KimiSession {
         })
     }
     fn fail(&self, error: String) {
+        self.disconnected.store(true, Ordering::SeqCst);
         if let Ok(mut inner) = self.inner.lock() {
             if inner.outcome.is_none() {
                 inner.outcome = Some(Err(error));
@@ -164,6 +182,7 @@ impl KimiSession {
             && inner.stage != PROMPT_STAGE
             && inner.since.elapsed() > STARTUP_TIMEOUT
         {
+            self.disconnected.store(true, Ordering::SeqCst);
             inner.outcome = Some(Err("Kimi ACP initialization timed out; check the executable, login and model configuration".into()));
         }
         inner.outcome.clone()
@@ -174,6 +193,13 @@ impl KimiSession {
                 return;
             }
             inner.cancelled = true;
+            let pending: Vec<Value> = inner.pending.values().map(|p| p.rpc_id.clone()).collect();
+            for id in pending {
+                let _ = Self::write(
+                    &mut inner,
+                    json!({"jsonrpc":"2.0","id":id,"result":{"outcome":{"outcome":"cancelled"}}}),
+                );
+            }
             inner.pending.clear();
             if let Some(id) = &inner.session {
                 let request =
@@ -217,7 +243,7 @@ impl KimiSession {
         if remember {
             inner.auto_approve = true;
         }
-        self.emit(json!({"type":"kimi.permission_resolved", "requestId":token, "optionId":option, "sessionApproved":remember}));
+        self.emit(json!({"type":"runtime.permission_resolved", "requestId":token, "optionId":option, "sessionApproved":remember}));
         // A session grant also releases already queued requests, not just future ones.
         if remember {
             let approved: Vec<_> = inner
@@ -234,7 +260,7 @@ impl KimiSession {
                     json!({"jsonrpc":"2.0", "id":rpc_id, "result":{"outcome":{"outcome":"selected", "optionId":id}}}),
                 )?;
                 inner.pending.remove(&token);
-                self.emit(json!({"type":"kimi.permission_resolved", "requestId":token, "optionId":id, "automatic":true}));
+                self.emit(json!({"type":"runtime.permission_resolved", "requestId":token, "optionId":id, "automatic":true}));
             }
         }
         Ok(())
@@ -254,13 +280,14 @@ impl KimiSession {
             .storage
             .root
             .join("permissions")
-            .join(&self.sink.request.task_id)
-            .join(&self.sink.request.member_id)
+            .join(&self.sink.current().request.task_id)
+            .join(&self.sink.current().request.member_id)
             .join(format!("{session}.json")))
     }
     fn approval_identity(&self) -> Value {
-        let request = &self.sink.request;
-        json!({"runtimeId":request.runtime.id, "executable":request.runtime.executable, "args":request.runtime.args, "directory":request.directory})
+        let sink = self.sink.current();
+        let request = &sink.request;
+        json!({"runtimeId":request.runtime.id, "executable":request.runtime.executable, "args":request.runtime.args, "directory":request.directory,"additionalDirectories":request.additional_directories})
     }
     fn save_session_approval(&self, inner: &Inner) -> Result<(), String> {
         let path = self.approval_path(inner)?;
@@ -285,15 +312,17 @@ impl KimiSession {
             inner,
             PROMPT_STAGE,
             "session/prompt",
-            json!({"sessionId":inner.session, "prompt":[{"type":"text", "text":self.sink.request.prompt}]}),
+            json!({"sessionId":inner.session, "prompt":[{"type":"text", "text":self.sink.current().request.prompt}]}),
         )
     }
-    fn requested_effort(&self) -> Option<&str> {
+    fn requested_effort(&self) -> Option<String> {
         self.sink
+            .current()
             .request
             .reasoning_effort
             .as_deref()
             .filter(|value| *value != "inherit")
+            .map(String::from)
     }
     fn select_option<'a>(
         options: &'a Value,
@@ -333,7 +362,7 @@ impl KimiSession {
             .ok_or("Kimi 未确认当前模型；无法设置思考强度，运行已停止")?
             .to_owned();
         let thinking = Self::select_option(&inner.config_options, "thought_level", "thinking")?;
-        if !Self::supports_value(thinking, effort) {
+        if !Self::supports_value(thinking, &effort) {
             return Err(format!("当前 Kimi 模型 {model} 不支持思考强度 {effort}；请重新检测模型或选择继承 Runtime 配置"));
         }
         let id = thinking["id"]
@@ -346,8 +375,13 @@ impl KimiSession {
         Self::request(inner, 5, "session/set_config_option", params)
     }
     fn receive(&self, value: Value) -> Result<(), String> {
+        let sink = self.sink.current();
         let mut inner = self.inner.lock().map_err(|_| "Kimi ACP lock unavailable")?;
-        if inner.outcome.is_some() || inner.cancelled {
+        if inner.closing_id.is_some() && value["id"].as_u64() == inner.closing_id {
+            inner.closed = true;
+            return Ok(());
+        }
+        if inner.outcome.is_some() {
             return Ok(());
         }
         if let Some(method) = value["method"].as_str() {
@@ -359,7 +393,7 @@ impl KimiSession {
                     }
                     let update = &params["update"];
                     // Ignore session/load's replay: earlier Runs already own it.
-                    if inner.stage == 2 && self.sink.request.session_id.is_some() {
+                    if inner.stage == 2 && sink.request.session_id.is_some() {
                         return Ok(());
                     }
                     if update["sessionUpdate"] == "config_option_update" {
@@ -414,7 +448,7 @@ impl KimiSession {
                                 &mut inner,
                                 json!({"jsonrpc":"2.0", "id":value["id"], "result":{"outcome":{"outcome":"selected", "optionId":option}}}),
                             )?;
-                            self.emit(json!({"type":"kimi.permission_resolved", "requestId":token, "optionId":option, "automatic":true, "toolCall":params["toolCall"]}));
+                            self.emit(json!({"type":"runtime.permission_resolved", "requestId":token, "optionId":option, "automatic":true, "toolCall":params["toolCall"]}));
                             return Ok(());
                         }
                         // Never reinterpret reject/unknown options as an approval.
@@ -427,7 +461,7 @@ impl KimiSession {
                         },
                     );
                     drop(inner);
-                    self.emit(json!({"type":"kimi.permission_requested", "requestId":token, "toolCall":params["toolCall"], "options":options}));
+                    self.emit(json!({"type":"runtime.permission_requested", "requestId":token, "toolCall":params["toolCall"], "options":options}));
                 }
                 _ => {
                     if let Some(id) = value.get("id") {
@@ -443,7 +477,7 @@ impl KimiSession {
         let id = value["id"]
             .as_u64()
             .ok_or("Kimi ACP response has no request ID")?;
-        if id != inner.stage {
+        if id != inner.request_id {
             return Err("Kimi ACP response did not match the active request".into());
         }
         if let Some(error) = value.get("error") {
@@ -459,22 +493,26 @@ impl KimiSession {
                 "Kimi ACP error {code}: {message}. 请在终端完成 Kimi 登录与模型配置后重试。"
             ));
         }
+        if inner.cancelled && inner.stage != PROMPT_STAGE {
+            return Err("Kimi prompt interrupted before submission".into());
+        }
         let result = value
             .get("result")
             .ok_or("Kimi ACP response has no result")?;
-        match id {
+        match inner.stage {
             1 => {
                 if result["protocolVersion"] != 1 || result["agentInfo"]["name"] != "Kimi Code CLI"
                 {
                     return Err("Kimi adapter requires Kimi Code CLI (ACP version 1); legacy Python kimi-cli is not supported".into());
                 }
-                let resume = self.sink.request.session_id.as_ref();
                 inner.can_close =
                     result["agentCapabilities"]["sessionCapabilities"]["close"].is_object();
+                let resume = sink.request.session_id.as_ref();
+
                 if resume.is_some() && result["agentCapabilities"]["loadSession"] != true {
                     return Err("当前 Kimi 不支持恢复会话；运行已停止，未新建空会话".into());
                 }
-                let mut params = json!({"cwd":self.sink.request.directory, "mcpServers":[]});
+                let mut params = json!({"cwd":sink.request.directory, "mcpServers":[]});
                 if let Some(id) = resume {
                     inner.session = Some(id.clone());
                     params["sessionId"] = json!(id);
@@ -491,7 +529,7 @@ impl KimiSession {
                 )?;
             }
             2 => {
-                if let Some(expected) = &self.sink.request.session_id {
+                if let Some(expected) = &sink.request.session_id {
                     if result["sessionId"]
                         .as_str()
                         .is_some_and(|id| id != expected)
@@ -499,7 +537,7 @@ impl KimiSession {
                         return Err("Kimi 返回的会话与请求恢复的会话不一致；未发送指令".into());
                     }
                 }
-                if self.sink.request.session_id.is_none() {
+                if sink.request.session_id.is_none() {
                     inner.session = Some(
                         result["sessionId"]
                             .as_str()
@@ -508,7 +546,8 @@ impl KimiSession {
                             .into(),
                     );
                 }
-                self.emit(json!({"type":"kimi.session", "sessionId":inner.session, "resumed":self.sink.request.session_id.is_some()}));
+                self.emit(json!({"type":"kimi.session", "sessionId":inner.session, "resumed":sink.request.session_id.is_some()}));
+                self.emit(json!({"type":"runtime.capabilities","steer":false,"followUp":false,"approvals":true}));
                 inner.config_options = result["configOptions"].clone();
                 inner.auto_approve = inner.auto_approve || self.session_approved(&inner)?;
                 let modes = result["modes"]["availableModes"]
@@ -531,7 +570,8 @@ impl KimiSession {
                 Self::request(&mut inner, 3, "session/set_mode", params)?;
             }
             3 => {
-                let request = &self.sink.request;
+                let sink = self.sink.current();
+                let request = &sink.request;
                 let model = if request.model.trim().is_empty() {
                     request.runtime.default_model.trim()
                 } else {
@@ -550,7 +590,8 @@ impl KimiSession {
                 // default. Never reuse session/new's previous-model snapshot.
                 inner.config_options = result["configOptions"].clone();
                 if self.requested_effort().is_some() {
-                    let request = &self.sink.request;
+                    let sink = self.sink.current();
+                    let request = &sink.request;
                     let requested_model = if request.model.trim().is_empty() {
                         request.runtime.default_model.trim()
                     } else {
@@ -577,7 +618,7 @@ impl KimiSession {
                 let effort = self.requested_effort().ok_or("Kimi 思考强度请求已失效")?;
                 if thinking["id"] != id.as_str()
                     || thinking["currentValue"] != effort
-                    || !Self::supports_value(thinking, effort)
+                    || !Self::supports_value(thinking, &effort)
                     || selected_model["currentValue"] != model.as_str()
                 {
                     return Err(format!(
@@ -593,25 +634,82 @@ impl KimiSession {
                     Some(reason) => Err(format!("Kimi prompt ended without completion: {reason}")),
                     None => Err("Kimi prompt response is missing its stop reason".into()),
                 };
-                if outcome.is_ok() && inner.can_close {
-                    // Let the CLI finish persistence/dispose before terminating
-                    // its process. Killing immediately after end_turn can race
-                    // its session writer and leave the next load empty.
-                    let params = json!({"sessionId":inner.session});
-                    Self::request(&mut inner, CLOSE_STAGE, "session/close", params)?;
-                } else {
-                    inner.outcome = Some(outcome);
-                }
-                drop(inner);
+                inner.outcome = Some(outcome);
+                // Keep the turn lock until its final public event is routed;
+                // the manager cannot bind the next Run ahead of this frame.
                 self.emit(
                     json!({"type":"kimi.prompt_completed", "stopReason":result["stopReason"]}),
                 );
             }
-            CLOSE_STAGE => {
-                inner.outcome = Some(Ok(()));
-            }
             _ => return Err("Unsupported Kimi ACP response".into()),
         }
         Ok(())
+    }
+}
+
+impl NativeSession for KimiSession {
+    fn start_turn(&self, sink: Arc<EventSink>) -> Result<(), String> {
+        let mut inner = self.inner.lock().map_err(|_| "Kimi state unavailable")?;
+        if self.disconnected.load(Ordering::SeqCst) {
+            return Err("Kimi connection disconnected; turn was not replayed".into());
+        }
+        if inner.outcome.is_none() {
+            return Err("Kimi already has an active prompt".into());
+        }
+        let session = inner.session.clone().ok_or("Kimi session unavailable")?;
+        if sink
+            .request
+            .session_id
+            .as_deref()
+            .is_some_and(|expected| expected != session)
+        {
+            return Err("Requested Kimi session differs from the live connection".into());
+        }
+        self.sink.replace(sink);
+        inner.outcome = None;
+        inner.cancelled = false;
+        inner.pending.clear();
+        self.emit(json!({"type":"kimi.session","sessionId":session,"resumed":true}));
+        self.emit(
+            json!({"type":"runtime.capabilities","steer":false,"followUp":false,"approvals":true}),
+        );
+        self.prompt(&mut inner)
+    }
+    fn outcome(&self) -> Option<Result<(), String>> {
+        KimiSession::outcome(self)
+    }
+    fn cancel(&self) {
+        KimiSession::cancel(self)
+    }
+    fn respond(&self, token: &str, option: Option<&str>) -> Result<(), String> {
+        KimiSession::respond(self, token, option)
+    }
+    fn disconnected(&self) -> bool {
+        self.disconnected.load(Ordering::SeqCst)
+    }
+    fn close(&self) {
+        self.cancel();
+        if let Ok(mut inner) = self.inner.lock() {
+            if inner.outcome.is_some()
+                && inner.can_close
+                && inner.closing_id.is_none()
+                && !self.disconnected.load(Ordering::SeqCst)
+            {
+                let id = inner.next_id;
+                inner.next_id += 1;
+                inner.closing_id = Some(id);
+                let session = inner.session.clone();
+                if Self::write(&mut inner,json!({"jsonrpc":"2.0","id":id,"method":"session/close","params":{"sessionId":session}})).is_err() {inner.closed=true;}
+            }
+        }
+    }
+    fn ready_to_close(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|inner| inner.closing_id.is_none() || inner.closed)
+            .unwrap_or(true)
+    }
+    fn steer(&self, _: &str) -> Result<(), String> {
+        Err("Kimi ACP v1 does not support appending input to an active prompt; stop or wait for this turn".into())
     }
 }

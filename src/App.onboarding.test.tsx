@@ -8,9 +8,10 @@ import * as artifacts from './lib/artifacts'
 import { createInitialState } from './lib/domain'
 
 const bridge = vi.hoisted(() => ({
-  isDesktop: true, loadState: vi.fn(), saveState: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(),
+  isDesktop: true, activeRuntimeTurns: vi.fn(async () => []), loadState: vi.fn(), saveState: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(),
   discoverLocalEnvironment: vi.fn(), chooseDirectory: vi.fn(), chooseFile: vi.fn(), exportTask: vi.fn(),
   startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn(),
+  ensureGoalAssistantDirectory: vi.fn(async () => '/app-data/automatic-workspace'),
 }))
 vi.mock('@/lib/bridge', () => bridge)
 vi.mock('@/components/Workbench', () => ({ Workbench: ({ task }: { task: { title: string } }) => <h1>{task.title}</h1> }))
@@ -35,6 +36,7 @@ beforeEach(() => {
     stored = structuredClone(state)
   })
   bridge.onRuntimeEvent.mockResolvedValue(() => {})
+  bridge.ensureGoalAssistantDirectory.mockResolvedValue('/app-data/automatic-workspace')
   bridge.loadTraceEvents.mockResolvedValue([])
   bridge.discoverLocalEnvironment.mockImplementation(async () => detected())
   Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })

@@ -21,10 +21,11 @@ import { GoalListLayout } from './GoalListLayout'
 import { GoalAssistant, GoalTaskProposals, persistGoalAssistantAction } from './GoalAssistant'
 import { GoalCelebration } from './GoalCelebration'
 import { GoalProgress } from './GoalProgress'
+import { GoalWorkspaceDirectories } from './GoalWorkspaceDirectories'
 import { confirmGoalAssistantDraft } from '@/lib/goal-assistant'
 import type { GoalAssistantDraftSource } from '@/lib/goal-assistant'
 import type { GoalAssistantDraft } from '@/lib/goal-types'
-import { isDesktop } from '@/lib/bridge'
+import { ensureGoalAssistantDirectory, isDesktop } from '@/lib/bridge'
 import { getCriterionProgressStatus, isBusinessTask } from '@/lib/goal-progress'
 import { getCurrentLanguage, translate, useI18n } from '@/i18n'
 import './goals.css'
@@ -112,6 +113,7 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
 
   async function startIdea(idea: string, runtimeId?: string) {
     const created = createGoal({ title: idea })
+    if (isDesktop) created.workingDirectories = [await ensureGoalAssistantDirectory(created.id)]
     created.assistant = { input: idea }
     await persistGoalAssistantAction(onChange, previous => ({ ...previous, goals: [...previous.goals, created], activeGoalId: created.id, goalExplorationInput: '' }))
     setLocalId(created.id); onSelectGoal?.(created.id); setExploring(false); setTab('assistant'); onViewChange?.(created.id, 'assistant')
@@ -170,6 +172,10 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
     if (modal === 'create') {
       let created: Goal
       try { created = createGoal({ title: draft.title ?? '', intent: draft.intent, expected: draft.expected, currentSummary: draft.summary, deadline: draft.deadline, criteria: lines(draft.criteria) }) } catch (cause) { setError(String(cause instanceof Error ? cause.message : cause)); return }
+      if (isDesktop) {
+        try { created.workingDirectories = [await ensureGoalAssistantDirectory(created.id)] }
+        catch (cause) { setError(String(cause).replace(/^Error: /, '')); return }
+      }
       const saved = await persist(previous => ({ ...previous, goals: [...previous.goals, created] }), t('目标已创建，可继续补充现状与任务。', 'Goal created. You can add context and tasks next.'), true)
       if (!saved) return
       // Selection is local UI state; creation itself does not require a Runtime.
@@ -233,7 +239,7 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
     <AnimatePresence>{celebrating && <GoalCelebration onDismiss={dismissCelebration} />}</AnimatePresence>
     <GoalListLayout rememberedWidth={goalListWidth} navigation={!hideGoalList && <aside className="goal-picker" aria-label={t('目标列表', 'Goal list')}><div className="goal-picker-heading"><span><Target size={15} />{t('目标', 'Goals')}</span><Button size="icon-sm" variant="ghost" aria-label={t('开始一件事', 'Start something')} title={t('开始一件事', 'Start something')} onClick={() => setExploring(true)}><Plus size={16} /></Button></div><div className="goal-search"><Search size={14} /><Input aria-label={t('搜索目标', 'Search goals')} placeholder={t('搜索目标…', 'Search goals…')} value={search} onChange={event => setSearch(event.target.value)} /></div><div className="goal-picker-list">{(state.goalExplorationInput || exploring) && <Button variant="ghost" className={`goal-choice${exploring ? ' is-selected' : ''}`} aria-label={t('恢复未完成的探索', 'Resume exploration')} aria-pressed={exploring} onClick={() => setExploring(true)}><span title={state.goalExplorationInput || t('新的想法', 'New idea')}>{state.goalExplorationInput || t('新的想法', 'New idea')}</span><small>{t('探索中', 'Exploring')}</small></Button>}{state.goals.filter(item => `${item.title} ${item.expected}`.toLowerCase().includes(search.toLowerCase())).map(item => <Button key={item.id} variant="ghost" className={`goal-choice${item.id === goal?.id && !exploring ? ' is-selected' : ''}`} aria-label={`${t('打开目标：', 'Open goal: ')}${item.title}`} aria-pressed={item.id === goal?.id && !exploring} onClick={() => chooseGoal(item.id)}><span title={item.title}>{item.title}</span><small>{goalStatusLabelsLocalized()[item.status]} · v{item.version}</small></Button>)}{!state.goals.length && <p className="goal-empty-copy">{t('把想推进的事情记录在这里。', 'Capture what you want to move forward here.')}</p>}</div><div className="goal-picker-footer">{t('目标与现状持续保存', 'Goals and context are saved')}<br />{t('执行按任务组织', 'Runs are organized by task')}</div></aside>}>
     {exploring || !goal ? <main className="goal-detail"><div className="goal-exploration-toolbar"><span>{t('从想法开始', 'Start from an idea')}</span>{goal && <Button variant="ghost" size="sm" onClick={() => setExploring(false)}>{t('返回目标', 'Back to goal')}</Button>}<Button variant="ghost" size="sm" onClick={() => open('create')}>{t('手动创建目标', 'Create goal manually')}</Button></div><GoalAssistant state={state} onChange={onChange} onStart={startIdea} onSettings={onSettings} onConfirm={confirmAssistant} />{!goal && <div className="goal-manual-start"><Button variant="ghost" size="sm" onClick={() => open('create')}>{t('创建第一个目标', 'Create your first goal')}</Button></div>}</main> : <main className="goal-detail">
-      <header className="goal-header"><div className="goal-heading"><div><p className="goal-meta">{t('目标', 'Goal')} / <GoalBadge status={goal.status} /> <span>{t('定义', 'Definition')} v{goal.version} · {t('现状', 'Context')} v{goal.currentState.version}</span></p><h1>{goal.title}</h1><p className="goal-subtitle">{goal.expected || t('先记录想做的事，再逐步明确预期结果。', 'Capture your goal first, then refine the expected outcome.')}</p>{goal.deadline && <p className="goal-deadline"><CalendarClock size={13} />{t('期望日期', 'Target date')} · <time>{goal.deadline}</time></p>}</div><div className="goal-header-actions"><Button variant="outline" onClick={() => selectTab('assistant')}>{t('目标助手', 'Goal assistant')}</Button><Button variant="outline" onClick={() => editState()}><Pencil size={14} />{t('更新现状', 'Update context')}</Button><Button onClick={() => onCreateTask(goal.id)}><Plus size={14} />{t('创建任务', 'Create task')}</Button></div></div></header>
+      <header className="goal-header"><div className="goal-heading"><div><p className="goal-meta">{t('目标', 'Goal')} / <GoalBadge status={goal.status} /> <span>{t('定义', 'Definition')} v{goal.version} · {t('现状', 'Context')} v{goal.currentState.version}</span></p><h1>{goal.title}</h1><p className="goal-subtitle">{goal.expected || t('先记录想做的事，再逐步明确预期结果。', 'Capture your goal first, then refine the expected outcome.')}</p>{goal.deadline && <p className="goal-deadline"><CalendarClock size={13} />{t('期望日期', 'Target date')} · <time>{goal.deadline}</time></p>}</div><div className="goal-header-actions"><Button variant="outline" onClick={() => selectTab('assistant')}>{t('目标助手', 'Goal assistant')}</Button><Button variant="outline" onClick={() => editState()}><Pencil size={14} />{t('更新现状', 'Update context')}</Button><Button onClick={() => onCreateTask(goal.id)}><Plus size={14} />{t('创建任务', 'Create task')}</Button></div></div><GoalWorkspaceDirectories key={goal.id} state={state} goal={goal} onChange={onChange} /></header>
       {assistantActionError && <p className="goal-form-error goal-assistant-page-error" role="alert">{assistantActionError}</p>}
       <Tabs value={tab} onValueChange={selectTab} className="goal-tabs"><TabsList variant="line" aria-label={t('目标内容', 'Goal content')}><TabsTrigger value="overview">{t('概览', 'Overview')}</TabsTrigger><TabsTrigger value="tasks">{t('任务', 'Tasks')} <span className="goal-tab-count">{selectedTasks.length}</span></TabsTrigger><TabsTrigger value="assistant">{t('目标助手', 'Goal assistant')}</TabsTrigger><TabsTrigger value="history">{t('进展记录', 'Progress history')}</TabsTrigger><TabsTrigger value="reviews">{t('复盘', 'Reviews')} <span className="goal-tab-count">{goal.reviews.length}</span></TabsTrigger></TabsList>
         <TabsContent value="overview" className="goal-scroll"><div className="goal-columns"><div className="goal-primary-column">

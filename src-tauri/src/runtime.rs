@@ -1,17 +1,24 @@
+mod claude;
+#[cfg(all(test, unix))]
+mod claude_tests;
 mod codex;
 #[cfg(all(test, unix))]
 mod codex_tests;
 mod kimi;
 #[cfg(all(test, unix))]
 mod kimi_tests;
+#[cfg(test)]
 mod pi;
+mod pi_rpc;
+#[cfg(all(test, unix))]
+mod pi_rpc_tests;
 #[cfg(all(test, unix))]
 mod pi_tests;
 use crate::{
     discovery::{resolve, runtime_path, signal_group},
     permission, reasoning,
     storage::{private_file, validate_id, Storage},
-    types::{RuntimeEvent, StartRequest},
+    types::{ActiveRuntimeTurn, RuntimeEvent, StartRequest},
 };
 use chrono::{SecondsFormat, Utc};
 #[cfg(unix)]
@@ -31,12 +38,108 @@ use std::{
 
 type EventCallback = Arc<dyn Fn(RuntimeEvent) + Send + Sync>;
 
-struct Running {
+/// A native process owns a connection and a native conversation. Runs own only
+/// one turn and its trace. Disconnects are never automatically replayed.
+pub(super) trait NativeSession: Send + Sync {
+    fn start_turn(&self, sink: Arc<EventSink>) -> Result<(), String>;
+    fn outcome(&self) -> Option<Result<(), String>>;
+    fn cancel(&self);
+    fn steer(&self, prompt: &str) -> Result<(), String>;
+    fn respond(&self, token: &str, option: Option<&str>) -> Result<(), String>;
+    fn disconnected(&self) -> bool;
+    fn hard_disconnect(&self) -> bool {
+        false
+    }
+    fn close(&self) {
+        self.cancel();
+    }
+    fn ready_to_close(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct RoutedSink(Arc<Mutex<Arc<EventSink>>>, Arc<AtomicBool>);
+impl RoutedSink {
+    pub(super) fn new(sink: Arc<EventSink>) -> Self {
+        Self(Arc::new(Mutex::new(sink)), Arc::new(AtomicBool::new(true)))
+    }
+    pub(super) fn current(&self) -> Arc<EventSink> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+    pub(super) fn replace(&self, sink: Arc<EventSink>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = sink;
+        self.1.store(true, Ordering::SeqCst);
+    }
+    fn deactivate(&self) {
+        self.1.store(false, Ordering::SeqCst);
+    }
+    fn output(&self, kind: &str, bytes: &[u8]) {
+        if self.1.load(Ordering::SeqCst) {
+            self.current().output(kind, bytes);
+        }
+    }
+}
+
+struct NativeTurn {
+    key: String,
+    control: Arc<Running>,
+    sink: Arc<EventSink>,
+    stopping_since: Option<Instant>,
+}
+struct NativeConnection {
     pid: u32,
+    owner: (String, String),
+    session: Arc<dyn NativeSession>,
+    route: RoutedSink,
+    active: Mutex<Option<NativeTurn>>,
+    closing: AtomicBool,
+    done: (Mutex<bool>, Condvar),
+}
+
+struct Running {
+    pid: Option<u32>,
     stop: AtomicBool,
     done: (Mutex<bool>, Condvar),
-    kimi: Mutex<Option<Arc<kimi::KimiSession>>>,
-    codex: Mutex<Option<Arc<codex::CodexSession>>>,
+    native: Mutex<Option<Arc<dyn NativeSession>>>,
+}
+
+fn signal_running(control: &Running, signal: i32) {
+    if let Some(pid) = control.pid {
+        signal_group(pid, signal);
+    }
+}
+
+/// A command is registered before the async worker is scheduled, so Stop and
+/// webview recovery cover initialization as well as actual Agent turns.
+pub(super) struct PendingStart {
+    key: String,
+    control: Arc<Running>,
+    processes: Arc<Mutex<HashMap<String, Arc<Running>>>>,
+}
+impl PendingStart {
+    fn owns_slot(&self, processes: &HashMap<String, Arc<Running>>) -> bool {
+        processes
+            .get(&self.key)
+            .is_some_and(|control| Arc::ptr_eq(control, &self.control))
+    }
+    fn canceled(&self) -> bool {
+        self.control.stop.load(Ordering::SeqCst)
+    }
+}
+impl Drop for PendingStart {
+    fn drop(&mut self) {
+        if let Ok(mut processes) = self.processes.lock() {
+            if self.owns_slot(&processes) {
+                processes.remove(&self.key);
+            }
+        }
+        let (done, changed) = &self.control.done;
+        if let Ok(mut done) = done.lock() {
+            *done = true;
+            changed.notify_all();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -44,15 +147,16 @@ pub struct RuntimeManager {
     storage: Arc<Storage>,
     processes: Arc<Mutex<HashMap<String, Arc<Running>>>>,
     lifecycle_gate: Arc<Mutex<()>>,
+    connections: Arc<Mutex<HashMap<String, Arc<NativeConnection>>>>,
+    shutting_down: Arc<AtomicBool>,
 }
 
-struct EventSink {
+pub(super) struct EventSink {
     request: StartRequest,
     file: Mutex<File>,
     output_lock: Mutex<()>,
     disk_failed: AtomicBool,
     callback: EventCallback,
-    pi_outcome: Mutex<pi::Outcome>,
 }
 
 impl EventSink {
@@ -88,12 +192,6 @@ impl EventSink {
         // Serialize stdout/stderr delivery as well as their disk writes. Every
         // chunk is retained; legacy per-run output budgets no longer apply.
         let _output = self.output_lock.lock().unwrap_or_else(|e| e.into_inner());
-        if kind == "stdout" && self.request.runtime.adapter == "pi" {
-            self.pi_outcome
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .feed(bytes);
-        }
         self.event(kind, String::from_utf8_lossy(bytes).into_owned(), None);
     }
 }
@@ -113,31 +211,11 @@ pub fn build_arguments(request: &StartRequest) -> Result<Vec<String>, String> {
             return Err("通用 Runtime 尚无原生会话续接协议".into());
         }
     }
-    if request.codex_streaming {
-        return codex::arguments(request);
-    }
-    // Directory-global --last/--continue can attach another task's conversation.
-    for arg in &request.runtime.args {
-        let flag = arg.split('=').next().unwrap_or(arg);
-        let conflict = match request.runtime.adapter.as_str() {
-            "codex" => matches!(flag, "resume" | "fork" | "--last" | "--all" | "--ephemeral"),
-            "claude" => matches!(
-                flag,
-                "--resume"
-                    | "-r"
-                    | "--continue"
-                    | "-c"
-                    | "--session-id"
-                    | "--fork-session"
-                    | "--no-session-persistence"
-            ),
-            _ => false,
-        };
-        if conflict {
-            return Err(format!(
-                "额外启动参数 {flag} 与任务会话复用冲突；请移除该参数"
-            ));
-        }
+    match request.runtime.adapter.as_str() {
+        "codex" => return codex::arguments(request),
+        "claude" => return claude::arguments(request),
+        "pi" => return pi_rpc::arguments(request),
+        _ => {}
     }
     let model = if request.model.trim().is_empty() {
         request.runtime.default_model.trim()
@@ -151,117 +229,12 @@ pub fn build_arguments(request: &StartRequest) -> Result<Vec<String>, String> {
         .map(|arg| expand_template(arg, &request.prompt, model))
         .collect();
     let permission_args = permission::arguments(&request.runtime, &extra)?;
-    let reasoning_args = reasoning::arguments(
+    reasoning::arguments(
         &request.runtime.adapter,
         request.reasoning_effort.as_deref(),
         &extra,
     )?;
     match request.runtime.adapter.as_str() {
-        "codex" => {
-            let mut args = vec![
-                "exec".into(),
-                "--json".into(),
-                "--color".into(),
-                "never".into(),
-                "--skip-git-repo-check".into(),
-            ];
-            if !model.is_empty() {
-                args.extend(["--model".into(), model.into()]);
-            }
-            args.extend(extra);
-            args.extend(permission_args);
-            args.extend(reasoning_args);
-            if let Some(id) = &request.session_id {
-                args.extend(["resume".into(), "--".into(), id.clone(), "-".into()]);
-                return Ok(args);
-            }
-            args.push("--".into());
-            args.push("-".into());
-            Ok(args)
-        }
-        "claude" => {
-            let mut args = vec![
-                "--print".into(),
-                "--output-format".into(),
-                "stream-json".into(),
-                "--verbose".into(),
-                "--include-partial-messages".into(),
-            ];
-            if !model.is_empty() {
-                args.extend(["--model".into(), model.into()]);
-            }
-            if let Some(id) = &request.session_id {
-                args.extend(["--resume".into(), id.clone()]);
-            }
-            args.extend(extra);
-            args.extend(permission_args);
-            args.extend(reasoning_args);
-            args.push("--".into());
-            Ok(args)
-        }
-        "pi" => {
-            // Only permit options whose arity is known. Positional arguments and
-            // protocol/model/session overrides can silently change the target.
-            let mut index = 0;
-            while index < extra.len() {
-                match extra[index].as_str() {
-                    "--no-tools"
-                    | "--no-builtin-tools"
-                    | "--no-extensions"
-                    | "--no-skills"
-                    | "--no-prompt-templates"
-                    | "--no-themes"
-                    | "--no-context-files"
-                    | "--offline"
-                    | "--approve"
-                    | "--no-approve" => index += 1,
-                    "--tools"
-                    | "--exclude-tools"
-                    | "--extension"
-                    | "--skill"
-                    | "--append-system-prompt"
-                    | "--system-prompt" => {
-                        if extra
-                            .get(index + 1)
-                            .is_none_or(|value| value.is_empty() || value.starts_with('-'))
-                        {
-                            return Err("Pi 启动参数缺少有效值".into());
-                        }
-                        index += 2;
-                    }
-                    _ => {
-                        return Err(format!(
-                            "Pi 适配器不支持额外参数 {}；模型、会话和协议由应用管理",
-                            extra[index]
-                        ))
-                    }
-                }
-            }
-            let mut args = vec!["--print".into(), "--mode".into(), "json".into()];
-            if !model.is_empty() {
-                let Some((provider, id)) = model.split_once('/') else {
-                    return Err("Pi 模型必须使用 provider/model 格式".into());
-                };
-                if provider.is_empty()
-                    || id.is_empty()
-                    || provider.starts_with('-')
-                    || id.starts_with('-')
-                {
-                    return Err("Pi 模型标识无效".into());
-                }
-                args.extend([
-                    "--provider".into(),
-                    provider.into(),
-                    "--model".into(),
-                    id.into(),
-                ]);
-            }
-            if let Some(id) = &request.session_id {
-                args.extend(["--session".into(), id.clone()]);
-            }
-            args.extend(extra);
-            Ok(args)
-        }
         "kimi" => {
             if !extra.is_empty() {
                 return Err("Kimi ACP manages its own protocol arguments; clear additional CLI arguments and select the model in the app".into());
@@ -393,10 +366,103 @@ impl RuntimeManager {
             storage,
             processes: Arc::new(Mutex::new(HashMap::new())),
             lifecycle_gate: Arc::new(Mutex::new(())),
+            connections: Arc::new(Mutex::new(HashMap::new())),
+            shutting_down: Arc::new(AtomicBool::new(false)),
         }
     }
 
+    pub(super) fn prepare_start(&self, request: &StartRequest) -> Result<PendingStart, String> {
+        for id in [
+            &request.task_id,
+            &request.run_id,
+            &request.member_id,
+            &request.runtime.id,
+        ] {
+            validate_id(id)?;
+        }
+        let key = format!("{}:{}", request.run_id, request.member_id);
+        let mut processes = self
+            .processes
+            .lock()
+            .map_err(|_| "Process manager unavailable")?;
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return Err("Runtime manager is shutting down; input was not launched".into());
+        }
+        if processes.contains_key(&key) {
+            return Err("This member already has a pending or active turn".into());
+        }
+        if processes.len() >= 16 {
+            return Err("Maximum of 16 pending or active turns reached".into());
+        }
+        let control = Arc::new(Running {
+            pid: None,
+            stop: AtomicBool::new(false),
+            done: (Mutex::new(false), Condvar::new()),
+            native: Mutex::new(None),
+        });
+        processes.insert(key.clone(), control.clone());
+        Ok(PendingStart {
+            key,
+            control,
+            processes: self.processes.clone(),
+        })
+    }
+
+    #[cfg(test)]
     pub fn start(&self, request: StartRequest, callback: EventCallback) -> Result<(), String> {
+        let pending = self.prepare_start(&request)?;
+        self.start_prepared(request, callback, pending)
+    }
+
+    pub(super) fn start_prepared(
+        &self,
+        request: StartRequest,
+        callback: EventCallback,
+        pending: PendingStart,
+    ) -> Result<(), String> {
+        let result = self.start_reserved(request.clone(), callback.clone(), &pending);
+        let mut processes = self
+            .processes
+            .lock()
+            .map_err(|_| "Process manager unavailable")?;
+        if pending.canceled() && pending.owns_slot(&processes) {
+            processes.remove(&pending.key);
+            let event = RuntimeEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                task_id: request.task_id.clone(),
+                run_id: request.run_id.clone(),
+                member_id: request.member_id.clone(),
+                timestamp: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+                kind: "stopped".into(),
+                text: "Runtime startup canceled before launching or sending input".into(),
+                exit_code: None,
+            };
+            if let Ok(path) =
+                self.storage
+                    .trace_path(&request.task_id, &request.run_id, &request.member_id)
+            {
+                if let Ok(mut file) = private_file(&path, true) {
+                    let _ = serde_json::to_writer(&mut file, &event);
+                    let _ = file.write_all(b"\n");
+                    let _ = file.sync_data();
+                }
+            }
+            callback(event);
+            return Ok(());
+        }
+        drop(processes);
+        result
+    }
+
+    fn start_reserved(
+        &self,
+        request: StartRequest,
+        callback: EventCallback,
+        pending: &PendingStart,
+    ) -> Result<(), String> {
+        if pending.canceled() {
+            return Ok(());
+        }
         let _lifecycle = self
             .lifecycle_gate
             .try_lock()
@@ -424,6 +490,21 @@ impl RuntimeManager {
         if !directory.is_absolute() || !directory.is_dir() {
             return Err("Select an existing absolute working directory".into());
         }
+        for extra in &request.additional_directories {
+            if !std::path::Path::new(extra).is_absolute() || !std::path::Path::new(extra).is_dir() {
+                return Err("Additional working directories must exist and be absolute".into());
+            }
+        }
+        if request.additional_directories.len() > 128 {
+            return Err("Too many working directories".into());
+        }
+        if matches!(
+            request.runtime.adapter.as_str(),
+            "codex" | "kimi" | "claude" | "pi"
+        ) {
+            build_arguments(&request)?;
+            return self.start_native(request, callback, pending);
+        }
         let path = resolve(&request.runtime.executable)?;
         let args = build_arguments(&request)?;
         let key = format!("{}:{}", request.run_id, request.member_id);
@@ -431,11 +512,11 @@ impl RuntimeManager {
             .processes
             .lock()
             .map_err(|_| "Process manager unavailable")?;
-        if processes.contains_key(&key) {
-            return Err("This member already has an active process for the run".into());
+        if !pending.owns_slot(&processes) {
+            return Err("Runtime startup reservation is no longer valid".into());
         }
-        if processes.len() >= 16 {
-            return Err("Maximum of 16 active runtime processes reached".into());
+        if pending.canceled() {
+            return Ok(());
         }
         let file = private_file(
             &self
@@ -473,11 +554,10 @@ impl RuntimeManager {
         let stdout = child.stdout.take().ok_or("Runtime stdout unavailable")?;
         let stderr = child.stderr.take().ok_or("Runtime stderr unavailable")?;
         let control = Arc::new(Running {
-            pid: child.id(),
+            pid: Some(child.id()),
             stop: AtomicBool::new(false),
             done: (Mutex::new(false), Condvar::new()),
-            kimi: Mutex::new(None),
-            codex: Mutex::new(None),
+            native: Mutex::new(None),
         });
         processes.insert(key.clone(), control.clone());
         drop(processes);
@@ -487,96 +567,27 @@ impl RuntimeManager {
             output_lock: Mutex::new(()),
             disk_failed: AtomicBool::new(false),
             callback,
-            pi_outcome: Mutex::new(pi::Outcome::default()),
         });
         sink.event(
             "started",
             format!("{} process started", sink.request.runtime.name),
             None,
         );
-        let (codex_session, kimi_session, prompt_writer) = if sink.request.codex_streaming {
-            (
-                child
-                    .stdin
-                    .take()
-                    .map(|input| codex::CodexSession::new(input, sink.clone())),
-                None,
-                None,
-            )
-        } else if sink.request.runtime.adapter == "kimi" {
-            (
-                None,
-                child
-                    .stdin
-                    .take()
-                    .map(|input| kimi::KimiSession::new(input, sink.clone(), self.storage.clone())),
-                None,
-            )
-        } else {
-            let prompt = sink.request.prompt.clone();
-            // Full legacy transcripts can exceed the OS argument-size limit.
-            // Feed native text adapters through stdin, preserving every byte.
-            (
-                None,
-                None,
-                child
-                    .stdin
-                    .take()
-                    .map(|mut input| thread::spawn(move || input.write_all(prompt.as_bytes()))),
-            )
-        };
-        *control
-            .kimi
-            .lock()
-            .map_err(|_| "Kimi protocol state unavailable")? = kimi_session.clone();
-        *control
-            .codex
-            .lock()
-            .map_err(|_| "Codex protocol state unavailable")? = codex_session.clone();
         let processes = self.processes.clone();
         thread::spawn(move || {
-            let stdout_reader = if let Some(session) = &codex_session {
-                session.begin(stdout)
-            } else if let Some(session) = &kimi_session {
-                session.begin(stdout)
-            } else {
-                stream(stdout, sink.clone(), "stdout")
-            };
+            let stdout_reader = stream(stdout, sink.clone(), "stdout");
             let stderr_reader = stream(stderr, sink.clone(), "stderr");
             let mut stopping_since = None;
             let status = loop {
-                let stopped =
-                    control.stop.load(Ordering::SeqCst) || sink.disk_failed.load(Ordering::SeqCst);
-                let stopping = stopped
-                    || kimi_session
-                        .as_ref()
-                        .and_then(|session| session.outcome())
-                        .is_some()
-                    || codex_session
-                        .as_ref()
-                        .and_then(|session| session.outcome())
-                        .is_some();
-                if stopping && stopping_since.is_none() {
-                    if let Some(session) = &kimi_session {
-                        session.cancel();
-                    }
-                    if let Some(session) = &codex_session {
-                        session.cancel();
-                    }
-                    if (kimi_session.is_none() && codex_session.is_none()) || !stopped {
-                        signal_group(control.pid, libc::SIGTERM);
-                    }
-                    stopping_since = Some(Instant::now());
-                }
-                if (kimi_session.is_some() || codex_session.is_some())
-                    && stopping_since
-                        .is_some_and(|start| start.elapsed() > Duration::from_millis(300))
+                if (control.stop.load(Ordering::SeqCst) || sink.disk_failed.load(Ordering::SeqCst))
+                    && stopping_since.is_none()
                 {
-                    signal_group(control.pid, libc::SIGTERM);
+                    signal_running(&control, libc::SIGTERM);
+                    stopping_since = Some(Instant::now());
                 }
                 if stopping_since.is_some_and(|start| start.elapsed() > Duration::from_millis(900))
                 {
-                    signal_group(control.pid, libc::SIGKILL);
+                    signal_running(&control, libc::SIGKILL);
                     let _ = child.kill();
                 }
                 match child.try_wait() {
@@ -589,12 +600,9 @@ impl RuntimeManager {
                     }
                 }
             };
-            // Runtime ownership includes its child processes, including a background child left after normal exit.
-            signal_group(control.pid, libc::SIGKILL);
+            signal_running(&control, libc::SIGKILL);
             let _ = stdout_reader.join();
             let _ = stderr_reader.join();
-            let prompt_failed =
-                prompt_writer.is_some_and(|writer| !matches!(writer.join(), Ok(Ok(()))));
             let exit_code = status.as_ref().ok().and_then(|s| s.code());
             let (kind, text) = if sink.disk_failed.load(Ordering::SeqCst) {
                 (
@@ -603,39 +611,8 @@ impl RuntimeManager {
                 )
             } else if control.stop.load(Ordering::SeqCst) {
                 ("stopped", "Runtime stopped".into())
-            } else if prompt_failed {
-                ("failed", "无法完整发送对话上下文；本次执行未完成".into())
-            } else if let Some(session) = &codex_session {
-                match session.outcome() {
-                    Some(Ok(())) => ("completed", "Codex app-server turn completed".into()),
-                    Some(Err(error)) => ("failed", error),
-                    None => (
-                        "failed",
-                        "Codex app-server exited without a completed turn".into(),
-                    ),
-                }
-            } else if let Some(session) = &kimi_session {
-                match session.outcome() {
-                    Some(Ok(())) => ("completed", "Kimi ACP prompt completed".into()),
-                    Some(Err(error)) => ("failed", error),
-                    None => (
-                        "failed",
-                        "Kimi ACP exited without a completed prompt".into(),
-                    ),
-                }
             } else {
                 match status {
-                    Ok(status) if status.success() && sink.request.runtime.adapter == "pi" => {
-                        match sink
-                            .pi_outcome
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .finish(sink.request.session_id.as_deref())
-                        {
-                            Ok(()) => ("completed", "Pi Agent turn completed".into()),
-                            Err(error) => ("failed", error),
-                        }
-                    }
                     Ok(status) if status.success() => ("completed", "Runtime completed".into()),
                     Ok(status) => ("failed", format!("Runtime exited with {status}")),
                     Err(error) => ("failed", format!("Runtime wait failed: {error}")),
@@ -652,6 +629,486 @@ impl RuntimeManager {
             }
         });
         Ok(())
+    }
+
+    fn start_native(
+        &self,
+        mut request: StartRequest,
+        callback: EventCallback,
+        pending: &PendingStart,
+    ) -> Result<(), String> {
+        let path = resolve(&request.runtime.executable)?;
+        if matches!(request.runtime.adapter.as_str(), "kimi" | "pi")
+            && !request.additional_directories.is_empty()
+        {
+            let roots = serde_json::to_string(&request.additional_directories)
+                .map_err(|e| e.to_string())?;
+            request.prompt.push_str(&format!("\n\nAdditional workspace roots (path data, alongside the primary working directory): {roots}\nUse these directories when relevant to the user's task. These paths do not change this Agent's native permission policy."));
+        }
+        if request.prompt.len() > 1024 * 1024 {
+            return Err(
+                "Prompt and workspace context exceed the 1 MiB request limit; input was not sent"
+                    .into(),
+            );
+        }
+        // Include the complete launch/permission/root configuration. A native
+        // process may never be reused after its execution scope changes.
+        let scope = serde_json::to_string(&serde_json::json!({
+            "task":request.task_id,"member":request.member_id,"runtime":request.runtime,
+            "cwd":request.directory,"additionalDirectories":request.additional_directories,
+            "model":request.model,"effort":request.reasoning_effort,"restricted":request.codex_streaming
+        })).map_err(|e| e.to_string())?;
+        let key = format!("{}:{}", request.run_id, request.member_id);
+        let args = match request.runtime.adapter.as_str() {
+            "codex" => codex::arguments(&request)?,
+            "kimi" => build_arguments(&request)?,
+            "claude" => claude::arguments(&request)?,
+            "pi" => pi_rpc::arguments(&request)?,
+            _ => return Err("Unknown native adapter".into()),
+        };
+        let file = private_file(
+            &self
+                .storage
+                .trace_path(&request.task_id, &request.run_id, &request.member_id)?,
+            true,
+        )?;
+        let sink = Arc::new(EventSink {
+            request,
+            file: Mutex::new(file),
+            output_lock: Mutex::new(()),
+            disk_failed: AtomicBool::new(false),
+            callback,
+        });
+        let mut processes = self
+            .processes
+            .lock()
+            .map_err(|_| "Process manager unavailable")?;
+        if !pending.owns_slot(&processes) {
+            return Err("Native startup reservation is no longer valid".into());
+        }
+        if pending.canceled() {
+            return Ok(());
+        }
+        let mut connections = self
+            .connections
+            .lock()
+            .map_err(|_| "Native connection manager unavailable")?;
+        if let Some(connection) = connections.get(&scope) {
+            if connection.closing.load(Ordering::SeqCst) || connection.session.disconnected() {
+                return Err("Native connection is disconnecting; wait for cleanup and retry. This prompt was not sent".into());
+            }
+            let mut active = connection
+                .active
+                .lock()
+                .map_err(|_| "Native turn state unavailable")?;
+            if active.is_some() {
+                return Err("This native conversation already has an active turn".into());
+            }
+            let control = Arc::new(Running {
+                pid: Some(connection.pid),
+                stop: AtomicBool::new(false),
+                done: (Mutex::new(false), Condvar::new()),
+                native: Mutex::new(Some(connection.session.clone())),
+            });
+            processes.insert(key.clone(), control.clone());
+            connection.route.replace(sink.clone());
+            // Emit starting before protocol output, just as on a fresh connection.
+            sink.event(
+                "started",
+                format!("{} native session continued", sink.request.runtime.name),
+                None,
+            );
+            if let Err(error) = connection.session.start_turn(sink.clone()) {
+                processes.remove(&key);
+                sink.event("failed", error.clone(), None);
+                connection.closing.store(true, Ordering::SeqCst);
+                return Err(error);
+            }
+            *active = Some(NativeTurn {
+                key,
+                control,
+                sink,
+                stopping_since: None,
+            });
+            return Ok(());
+        }
+        let mut stale_connections = Vec::new();
+        for (existing_scope, existing) in connections.iter() {
+            if existing_scope != &scope
+                && existing.owner == (sink.request.task_id.clone(), sink.request.member_id.clone())
+            {
+                if existing
+                    .active
+                    .lock()
+                    .map_err(|_| "Native turn state unavailable")?
+                    .is_some()
+                {
+                    return Err(
+                        "This member already has an active native turn under another configuration"
+                            .into(),
+                    );
+                }
+                existing.closing.store(true, Ordering::SeqCst);
+                stale_connections.push(existing.clone());
+            }
+        }
+        if !stale_connections.is_empty() {
+            // Scope changes must not leave the previous permission/process tree
+            // alive while resuming its native session with a new configuration.
+            drop(connections);
+            drop(processes);
+            for connection in stale_connections {
+                let (done, changed) = &connection.done;
+                let done = done
+                    .lock()
+                    .map_err(|_| "Native connection state unavailable")?;
+                let (done, _) = changed
+                    .wait_timeout_while(done, Duration::from_secs(4), |done| !*done)
+                    .map_err(|_| "Native connection cleanup unavailable")?;
+                if !*done {
+                    return Err("Previous native connection is still closing; retry after cleanup. This prompt was not sent".into());
+                }
+            }
+            processes = self
+                .processes
+                .lock()
+                .map_err(|_| "Process manager unavailable")?;
+            connections = self
+                .connections
+                .lock()
+                .map_err(|_| "Native connection manager unavailable")?;
+        }
+        if pending.canceled() {
+            return Ok(());
+        }
+        // Bound idle native connections as well. Evict only idle connections;
+        // the active map remains the authority for update/restart protection.
+        if connections.len() >= 16 {
+            let idle = connections
+                .values()
+                .find(|connection| {
+                    connection
+                        .active
+                        .lock()
+                        .is_ok_and(|active| active.is_none())
+                })
+                .cloned()
+                .ok_or("Maximum of 16 active native connections reached")?;
+            idle.closing.store(true, Ordering::SeqCst);
+            drop(connections);
+            drop(processes);
+            let (done, changed) = &idle.done;
+            let done = done
+                .lock()
+                .map_err(|_| "Native connection state unavailable")?;
+            let (done, _) = changed
+                .wait_timeout_while(done, Duration::from_secs(4), |done| !*done)
+                .map_err(|_| "Native connection cleanup unavailable")?;
+            if !*done {
+                return Err("Idle native connection is still closing; retry after cleanup. This prompt was not sent".into());
+            }
+            processes = self
+                .processes
+                .lock()
+                .map_err(|_| "Process manager unavailable")?;
+            connections = self
+                .connections
+                .lock()
+                .map_err(|_| "Native connection manager unavailable")?;
+            if connections.len() >= 16 {
+                return Err("Native connection limit reached; this prompt was not sent".into());
+            }
+        }
+        if pending.canceled() {
+            return Ok(());
+        }
+        let mut command = Command::new(path);
+        command
+            .args(args)
+            .current_dir(&sink.request.directory)
+            .env("PATH", runtime_path())
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("Could not start {}: {e}", sink.request.runtime.name))?;
+        let input = child.stdin.take().ok_or("Native stdin unavailable")?;
+        let output = child.stdout.take().ok_or("Native stdout unavailable")?;
+        let stderr = child.stderr.take().ok_or("Native stderr unavailable")?;
+        sink.event(
+            "started",
+            format!("{} native connection started", sink.request.runtime.name),
+            None,
+        );
+        if !sink.request.additional_directories.is_empty() {
+            sink.output("stdout", format!("{}\n",serde_json::json!({"type":"runtime.workspace_context","primaryDirectory":sink.request.directory,"additionalDirectories":sink.request.additional_directories})).as_bytes());
+        }
+        let (session, reader): (Arc<dyn NativeSession>, thread::JoinHandle<()>) =
+            match sink.request.runtime.adapter.as_str() {
+                "codex" => {
+                    let session = codex::CodexSession::new(input, sink.clone());
+                    let reader = session.begin(output);
+                    (session, reader)
+                }
+                "kimi" => {
+                    let session = kimi::KimiSession::new(input, sink.clone(), self.storage.clone());
+                    let reader = session.begin(output);
+                    (session, reader)
+                }
+                "claude" => {
+                    let session = claude::ClaudeSession::new(input, sink.clone());
+                    let reader = session.begin(output);
+                    (session, reader)
+                }
+                "pi" => {
+                    let session = pi_rpc::PiSession::new(input, sink.clone());
+                    let reader = session.begin(output);
+                    (session, reader)
+                }
+                _ => unreachable!(),
+            };
+        let control = Arc::new(Running {
+            pid: Some(child.id()),
+            stop: AtomicBool::new(false),
+            done: (Mutex::new(false), Condvar::new()),
+            native: Mutex::new(Some(session.clone())),
+        });
+        let route = RoutedSink::new(sink.clone());
+        let connection = Arc::new(NativeConnection {
+            pid: child.id(),
+            owner: (sink.request.task_id.clone(), sink.request.member_id.clone()),
+            session,
+            route: route.clone(),
+            active: Mutex::new(Some(NativeTurn {
+                key: key.clone(),
+                control: control.clone(),
+                sink: sink.clone(),
+                stopping_since: None,
+            })),
+            closing: AtomicBool::new(false),
+            done: (Mutex::new(false), Condvar::new()),
+        });
+        processes.insert(key, control);
+        connections.insert(scope.clone(), connection.clone());
+        drop(processes);
+        drop(connections);
+        let process_map = self.processes.clone();
+        let connection_map = self.connections.clone();
+        thread::spawn(move || {
+            let stderr_reader = thread::spawn(move || {
+                let mut stderr = stderr;
+                let mut buffer = [0_u8; 4096];
+                let mut pending = Vec::with_capacity(4099);
+                while let Ok(count) = stderr.read(&mut buffer) {
+                    if count == 0 {
+                        break;
+                    }
+                    pending.extend_from_slice(&buffer[..count]);
+                    let complete = complete_utf8_prefix_len(&pending);
+                    for chunk in pending[..complete].split_inclusive(|byte| *byte == b'\n') {
+                        route.output("stderr", chunk);
+                    }
+                    pending.drain(..complete);
+                }
+                if !pending.is_empty() {
+                    route.output("stderr", &pending);
+                }
+            });
+            let mut closing_since = None;
+            let mut terminating_since = None;
+            let mut idle_since = None;
+            loop {
+                let mut process_entries = process_map.lock().unwrap_or_else(|e| e.into_inner());
+                let mut active = connection.active.lock().unwrap_or_else(|e| e.into_inner());
+                if active.is_some() {
+                    idle_since = None;
+                }
+                if let Some(turn) = active.as_mut() {
+                    if turn.control.stop.load(Ordering::SeqCst)
+                        || turn.sink.disk_failed.load(Ordering::SeqCst)
+                    {
+                        if turn.stopping_since.is_none() {
+                            connection.session.cancel();
+                            // Some native transports cannot clear accepted input
+                            // queues. Their cancellation marks the connection
+                            // disconnected, requiring immediate process cleanup.
+                            if connection.session.disconnected() {
+                                signal_group(connection.pid, libc::SIGKILL);
+                            }
+                            turn.stopping_since = Some(Instant::now());
+                        }
+                        // An unresponsive interrupt cannot leave a live unknown turn.
+                        // Close that connection; its prompt is never automatically replayed.
+                        if turn
+                            .stopping_since
+                            .is_some_and(|s| s.elapsed() > Duration::from_secs(2))
+                        {
+                            connection.closing.store(true, Ordering::SeqCst);
+                        }
+                    }
+                    if connection.session.hard_disconnect() {
+                        // Claude has no native clear-queue control. Once its
+                        // queued turn is stopped or an early result fails,
+                        // reclaim the process before publishing a terminal
+                        // Run; a normal close grace period could execute the
+                        // remaining native input behind a finished UI.
+                        connection.closing.store(true, Ordering::SeqCst);
+                        signal_group(connection.pid, libc::SIGKILL);
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        closing_since = Some(Instant::now());
+                        terminating_since = Some(Instant::now());
+                    }
+                    if let Some(outcome) = connection.session.outcome() {
+                        let (kind, text) = if turn.sink.disk_failed.load(Ordering::SeqCst) {
+                            (
+                                "failed",
+                                "Native turn stopped because its trace could not be saved".into(),
+                            )
+                        } else if turn.control.stop.load(Ordering::SeqCst) {
+                            (
+                                "stopped",
+                                "Native turn interrupted; conversation retained".into(),
+                            )
+                        } else {
+                            match outcome {
+                                Ok(()) => ("completed", "Native Agent turn completed".into()),
+                                Err(error) => ("failed", error),
+                            }
+                        };
+                        process_entries.remove(&turn.key);
+                        turn.sink.event(kind, text, None);
+                        let (done, changed) = &turn.control.done;
+                        *done.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                        changed.notify_all();
+                        connection.route.deactivate();
+                        *active = None;
+                        idle_since = Some(Instant::now());
+                    }
+                }
+                // Reclaim idle Agent processes; native history remains on disk
+                // and the next explicit user turn resumes its exact session ID.
+                if active.is_none()
+                    && idle_since.is_some_and(|since| since.elapsed() > Duration::from_secs(300))
+                {
+                    connection.closing.store(true, Ordering::SeqCst);
+                }
+                let disconnected = connection.session.disconnected();
+                let status = child.try_wait();
+                let exited = matches!(status, Ok(Some(_))) || status.is_err();
+                if disconnected || exited {
+                    connection.closing.store(true, Ordering::SeqCst);
+                }
+                if connection.closing.load(Ordering::SeqCst) && closing_since.is_none() {
+                    connection.session.close();
+                    closing_since = Some(Instant::now());
+                }
+                if connection.closing.load(Ordering::SeqCst) && active.is_none() {
+                    connection.session.close();
+                }
+                // Allow already-written declines/cancellation replies and an
+                // advertised session/close acknowledgement to be consumed.
+                let may_terminate = closing_since
+                    .is_some_and(|s| s.elapsed() > Duration::from_millis(150))
+                    && ((active.is_none() && connection.session.ready_to_close())
+                        || closing_since.is_some_and(|s| s.elapsed() > Duration::from_secs(2)));
+                if may_terminate && terminating_since.is_none() {
+                    signal_group(connection.pid, libc::SIGTERM);
+                    terminating_since = Some(Instant::now());
+                }
+                if terminating_since.is_some_and(|s| s.elapsed() > Duration::from_millis(900)) {
+                    signal_group(connection.pid, libc::SIGKILL);
+                    let _ = child.kill();
+                }
+                if exited {
+                    if let Some(turn) = active.take() {
+                        process_entries.remove(&turn.key);
+                        let (kind, text) = if turn.control.stop.load(Ordering::SeqCst) {
+                            (
+                                "stopped",
+                                "Native connection closed after interrupt timeout".into(),
+                            )
+                        } else {
+                            ("failed","Native Agent connection disconnected before completing this turn; input was not replayed".into())
+                        };
+                        turn.sink.event(kind, text, None);
+                        let (done, changed) = &turn.control.done;
+                        *done.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                        changed.notify_all();
+                    }
+                    break;
+                }
+                drop(active);
+                drop(process_entries);
+                thread::sleep(Duration::from_millis(25));
+            }
+            signal_group(connection.pid, libc::SIGKILL);
+            let _ = child.wait();
+            let _ = reader.join();
+            let _ = stderr_reader.join();
+            let mut connections = connection_map.lock().unwrap_or_else(|e| e.into_inner());
+            if connections
+                .get(&scope)
+                .is_some_and(|current| Arc::ptr_eq(current, &connection))
+            {
+                connections.remove(&scope);
+            }
+            let (done, changed) = &connection.done;
+            *done.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            changed.notify_all();
+        });
+        Ok(())
+    }
+
+    pub fn active_turns(&self) -> Result<Vec<ActiveRuntimeTurn>, String> {
+        let processes = self
+            .processes
+            .lock()
+            .map_err(|_| "Cannot determine live runtime turn state")?;
+        let mut turns: Vec<_> = processes
+            .iter()
+            .filter_map(|(key, control)| {
+                key.split_once(':')
+                    .map(|(run_id, member_id)| ActiveRuntimeTurn {
+                        run_id: run_id.into(),
+                        member_id: member_id.into(),
+                        stopping: control.stop.load(Ordering::SeqCst),
+                    })
+            })
+            .collect();
+        turns.sort_by(|a, b| (&a.run_id, &a.member_id).cmp(&(&b.run_id, &b.member_id)));
+        Ok(turns)
+    }
+
+    pub fn steer(&self, run_id: &str, member_id: &str, prompt: &str) -> Result<(), String> {
+        for id in [run_id, member_id] {
+            validate_id(id)?;
+        }
+        if prompt.trim().is_empty() || prompt.len() > 1024 * 1024 {
+            return Err("Additional input must be nonempty and at most 1 MiB".into());
+        }
+        let processes = self
+            .processes
+            .lock()
+            .map_err(|_| "Runtime state unavailable")?;
+        let control = processes
+            .get(&format!("{run_id}:{member_id}"))
+            .ok_or("This turn is no longer active")?;
+        if control.stop.load(Ordering::SeqCst) {
+            return Err("This turn is stopping".into());
+        }
+        let session = control
+            .native
+            .lock()
+            .map_err(|_| "Native connection unavailable")?
+            .clone()
+            .ok_or("This runtime does not support input while running")?;
+        drop(processes);
+        session.steer(prompt)
     }
 
     /// Keep actual process creation excluded throughout installation or restart.
@@ -673,6 +1130,7 @@ impl RuntimeManager {
         {
             return Err("仍有本机任务正在运行或停止，请等待任务结束后再安装或重启应用".into());
         }
+        self.close_native_connections();
         operation()
     }
 
@@ -685,11 +1143,29 @@ impl RuntimeManager {
             .processes
             .lock()
             .map_err(|_| "Process manager unavailable")?;
+        let mut native_sessions = Vec::new();
         for (key, control) in processes.iter() {
             if key.starts_with(&format!("{run_id}:"))
                 && member_id.is_none_or(|id| key == &format!("{run_id}:{id}"))
             {
                 control.stop.store(true, Ordering::SeqCst);
+                if let Some(session) = control
+                    .native
+                    .lock()
+                    .map_err(|_| "Native protocol state unavailable")?
+                    .clone()
+                {
+                    native_sessions.push((session, control.pid));
+                }
+            }
+        }
+        drop(processes);
+        for (session, pid) in native_sessions {
+            session.cancel();
+            if session.disconnected() {
+                if let Some(pid) = pid {
+                    signal_group(pid, libc::SIGKILL);
+                }
             }
         }
         Ok(())
@@ -715,35 +1191,54 @@ impl RuntimeManager {
         if control.stop.load(Ordering::SeqCst) {
             return Err("This run is stopping".into());
         }
-        let session = control
-            .kimi
+        let native = control
+            .native
             .lock()
-            .map_err(|_| "Kimi protocol state unavailable")?
-            .clone()
-            .ok_or("This runtime does not support permission responses")?;
-        drop(processes);
-        session.respond(request_id, option_id)
+            .map_err(|_| "Native protocol state unavailable")?
+            .clone();
+        if let Some(session) = native {
+            drop(processes);
+            return session.respond(request_id, option_id);
+        }
+        Err("This runtime does not support permission responses".into())
+    }
+
+    fn close_native_connections(&self) {
+        let connections: Vec<_> = self
+            .connections
+            .lock()
+            .map(|c| c.values().cloned().collect())
+            .unwrap_or_default();
+        for c in &connections {
+            c.closing.store(true, Ordering::SeqCst);
+            c.session.close();
+        }
+        for c in connections {
+            let (done, changed) = &c.done;
+            if let Ok(done) = done.lock() {
+                let _ = changed.wait_timeout_while(done, Duration::from_secs(4), |done| !*done);
+            }
+        }
     }
 
     pub fn shutdown(&self) {
-        let controls: Vec<Arc<Running>> = self
-            .processes
-            .lock()
-            .map(|p| p.values().cloned().collect())
-            .unwrap_or_default();
+        let controls: Vec<Arc<Running>> = if let Ok(processes) = self.processes.lock() {
+            // Mark reservations while holding the same map lock used for their
+            // pending-to-process swap. Shutdown cannot miss a newly spawned PID.
+            self.shutting_down.store(true, Ordering::SeqCst);
+            for control in processes.values() {
+                control.stop.store(true, Ordering::SeqCst);
+            }
+            processes.values().cloned().collect()
+        } else {
+            self.shutting_down.store(true, Ordering::SeqCst);
+            Vec::new()
+        };
+        self.close_native_connections();
         for control in &controls {
-            control.stop.store(true, Ordering::SeqCst);
-            if let Ok(session) = control.kimi.lock() {
-                if let Some(session) = &*session {
-                    session.cancel();
-                }
+            if control.native.lock().is_ok_and(|session| session.is_none()) {
+                signal_running(control, libc::SIGTERM);
             }
-            if let Ok(session) = control.codex.lock() {
-                if let Some(session) = &*session {
-                    session.cancel();
-                }
-            }
-            signal_group(control.pid, libc::SIGTERM);
         }
         for control in controls {
             let (done, changed) = &control.done;
@@ -785,6 +1280,7 @@ mod tests {
             session_id: None,
             codex_streaming: false,
             directory: directory.to_string_lossy().into_owned(),
+            additional_directories: vec![],
             prompt: "literal prompt $(unsafe) ' quoted".into(),
         }
     }
@@ -796,11 +1292,10 @@ mod tests {
             Storage::new(directory.path().join("data")).unwrap(),
         ));
         let child = Arc::new(Running {
-            pid: 0,
+            pid: None,
             stop: AtomicBool::new(false),
             done: (Mutex::new(false), Condvar::new()),
-            kimi: Mutex::new(None),
-            codex: Mutex::new(None),
+            native: Mutex::new(None),
         });
         manager
             .processes
@@ -845,47 +1340,6 @@ mod tests {
     }
 
     #[test]
-    fn native_text_adapters_receive_full_large_context_via_stdin() {
-        use std::os::unix::fs::PermissionsExt;
-        for adapter in ["codex", "claude"] {
-            let directory = tempfile::tempdir().unwrap();
-            let executable = directory.path().join("stdin-fixture");
-            std::fs::write(
-                &executable,
-                "#!/bin/sh\ncat > received.txt\nprintf 'complete\\n'\n",
-            )
-            .unwrap();
-            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-            let mut request = request(directory.path(), "unused");
-            request.runtime.adapter = adapter.into();
-            request.runtime.executable = executable.to_string_lossy().into();
-            request.runtime.args.clear();
-            request.session_id = Some("native-session".into());
-            request.prompt = "历史记录-中文\n".repeat(20000);
-            let expected = request.prompt.clone();
-            let manager = RuntimeManager::new(Arc::new(
-                Storage::new(directory.path().join("data")).unwrap(),
-            ));
-            let (tx, rx) = mpsc::channel();
-            manager
-                .start(
-                    request,
-                    Arc::new(move |event| {
-                        let _ = tx.send(event);
-                    }),
-                )
-                .unwrap();
-            let events = collect_until_terminal(&rx);
-            manager.shutdown();
-            assert_eq!(events.last().unwrap().kind, "completed");
-            assert_eq!(
-                std::fs::read_to_string(directory.path().join("received.txt")).unwrap(),
-                expected
-            );
-        }
-    }
-
-    #[test]
     fn native_resume_uses_exact_id_and_retains_managed_permissions() {
         let mut request = request(std::path::Path::new("/tmp"), "unused");
         request.runtime.args.clear();
@@ -893,17 +1347,14 @@ mod tests {
         request.session_id = Some("native-session".into());
         request.runtime.permissions = Some(serde_json::from_value(serde_json::json!({"codex":{"sandbox":"read-only","network":"inherit","additionalDirectories":[]}})).unwrap());
         let args = build_arguments(&request).unwrap();
-        let resume = args.iter().position(|arg| arg == "resume").unwrap();
-        assert!(args[..resume]
-            .windows(2)
-            .any(|pair| pair == ["--sandbox", "read-only"]));
-        assert_eq!(&args[resume..], &["resume", "--", "native-session", "-"]);
+        assert_eq!(args, ["app-server", "--listen", "stdio://"]);
+        assert!(!args.iter().any(|arg| arg == "exec" || arg == "resume"));
+        // Session IDs and permission policies are sent in correlated RPCs,
+        // covered by native fixtures, rather than CLI positional arguments.
         request.runtime.adapter = "claude".into();
         request.runtime.permissions = None;
         let args = build_arguments(&request).unwrap();
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["--resume", "native-session"]));
+        assert!(args.contains(&"--resume=native-session".into()));
         assert!(!args.contains(&"--continue".into()));
         for invalid in ["", "--last", "../other", "contains space"] {
             request.session_id = Some(invalid.into());
@@ -975,24 +1426,8 @@ mod tests {
         request.runtime.args.clear();
         request.model = "test-model".into();
         let arguments = build_arguments(&request).unwrap();
-        assert_eq!(
-            arguments,
-            vec![
-                "exec",
-                "--json",
-                "--color",
-                "never",
-                "--skip-git-repo-check",
-                "--model",
-                "test-model",
-                "--sandbox",
-                "danger-full-access",
-                "-c",
-                "approval_policy=\"never\"",
-                "--",
-                "-"
-            ]
-        );
+        assert_eq!(arguments, ["app-server", "--listen", "stdio://"]);
+        assert!(!arguments.contains(&request.prompt));
         request.runtime.adapter = "generic".into();
         assert!(build_arguments(&request).is_err());
     }
@@ -1149,12 +1584,20 @@ mod tests {
             }))
             .unwrap(),
         );
-        let args = build_arguments(&request).unwrap();
-        assert_eq!(
-            &args[args.len() - 4..],
-            &["--sandbox", "read-only", "--", "-"]
+        assert!(build_arguments(&request)
+            .unwrap()
+            .windows(2)
+            .any(|pair| pair == ["-c", "model_reasoning_effort=high"]));
+        request.runtime.args = vec!["--skip-git-repo-check".into()];
+        assert!(
+            build_arguments(&request).is_err(),
+            "Batch-only flags cannot be silently applied to app-server"
         );
-        assert!(args.contains(&"--skip-git-repo-check".into()));
+        request.runtime.args.clear();
+        assert_eq!(
+            build_arguments(&request).unwrap(),
+            ["app-server", "--listen", "stdio://"]
+        );
         request.runtime.adapter = "generic".into();
         request.runtime.args = vec!["run".into(), "{prompt}".into()];
         request.runtime.permissions = Some(
@@ -1182,13 +1625,10 @@ mod tests {
         let mut request = old;
         request.reasoning_effort = Some("high".into());
         let args = build_arguments(&request).unwrap();
-        assert_eq!(
-            &args[args.len() - 4..],
-            &["-c", "model_reasoning_effort=\"high\"", "--", "-"]
-        );
+        assert_eq!(args, ["app-server", "--listen", "stdio://"]);
         request.runtime.adapter = "claude".into();
         let args = build_arguments(&request).unwrap();
-        assert_eq!(&args[args.len() - 3..], &["--effort", "high", "--"]);
+        assert!(args.windows(2).any(|pair| pair == ["--effort", "high"]));
     }
 
     #[test]
@@ -1209,7 +1649,13 @@ mod tests {
         ];
         request.model = "fixture-model".into();
         request.reasoning_effort = Some("high".into());
-        let args = build_arguments(&request).unwrap();
+        let mut args = vec![
+            "exec".into(),
+            "--json".into(),
+            "--skip-git-repo-check".into(),
+        ];
+        args.extend(request.runtime.args.clone());
+        args.push("-".into());
         for skip in [false, true] {
             let mut command = Command::new(&executable);
             command
@@ -1556,7 +2002,6 @@ mod tests {
             file: Mutex::new(private_file(&path, true).unwrap()),
             output_lock: Mutex::new(()),
             disk_failed: AtomicBool::new(false),
-            pi_outcome: Mutex::new(pi::Outcome::default()),
             callback: Arc::new(move |event| {
                 tx.send(event).unwrap();
             }),
@@ -1626,7 +2071,10 @@ mod tests {
             let remaining = processes.get("run-1:member-2").unwrap();
             assert!(!remaining.stop.load(Ordering::SeqCst));
             #[cfg(unix)]
-            assert_eq!(unsafe { libc::kill(remaining.pid as i32, 0) }, 0);
+            assert_eq!(
+                unsafe { libc::kill(remaining.pid.expect("live process PID") as i32, 0) },
+                0
+            );
         }
         manager.shutdown();
         assert_eq!(collect_until_terminal(&rx2).last().unwrap().kind, "stopped");
@@ -1659,5 +2107,64 @@ mod tests {
             .collect();
         assert_eq!(text, format!("{}中文\n", "x".repeat(8191)));
         manager.shutdown();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod pending_start_tests {
+    use super::*;
+    use std::{fs, os::unix::fs::PermissionsExt, sync::mpsc};
+
+    #[test]
+    fn shutdown_cancels_reserved_generic_start_and_refuses_late_registration() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("generic-pending-fixture");
+        fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s' \"$$\" > launched-pid\nwhile :; do sleep 1; done\n",
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let request:StartRequest=serde_json::from_value(serde_json::json!({"taskId":"pending-task","runId":"pending-run","memberId":"pending-member","runtime":{"id":"generic-fixture","name":"Pending generic","executable":executable,"adapter":"generic","enabled":true,"args":["{prompt}"]},"model":"","directory":directory.path(),"prompt":"must not launch"})).unwrap();
+        let manager = RuntimeManager::new(Arc::new(
+            Storage::new(directory.path().join("data")).unwrap(),
+        ));
+        let pending = manager.prepare_start(&request).unwrap();
+        let waiting_manager = manager.clone();
+        let waiting_request = request.clone();
+        let (go_tx, go_rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (event_tx, event_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            go_rx.recv().unwrap();
+            waiting_manager.start_prepared(
+                waiting_request,
+                Arc::new(move |event| {
+                    let _ = event_tx.send(event);
+                }),
+                pending,
+            )
+        });
+        ready_rx.recv().unwrap();
+        let ending_manager = manager.clone();
+        let shutdown = thread::spawn(move || ending_manager.shutdown());
+        let until = Instant::now() + Duration::from_secs(2);
+        while !manager.shutting_down.load(Ordering::SeqCst) {
+            assert!(Instant::now() < until);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            manager.prepare_start(&request).is_err(),
+            "Shutdown must prevent registrations after its control snapshot"
+        );
+        go_tx.send(()).unwrap();
+        assert!(worker.join().unwrap().is_ok());
+        shutdown.join().unwrap();
+        let event = event_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(event.kind, "stopped");
+        assert!(event_rx.try_recv().is_err());
+        assert!(!directory.path().join("launched-pid").exists());
+        assert!(manager.active_turns().unwrap().is_empty());
     }
 }

@@ -14,6 +14,14 @@ fn script(path: &Path, body: &str) {
     std::fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
+fn rpc_script(path: &Path, body: &str) {
+    std::fs::write(
+        path,
+        format!("#!/usr/bin/env python3\nimport json,sys,time\n{body}\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
 fn run(manager: &RuntimeManager, request: StartRequest, timeout: Duration) -> Vec<RuntimeEvent> {
     let (tx, rx) = mpsc::channel();
     manager
@@ -52,9 +60,8 @@ fn pi_arguments_own_model_session_protocol_and_keep_prompt_off_argv() {
     assert_eq!(
         build_arguments(&req).unwrap(),
         [
-            "--print",
             "--mode",
-            "json",
+            "rpc",
             "--provider",
             "custom",
             "--model",
@@ -93,15 +100,21 @@ fn pi_native_manager_does_not_promote_zero_exit_to_success_and_preserves_stdin()
     let executable = dir.path().join("pi-fixture");
     let manager = RuntimeManager::new(Arc::new(Storage::new(dir.path().join("data")).unwrap()));
     for (index, stop) in ["stop", "error", "aborted", "length"].iter().enumerate() {
-        script(
+        rpc_script(
             &executable,
             &format!(
-                r#"cat > prompt.txt
-printf '%s\n' '{{"type":"session","id":"session-test"}}' '{{"type":"agent_start"}}' '{{"type":"message_end","message":{{"role":"assistant","stopReason":"{stop}","content":[{{"type":"text","text":"done"}}]}}}}' '{{"type":"agent_end"}}'
+                r#"state=json.loads(sys.stdin.readline())
+print(json.dumps({{'type':'response','id':state['id'],'command':'get_state','success':True,'data':{{'sessionId':'session-test','isStreaming':False}}}}),flush=True)
+prompt=json.loads(sys.stdin.readline())
+with open('prompt.txt','w') as f: f.write(prompt['message'])
+for value in [{{'type':'response','id':prompt['id'],'command':'prompt','success':True}},{{'type':'agent_start'}},{{'type':'message_end','message':{{'role':'assistant','stopReason':'{stop}','content':[{{'type':'text','text':'done'}}]}}}},{{'type':'agent_settled','aborted':False}}]:
+    print(json.dumps(value),flush=True)
+while sys.stdin.readline(): pass
 "#
             ),
         );
         let mut req = request(dir.path(), &executable);
+        req.member_id = format!("pi-member-{index}");
         req.run_id = format!("turn-{index}");
         req.prompt = "中文🙂 $(literal) @file --flag\n".repeat(10000);
         let prompt = req.prompt.clone();
@@ -120,15 +133,40 @@ printf '%s\n' '{{"type":"session","id":"session-test"}}' '{{"type":"agent_start"
         );
     }
     manager.shutdown();
+    let manager = RuntimeManager::new(Arc::new(Storage::new(dir.path().join("data")).unwrap()));
+    rpc_script(
+        &executable,
+        r#"state=json.loads(sys.stdin.readline())
+print(json.dumps({'type':'response','id':state['id'],'command':'get_state','success':True,'data':{'sessionId':'session-test','isStreaming':False}}),flush=True)
+json.loads(sys.stdin.readline())
+sys.exit(0)
+"#,
+    );
+    let events = run(
+        &manager,
+        request(dir.path(), &executable),
+        Duration::from_secs(5),
+    );
+    assert_eq!(
+        events.last().unwrap().kind,
+        "failed",
+        "Exit zero without protocol completion must fail"
+    );
+    manager.shutdown();
 }
 
 #[test]
 fn pi_stop_retains_partial_output_and_reaps_the_process() {
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("pi-fixture");
-    script(
+    rpc_script(
         &executable,
-        "cat > /dev/null\nprintf '%s\\n' '{\"type\":\"session\",\"id\":\"partial\"}'\nsleep 30",
+        r#"state=json.loads(sys.stdin.readline())
+print(json.dumps({'type':'response','id':state['id'],'command':'get_state','success':True,'data':{'sessionId':'partial','isStreaming':False}}),flush=True)
+json.loads(sys.stdin.readline())
+print(json.dumps({'type':'agent_start'}),flush=True)
+time.sleep(30)
+"#,
     );
     let manager = RuntimeManager::new(Arc::new(Storage::new(dir.path().join("data")).unwrap()));
     let (tx, rx) = mpsc::channel();
@@ -142,8 +180,7 @@ fn pi_stop_retains_partial_output_and_reaps_the_process() {
         .unwrap();
     loop {
         let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        if event.kind == "stdout" {
-            assert!(event.text.contains("partial"));
+        if event.kind == "stdout" && event.text.contains("\"id\":\"partial\"") {
             break;
         }
     }

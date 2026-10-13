@@ -1,6 +1,6 @@
 # Pi Runtime 接入
 
-Pi 作为独立 Runtime 接入本机发现、模型目录、执行、会话恢复、公开输出和 Trace。应用使用 Pi 的 JSON 事件模式，不把普通终端文本猜测为结构化事件。
+Pi 作为独立 Runtime 接入本机发现、模型目录、执行、会话恢复、公开输出和 Trace。应用使用 Pi 的原生持续 RPC 模式和公开 JSON 事件，不把普通终端文本猜测为结构化事件。完整接法、兼容与验收边界见 [Claude 与 Pi 原生会话](claude-pi-native-sessions.md)。
 
 ## 本机发现与模型身份
 
@@ -12,17 +12,17 @@ Pi 作为独立 Runtime 接入本机发现、模型目录、执行、会话恢�
 
 ## 执行与会话
 
-- Pi Runtime 使用 JSON 事件流，将公开回复、活动状态、会话 ID 和工具事件分别投影到对话与 Trace。
+- Pi Runtime 使用 `pi --mode rpc` 长期子进程，通过 `get_state` 校验精确原生会话 ID，再通过 stdin JSONL 发送 `prompt`；公开回复、活动状态和工具事件分别投影到对话与 Trace。[官方 RPC 文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)
 - 原始公开事件继续保留，历史记录可重新投影，不以界面展示内容替代协议记录。
-- 同一任务成员在 Runtime 配置和工作目录保持一致时续接保存的 Pi 会话；每次调用仍保存为独立 Run。
-- 结束状态以协议事件为准，进程退出码为 0 不单独证明任务执行成功，更不等于业务验收通过。
-- 停止操作沿用应用的原生进程组终止与回收机制，并保留停止前已经收到的输出。
+- 同一任务成员在 Runtime 配置和工作目录保持一致时复用连接与原生会话；每轮调用仍保存为独立 Run。连接断开不自动重发输入，下次显式请求才恢复精确 session。
+- 结束状态以原生 settled/idle 和最终回答状态为准；`prompt` acknowledgement 和低层 `agent_end` 均不单独证明已完成。进程退出码为 0 也不证明执行成功，更不等于业务验收通过。[官方事件生命周期](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)
+- 运行中追加消息使用原生 `steer`。停止先 `clear_queue` 再 `abort`，正常停止后保留 idle 会话；无法响应、断连或退出 App 时仍通过原生进程组回收，并保留已经收到的输出。[官方命令文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc-commands.md)
 
 ## 参数与权限边界
 
-- 模型、会话、JSON 协议和消息传入由适配器统一管理，用户参数不能覆盖这些关键位置。
+- 模型、会话、RPC 协议和消息传入由适配器统一管理，用户参数不能覆盖这些关键位置。
 - 可选启动参数在保存和启动前验证；冲突参数会直接报错，不静默降级为另一种执行方式。
-- Pi 没有接入统一的逐次工具审批弹窗。工具、扩展和项目访问策略继续由 Pi 自己的配置决定。
+- Pi 没有原生统一逐次工具审批能力。原生扩展的 `confirm` 可确认/取消；未支持的 `input/select/editor` 明确取消并记录 Trace。工具、扩展和项目访问策略继续由 Pi 自己的配置决定；目标助手仅开放 `read,grep,find,ls`，关闭 extensions 和 MCP，让引用文件可读取并排除命令/写入工具。[官方扩展 UI](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc-extension-ui.md)
 - 本机发现、模型列表和配置读取不等于认证、远端推理或账号权限已经验证。
 
 ## 验证
@@ -39,6 +39,12 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 
 ```bash
 node scripts/pi-runtime-smoke.mjs
+```
+
+已安装 Claude/Pi 的真实持续协议检查使用临时目录和 localhost 受控 provider，不消耗真实供应商调用：
+
+```bash
+python3 scripts/native-session-protocol-smoke.py
 ```
 
 需要已有可用 Pi 登录和模型配置的原生两轮会话检查为显式忽略测试，不会在普通测试中自动发起远端调用：

@@ -5,7 +5,7 @@ import App from './App'
 import { createInitialState, createTask } from './lib/domain'
 import type { AppState, RuntimeEvent, Settings, StartRequest } from './lib/types'
 
-const bridge = vi.hoisted(() => ({ isDesktop: true, loadState: vi.fn(), saveState: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(), discoverLocalEnvironment: vi.fn(), chooseDirectory: vi.fn(), chooseFile: vi.fn(), exportTask: vi.fn(), startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn() }))
+const bridge = vi.hoisted(() => ({ isDesktop: true, activeRuntimeTurns: vi.fn(async () => []), loadState: vi.fn(), saveState: vi.fn(), loadTraceEvents: vi.fn(), onRuntimeEvent: vi.fn(), discoverLocalEnvironment: vi.fn(), chooseDirectory: vi.fn(), chooseFile: vi.fn(), exportTask: vi.fn(), startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn() }))
 vi.mock('@/lib/bridge', () => bridge)
 vi.mock('@/components/Workbench', () => ({ Workbench: ({ onSend }: { onSend: (prompt: string, recipient: string) => Promise<void> }) => <button onClick={() => { void onSend('test prompt', '').catch(() => {}) }}>测试执行</button> }))
 vi.mock('@/components/TracePanel', () => ({ TracePanel: () => null }))
