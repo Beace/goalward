@@ -31,6 +31,19 @@ function seed(): AppState {
   return { ...state, tasks: [], goals: [goal], agents: [], activeGoalId: goal.id }
 }
 
+async function selectDate(trigger: HTMLElement, value: string) {
+  fireEvent.click(trigger)
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(year, month - 1, day).toLocaleDateString('zh-CN')
+  const button = await waitFor(() => {
+    const button = document.querySelector<HTMLButtonElement>(`[data-slot="calendar"] button[data-day="${date}"]`)
+    expect(button).toBeTruthy()
+    return button!
+  })
+  fireEvent.click(button)
+  await waitFor(() => expect(document.querySelector('[data-slot="calendar"]')).toBeNull())
+}
+
 describe('Goal assistant live conversation', () => {
   function runningState() {
     const state = seed(), goal = state.goals[0]
@@ -250,7 +263,7 @@ describe('Goal assistant boundaries', () => {
     const definition = screen.getByRole('dialog')
     fireEvent.change(within(definition).getByLabelText('目标名称'), { target: { value: '当前正式目标' } })
     fireEvent.change(within(definition).getByLabelText('预期结果'), { target: { value: '当前正式结果' } })
-    fireEvent.change(within(definition).getByLabelText('期望日期（可选）'), { target: { value: '2026-11-03' } })
+    await selectDate(within(definition).getByLabelText('期望日期（可选）'), '2026-11-03')
     fireEvent.change(within(definition).getByLabelText('本次修订原因'), { target: { value: '手动核对最新需求' } })
     fireEvent.click(within(definition).getByRole('button', { name: '保存' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -263,7 +276,7 @@ describe('Goal assistant boundaries', () => {
     fireEvent.click(screen.getByRole('button', { name: '目标助手' }))
     expect((screen.getByLabelText('目标名称') as HTMLInputElement).value).toBe('当前正式目标')
     expect((screen.getByLabelText('预期结果') as HTMLTextAreaElement).value).toBe('当前正式结果')
-    expect((screen.getByLabelText('期望日期（可选）') as HTMLInputElement).value).toBe('2026-11-03')
+    expect(screen.getByLabelText('期望日期（可选）').textContent).toBe('2026年11月3日')
     expect((screen.getByLabelText('当前现状') as HTMLTextAreaElement).value).toBe('刚手动补充的现状')
     fireEvent.change(screen.getByLabelText('范围与约束'), { target: { value: '用户新改的约束' } })
     await waitFor(() => expect(latest.goals[0].assistant!.draftGoalVersion).toBe(latest.goals[0].version))
@@ -298,7 +311,7 @@ describe('Goal assistant boundaries', () => {
     fireEvent.click(screen.getByRole('button', { name: '修订' }))
     const dialog = screen.getByRole('dialog')
     fireEvent.change(within(dialog).getByLabelText('目标名称'), { target: { value: '知识库试点改名' } })
-    fireEvent.change(within(dialog).getByLabelText('期望日期（可选）'), { target: { value: '2026-11-02' } })
+    await selectDate(within(dialog).getByLabelText('期望日期（可选）'), '2026-11-02')
     fireEvent.change(within(dialog).getByLabelText('本次修订原因'), { target: { value: '调整名称和日期' } })
     fireEvent.click(within(dialog).getByRole('button', { name: '保存' }))
     await waitFor(() => expect(latest.goals[0].title).toBe('知识库试点改名'))
