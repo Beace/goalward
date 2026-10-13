@@ -8,20 +8,20 @@ const outputDirectory = 'test-results/inspector-motion'
 const baseUrl = process.env.INSPECTOR_SMOKE_URL ?? 'http://127.0.0.1:1420'
 const timestamp = '2026-09-16T08:00:00.000Z'
 const runtime = { id: 'codex', name: 'Codex', executable: 'codex', adapter: 'codex', enabled: true, args: [], defaultModel: '', description: 'Browser motion fixture' }
-const member = { id: 'motion-member', name: '执行', role: '实现', runtimeId: 'codex', modelId: '' }
+const member = { id: 'motion-member', name: 'Implementation', role: 'Implementation', runtimeId: 'codex', modelId: '' }
 function fixtureTask(id, title) {
   const runId = `${id}-run`
   return {
     id, title, directory: '/tmp/inspector-motion-fixture', mode: 'solo', members: [member], createdAt: timestamp,
-    messages: [{ id: `${id}-message`, role: 'assistant', text: '独立浏览器动效验收数据；没有执行真实 Agent。', createdAt: timestamp }],
+    messages: [{ id: `${id}-message`, role: 'assistant', text: 'Synthetic motion verification data in an isolated browser; no real Agent was run.', createdAt: timestamp }],
     runs: [{ id: runId, createdAt: timestamp, prompt: 'Browser fixture', directory: '/tmp/inspector-motion-fixture', members: [{ ...member, runtime, model: '', status: 'completed' }] }],
-    events: Array.from({ length: 80 }, (_, index) => ({ id: `${id}-event-${index}`, taskId: id, runId, memberId: member.id, timestamp, kind: 'stdout', text: `${JSON.stringify({ type: 'error', message: `${title}：测试事件 ${index + 1}` })}\n` })),
+    events: Array.from({ length: 80 }, (_, index) => ({ id: `${id}-event-${index}`, taskId: id, runId, memberId: member.id, timestamp, kind: 'stdout', text: `${JSON.stringify({ type: 'error', message: `${title}: Test event ${index + 1}` })}\n` })),
   }
 }
 const fixture = {
   version: 1,
   settings: { runtimes: [runtime], models: [], providers: [], defaultRuntime: 'codex', defaultMode: 'solo', maxParallel: 3, defaultDirectory: '/tmp', outputLimit: 100000 },
-  tasks: [fixtureTask('motion-a', '检查器动效验收 A'), fixtureTask('motion-b', '检查器动效验收 B')],
+  tasks: [fixtureTask('motion-a', 'Inspector motion verification A'), fixtureTask('motion-b', 'Inspector motion verification B')],
   activeTaskId: 'motion-a',
   onboarding: { version: 1, completedAt: timestamp, outcome: 'configured' },
 }

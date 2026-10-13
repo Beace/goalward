@@ -11,24 +11,24 @@ const settings: Settings = {
 
 describe('reusable agent profiles', () => {
   it('versions saved configuration without touching task members or historic run snapshots', () => {
-    const profile = createAgentProfile(settings, { name: '实现', instructions: '验证改动' })
+    const profile = createAgentProfile(settings, { name: 'Implementation', instructions: 'Verify changes' })
     const member = memberFromAgent(profile)
     const run: Run = { id: 'r', createdAt: '2026-09-17T01:00:00Z', prompt: 'task', directory: '', members: [{ ...member, runtime: structuredClone(settings.runtimes[0]), model: '', status: 'completed' }] }
     const before = structuredClone(run)
-    const updated = updateAgentProfile(profile, { name: '实现工程师', instructions: '运行相关测试' }, settings)
+    const updated = updateAgentProfile(profile, { name: 'Implementation engineer', instructions: 'Run relevant tests' }, settings)
     expect(updated.version).toBe(2)
-    expect(updated.history.map(item => item.snapshot.instructions)).toEqual(['验证改动', '运行相关测试'])
-    expect(member.name).toBe('实现')
+    expect(updated.history.map(item => item.snapshot.instructions)).toEqual(['Verify changes', 'Run relevant tests'])
+    expect(member.name).toBe('Implementation')
     expect(run).toEqual(before)
     expect(updateAgentProfile(updated, { name: updated.name }, settings)).toBe(updated)
   })
 
   it('explicit refresh updates inherited fields while preserving task instructions and compatible execution override group', () => {
-    const profile = createAgentProfile(settings, { name: '研究', role: '研究', instructions: '输出依据' })
-    const member = { ...memberFromAgent(profile), instructions: '只使用官方资料', modelId: 'custom-model' }
-    const newer = updateAgentProfile(profile, { name: '研究助手', runtimeId: 'claude', modelId: 'opus', instructions: '全面调研' }, settings)
+    const profile = createAgentProfile(settings, { name: 'Research', role: 'Research', instructions: 'Output evidence' })
+    const member = { ...memberFromAgent(profile), instructions: 'Use official sources only', modelId: 'custom-model' }
+    const newer = updateAgentProfile(profile, { name: 'Research assistant', runtimeId: 'claude', modelId: 'opus', instructions: 'Comprehensive research' }, settings)
     const result = updateMemberFromAgent(member, newer)
-    expect(result.member).toMatchObject({ name: '研究助手', instructions: '只使用官方资料', runtimeId: 'codex', modelId: 'custom-model', agentProfileVersion: 2 })
+    expect(result.member).toMatchObject({ name: 'Research assistant', instructions: 'Use official sources only', runtimeId: 'codex', modelId: 'custom-model', agentProfileVersion: 2 })
     expect(result.preservedFields).toEqual(['instructions', 'runtimeId', 'modelId', 'reasoningEffort'])
     expect(member.agentProfileVersion).toBe(1)
   })
@@ -53,9 +53,9 @@ describe('reusable agent profiles', () => {
     expect(copy.assignedGoalIds).toEqual([])
     expect(copy.history).toHaveLength(1)
     expect(copy.instructions).toBe(original.instructions)
-    const savedMember = agentFromMember(memberFromAgent(original), settings, '从任务保存')
+    const savedMember = agentFromMember(memberFromAgent(original), settings, 'Saved from a task')
     expect(savedMember.id).not.toBe(original.id)
-    expect(savedMember.name).toBe('从任务保存')
+    expect(savedMember.name).toBe('Saved from a task')
   })
 
   it('counts concrete member executions, excludes demo data and retains historical association', () => {

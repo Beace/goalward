@@ -90,10 +90,10 @@ describe('task-scoped native session continuity', () => {
   it('resumed turns keep the new instruction intact without duplicating saved history', () => {
     const { task, member } = fixture()
     task.messages = [{ id: 'old', role: 'assistant', text: 'already in native context', createdAt: task.createdAt }]
-    const instruction = '新指令'.repeat(5000)
+    const instruction = 'New instruction'.repeat(5000)
     const prompt = buildPrompt(task, instruction, member, true)
     expect(prompt).toContain(instruction)
     expect(prompt).not.toContain('already in native context')
-    expect(prompt).toContain('继续当前 Runtime 原生会话')
+    expect(prompt).toContain('Continue the current native runtime session')
   })
 })

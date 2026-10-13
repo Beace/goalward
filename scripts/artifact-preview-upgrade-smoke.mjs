@@ -47,19 +47,19 @@ await writeFile(`${output}/demo-ipc.ts`, `if (!(window as any).__TAURI_INTERNALS
   const readPdf = () => bytes ??= fetch('./two-pages.pdf').then(response => response.arrayBuffer()).then(buffer => new Uint8Array(buffer));
   (window as any).__TAURI_INTERNALS__ = { invoke: async (command: string, args: any) => {
     if (command === 'read_artifact') {
-      if (args.path === '读取失败.pdf') throw new Error('模拟文件读取失败，可切换到预览样例.pdf');
-      const size = args.path === '边界500MB.txt' ? limit : args.path.includes('超限') ? limit + 1024 * 1024 : args.path.endsWith('.pdf') ? args.path === '损坏.pdf' ? 13 : (await readPdf()).length : 24;
+      if (args.path === 'read-failure.pdf') throw new Error('Simulated file read failure; switch to preview-example.pdf');
+      const size = args.path === 'boundary500MB.txt' ? limit : args.path.includes('oversized') ? limit + 1024 * 1024 : args.path.endsWith('.pdf') ? args.path === 'broken.pdf' ? 13 : (await readPdf()).length : 24;
       if (size > limit && !args.allowLarge) return {path:args.path,content:'',bytes:size,tooLarge:true};
       if (args.path.endsWith('.pdf')) return {path:args.path,content:'',bytes:size,pdf:true};
-      const content = args.path.endsWith('.html') ? '<!doctype html><h1>超限 HTML 已加载</h1>' : args.path === '说明.md' ? '# 文本预览正常' : args.path === '边界500MB.txt' ? 'Boundary 500 MB file loads directly' : 'Second oversized file opened';
+      const content = args.path.endsWith('.html') ? '<!doctype html><h1>Oversized HTML loaded</h1>' : args.path === 'readme.md' ? '# Text preview works' : args.path === 'boundary500MB.txt' ? 'Boundary 500 MB file loads directly' : 'Second oversized file opened';
       return {path:args.path,bytes:size,content};
     }
     if (command === 'read_artifact_pdf_chunk') {
-      const data = args.path === '损坏.pdf' ? new TextEncoder().encode('%PDF-broken!!') : await readPdf();
+      const data = args.path === 'broken.pdf' ? new TextEncoder().encode('%PDF-broken!!') : await readPdf();
       return data.slice(args.offset, args.offset + args.length);
     }
     if (command === 'open_external_url') { window.open(args.url, '_blank', 'noopener,noreferrer'); return; }
-    if (command === 'open_artifact') throw new Error('此交互页使用模拟文件读取；系统打开和 Finder 请在桌面应用中验证。');
+    if (command === 'open_artifact') throw new Error('This interaction page uses simulated file reads; verify system opening and Finder in the desktop app.');
     throw new Error('Unexpected demo command: ' + command);
   }};
 }
@@ -72,15 +72,15 @@ import {ArtifactPreview,ArtifactPreviewEmpty} from '/src/components/ArtifactPrev
 import {Button} from '/src/components/ui/button'
 import '/src/index.css'
 const base={directory:'/tmp/artifact-preview-fixture',source:'reply',sourceId:'reply',createdAt:''};
-const files=['边界500MB.txt','超限501MB.html','第二个超限文件.txt','预览样例.pdf','读取失败.pdf','损坏.pdf','慢速.pdf','说明.md'];
-function Harness(){const [artifact,setArtifact]=useState(null);const openFile=name=>setArtifact({...base,id:name,name,path:name,kind:name.endsWith('.html')?'html':name.endsWith('.md')?'markdown':'file'});const openUrl=url=>setArtifact({...base,id:url,url,name:new URL(url).hostname,kind:'web'});return <div style={{height:'100vh',display:'flex'}}><main style={{flex:1,minWidth:0,padding:24}}><h1>产物预览交互验收 · 模拟文件读取</h1><div style={{display:'flex',flexWrap:'wrap',gap:8}}>{files.map(file=><Button key={file} onClick={()=>openFile(file)}>{file}</Button>)}<Button onClick={()=>setArtifact(null)}>清空预览</Button></div></main><div id="preview-pane" style={{width:620,minHeight:0,flexShrink:0}}>{artifact?<ArtifactPreview artifact={artifact} onOpenUrl={openUrl}/>:<ArtifactPreviewEmpty onOpenUrl={openUrl}/>}</div></div>};createRoot(document.getElementById('root')).render(<Harness/>);`)
+const files=['boundary500MB.txt','oversized501MB.html','second-oversized-file.txt','preview-example.pdf','read-failure.pdf','broken.pdf','slow.pdf','readme.md'];
+function Harness(){const [artifact,setArtifact]=useState(null);const openFile=name=>setArtifact({...base,id:name,name,path:name,kind:name.endsWith('.html')?'html':name.endsWith('.md')?'markdown':'file'});const openUrl=url=>setArtifact({...base,id:url,url,name:new URL(url).hostname,kind:'web'});return <div style={{height:'100vh',display:'flex'}}><main style={{flex:1,minWidth:0,padding:24}}><h1>Artifact preview interaction verification · Simulated file reads</h1><div style={{display:'flex',flexWrap:'wrap',gap:8}}>{files.map(file=><Button key={file} onClick={()=>openFile(file)}>{file}</Button>)}<Button onClick={()=>setArtifact(null)}>Clear preview</Button></div></main><div id="preview-pane" style={{width:620,minHeight:0,flexShrink:0}}>{artifact?<ArtifactPreview artifact={artifact} onOpenUrl={openUrl}/>:<ArtifactPreviewEmpty onOpenUrl={openUrl}/>}</div></div>};createRoot(document.getElementById('root')).render(<Harness/>);`)
 
 const webServer = createServer((_request, response) => {
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-  response.end('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"></head><body><h1>UTF-8 网页预览</h1><p>中文内容与空格正常。</p><button id="action">执行网页脚本</button><output id="result"></output><script>document.querySelector("#action").onclick=()=>document.querySelector("#result").textContent="网页脚本已执行"</script></body></html>')
+  response.end('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"></head><body><h1>UTF-8 web preview</h1><p>UTF-8 text café and spaces work.</p><button id="action">Run page script</button><output id="result"></output><script>document.querySelector("#action").onclick=()=>document.querySelector("#result").textContent="Page script executed"</script></body></html>')
 })
 await new Promise(resolve => webServer.listen(0, '127.0.0.1', resolve))
-const webUrl = `http://127.0.0.1:${webServer.address().port}/网页预览`
+const webUrl = `http://127.0.0.1:${webServer.address().port}/café-preview`
 const report = {
   scope: 'Real React and PDF.js canvas rendering with controlled Tauri IPC and local UTF-8 HTTP content. Native filesystem, packaged macOS WebKit, and arbitrary external sites require separate validation.',
   scenarios: [], errors: [],
@@ -111,17 +111,17 @@ try {
       window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
         if (command === 'read_artifact') {
           window.__artifactReads.push(args)
-          const bytes = args.path === '边界500MB.txt' ? limit : args.path.includes('超限') ? limit + 1024 * 1024 : args.path.endsWith('.pdf') ? args.path === '损坏.pdf' ? 13 : fixture.length : 24
+          const bytes = args.path === 'boundary500MB.txt' ? limit : args.path.includes('oversized') ? limit + 1024 * 1024 : args.path.endsWith('.pdf') ? args.path === 'broken.pdf' ? 13 : fixture.length : 24
           if (bytes > limit && !args.allowLarge) return { path: args.path, content: '', bytes, tooLarge: true }
           if (args.path.endsWith('.pdf')) return { path: args.path, content: '', bytes, pdf: true }
-          const content = args.path.endsWith('.html') ? '<!doctype html><h1>超限 HTML 已加载</h1>' : args.path === '说明.md' ? '# 文本预览正常' : args.path === '边界500MB.txt' ? 'Boundary 500 MB file loads directly' : 'Second oversized file opened'
+          const content = args.path.endsWith('.html') ? '<!doctype html><h1>Oversized HTML loaded</h1>' : args.path === 'readme.md' ? '# Text preview works' : args.path === 'boundary500MB.txt' ? 'Boundary 500 MB file loads directly' : 'Second oversized file opened'
           return { path: args.path, bytes, content }
         }
         if (command === 'read_artifact_pdf_chunk') {
           window.__pdfReads.push(args)
-          if (args.path === '读取失败.pdf' && window.__pdfFail) throw new Error('PDF 字节读取失败，请重试')
-          if (args.path === '慢速.pdf') await new Promise(resolve => window.__resumePdf.push(resolve))
-          const data = args.path === '损坏.pdf' ? new TextEncoder().encode('%PDF-broken!!') : fixture
+          if (args.path === 'read-failure.pdf' && window.__pdfFail) throw new Error('PDF byte read failed; retry')
+          if (args.path === 'slow.pdf') await new Promise(resolve => window.__resumePdf.push(resolve))
+          const data = args.path === 'broken.pdf' ? new TextEncoder().encode('%PDF-broken!!') : fixture
           return [...data.slice(args.offset, args.offset + args.length)]
         }
         if (command === 'open_external_url') { window.__externalUrls.push(args.url); return }
@@ -140,10 +140,10 @@ try {
     await expect(preview.getByRole('alert')).toContainText('请输入有效的 HTTP 或 HTTPS 网页地址。')
     await expect(preview.locator('iframe')).toHaveCount(0)
 
-    await page.getByRole('button', { name: '边界500MB.txt', exact: true }).click()
+    await page.getByRole('button', { name: 'boundary500MB.txt', exact: true }).click()
     await expect(preview.locator('pre').first()).toContainText('Boundary 500 MB file loads directly')
     await expect(preview.getByRole('button', { name: '仍要打开' })).toHaveCount(0)
-    await page.getByRole('button', { name: '超限501MB.html', exact: true }).click()
+    await page.getByRole('button', { name: 'oversized501MB.html', exact: true }).click()
     await expect(preview.getByRole('button', { name: '仍要打开' })).toBeVisible()
     await expect(preview.getByRole('alert')).toContainText('500 MB')
     await expect(preview.locator('iframe')).toHaveCount(0)
@@ -152,19 +152,19 @@ try {
     await expect.poll(() => page.evaluate(() => window.__artifactReads.length)).toBeGreaterThan(beforeOpen)
     assert.equal(await page.evaluate(() => window.__artifactReads.at(-1).allowLarge), true)
     await expect(preview.locator('iframe')).toBeVisible()
-    await expect(page.frameLocator('iframe').getByRole('heading', { name: '超限 HTML 已加载' })).toBeVisible()
+    await expect(page.frameLocator('iframe').getByRole('heading', { name: 'Oversized HTML loaded' })).toBeVisible()
     await preview.getByRole('tab', { name: '源码' }).click()
-    await expect(preview.locator('pre')).toContainText('超限 HTML 已加载')
+    await expect(preview.locator('pre')).toContainText('Oversized HTML loaded')
     await preview.getByRole('button', { name: '复制文件内容' }).click()
-    await expect.poll(() => page.evaluate(() => window.__copied)).toContain('超限 HTML 已加载')
-    await page.getByRole('button', { name: '第二个超限文件.txt', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => window.__copied)).toContain('Oversized HTML loaded')
+    await page.getByRole('button', { name: 'second-oversized-file.txt', exact: true }).click()
     await expect(preview.getByRole('button', { name: '仍要打开' })).toBeVisible()
     assert.equal(await page.evaluate(() => !!window.__artifactReads.at(-1).allowLarge), false)
-    await page.getByRole('button', { name: '超限501MB.html', exact: true }).click()
+    await page.getByRole('button', { name: 'oversized501MB.html', exact: true }).click()
     await expect(preview.getByRole('button', { name: '仍要打开' })).toBeVisible()
     await page.screenshot({ path: `${output}/size-gate-${width}-${reducedMotion}.png` })
 
-    await page.getByRole('button', { name: '预览样例.pdf', exact: true }).click()
+    await page.getByRole('button', { name: 'preview-example.pdf', exact: true }).click()
     const firstPage = preview.getByRole('img', { name: 'PDF 第 1 页', exact: true })
     await expect(firstPage).toBeVisible({ timeout: 20_000 })
     await expect.poll(async () => (await canvasInk(firstPage)).ink).toBeGreaterThan(1000)
@@ -172,7 +172,7 @@ try {
     await expect(preview.getByRole('tab', { name: '源码' })).toHaveCount(0)
     await expect(preview.getByRole('button', { name: '上一页', exact: true })).toBeDisabled()
     await preview.getByRole('button', { name: '复制文件路径' }).click()
-    await expect.poll(() => page.evaluate(() => window.__copied)).toBe('/tmp/artifact-preview-fixture/预览样例.pdf')
+    await expect.poll(() => page.evaluate(() => window.__copied)).toBe('/tmp/artifact-preview-fixture/preview-example.pdf')
     await preview.getByRole('button', { name: '下一页', exact: true }).click()
     const secondPage = preview.getByRole('img', { name: 'PDF 第 2 页', exact: true })
     await expect(secondPage).toBeVisible()
@@ -196,7 +196,7 @@ try {
     await expect.poll(() => firstPage.evaluate(node => node.width)).toBeGreaterThan(fitCanvasWidth)
     await preview.getByRole('button', { name: '适应宽度', exact: true }).click()
     await expect.poll(() => firstPage.evaluate(node => node.width)).toBe(fitCanvasWidth)
-    const ranges = await page.evaluate(() => window.__pdfReads.filter(read => read.path === '预览样例.pdf'))
+    const ranges = await page.evaluate(() => window.__pdfReads.filter(read => read.path === 'preview-example.pdf'))
     assert(ranges.length > 1, 'The real PDF must require multiple byte range reads')
     assert(ranges.every(read => Number.isInteger(read.offset) && read.offset >= 0 && read.length > 0 && read.length <= 1024 * 1024))
     await page.screenshot({ path: `${output}/pdf-${width}-${reducedMotion}.png` })
@@ -215,49 +215,49 @@ try {
     if (reducedMotion === 'reduce') assert.equal(transition, '0s')
     await page.screenshot({ path: `${output}/pdf-narrow-${width}-${reducedMotion}.png` })
 
-    await page.getByRole('button', { name: '读取失败.pdf', exact: true }).click()
-    await expect(preview.getByRole('alert')).toContainText('PDF 字节读取失败')
+    await page.getByRole('button', { name: 'read-failure.pdf', exact: true }).click()
+    await expect(preview.getByRole('alert')).toContainText('PDF byte read failed')
     await page.evaluate(() => { window.__pdfFail = false })
     await preview.getByRole('button', { name: '重新读取', exact: true }).click()
     await expect(firstPage).toBeVisible({ timeout: 20_000 })
     await expect.poll(async () => (await canvasInk(firstPage)).ink).toBeGreaterThan(1000)
-    await page.getByRole('button', { name: '损坏.pdf', exact: true }).click()
+    await page.getByRole('button', { name: 'broken.pdf', exact: true }).click()
     await expect(preview.getByRole('alert')).toBeVisible()
     await expect(preview.getByRole('button', { name: '重新读取', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: '慢速.pdf', exact: true }).click()
+    await page.getByRole('button', { name: 'slow.pdf', exact: true }).click()
     await expect.poll(() => page.evaluate(() => window.__resumePdf.length)).toBeGreaterThan(0)
     await expect(preview.getByText('正在加载 PDF…', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: '说明.md', exact: true }).click()
-    await expect(preview.getByRole('heading', { name: '文本预览正常' })).toBeVisible()
+    await page.getByRole('button', { name: 'readme.md', exact: true }).click()
+    await expect(preview.getByRole('heading', { name: 'Text preview works' })).toBeVisible()
     await page.evaluate(() => { window.__resumePdf.splice(0).forEach(resolve => resolve()) })
     await expect(preview.locator('canvas')).toHaveCount(0)
-    await expect(preview.getByRole('heading', { name: '文本预览正常' })).toBeVisible()
+    await expect(preview.getByRole('heading', { name: 'Text preview works' })).toBeVisible()
 
     await urlInput().fill('https://user:password@example.com/')
     await urlInput().press('Enter')
     await expect(preview.getByRole('alert')).toContainText('请输入有效的 HTTP 或 HTTPS 网页地址。')
-    await expect(preview.getByRole('heading', { name: '文本预览正常' })).toBeVisible()
+    await expect(preview.getByRole('heading', { name: 'Text preview works' })).toBeVisible()
     await urlInput().fill(webUrl)
     await urlInput().press('Enter')
     const webFrame = page.frameLocator('iframe')
-    await expect(webFrame.getByRole('heading', { name: 'UTF-8 网页预览' })).toBeVisible()
-    await expect(webFrame.getByText('中文内容与空格正常。')).toBeVisible()
-    await webFrame.getByRole('button', { name: '执行网页脚本' }).click()
-    await expect(webFrame.locator('output')).toHaveText('网页脚本已执行')
+    await expect(webFrame.getByRole('heading', { name: 'UTF-8 web preview' })).toBeVisible()
+    await expect(webFrame.getByText('UTF-8 text café and spaces work.')).toBeVisible()
+    await webFrame.getByRole('button', { name: 'Run page script' }).click()
+    await expect(webFrame.locator('output')).toHaveText('Page script executed')
     await preview.getByRole('button', { name: '复制链接' }).click()
     const normalizedWebUrl = new URL(webUrl).href
     await expect.poll(() => page.evaluate(() => window.__copied)).toBe(normalizedWebUrl)
     await preview.getByRole('button', { name: '系统浏览器打开' }).click()
     await expect.poll(() => page.evaluate(() => window.__externalUrls.at(-1))).toBe(normalizedWebUrl)
     await preview.getByRole('button', { name: '刷新网页' }).click()
-    await expect(webFrame.getByRole('heading', { name: 'UTF-8 网页预览' })).toBeVisible()
+    await expect(webFrame.getByRole('heading', { name: 'UTF-8 web preview' })).toBeVisible()
     await expect(webFrame.locator('output')).toHaveText('')
     await page.screenshot({ path: `${output}/url-narrow-${width}-${reducedMotion}.png` })
-    await page.getByRole('button', { name: '清空预览', exact: true }).click()
+    await page.getByRole('button', { name: 'Clear preview', exact: true }).click()
     await expect(urlInput()).toBeVisible()
     await urlInput().fill(webUrl)
     await preview.getByRole('button', { name: '打开网页预览' }).click()
-    await expect(webFrame.getByRole('heading', { name: 'UTF-8 网页预览' })).toBeVisible()
+    await expect(webFrame.getByRole('heading', { name: 'UTF-8 web preview' })).toBeVisible()
     report.scenarios.push({ width, height, reducedMotion, limitBytes: limit, boundaryLoads: true, oversizedGate: true, overrideResets: true, realPdfPages: 2, byteRangeReads: ranges.length, firstInk, secondInk, pdfRetry: true, corruptPdfError: true, stalePdfCancelled: true, narrowWidth: layout.width, toolbarHeight: layout.toolbar, canvasTransition: transition, urlValidation: true, keyboardUrl: true, utf8Web: true, webScript: true, webCopy: true, webRefresh: true, systemBrowserDispatch: true, emptyPreviewUrl: true })
     await context.close()
   }

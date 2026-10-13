@@ -53,13 +53,13 @@ pub(super) fn arguments(request: &StartRequest) -> Result<Vec<String>, String> {
                     .get(index + 1)
                     .is_none_or(|value| value.is_empty() || value.starts_with('-'))
                 {
-                    return Err("Pi 启动参数缺少有效值".into());
+                    return Err("The Pi launch argument is missing a valid value.".into());
                 }
                 index += 2;
             }
             _ => {
                 return Err(format!(
-                    "Pi 原生会话由应用管理，不支持额外参数 {}",
+                    "Native Pi sessions are managed by the app. The extra argument {} is not supported.",
                     extra[index]
                 ))
             }
@@ -68,11 +68,11 @@ pub(super) fn arguments(request: &StartRequest) -> Result<Vec<String>, String> {
     let mut args = vec!["--mode".into(), "rpc".into()];
     if !model.is_empty() {
         let Some((provider, id)) = model.split_once('/') else {
-            return Err("Pi 模型必须使用 provider/model 格式".into());
+            return Err("Pi models must use provider/model format.".into());
         };
         if provider.is_empty() || id.is_empty() || provider.starts_with('-') || id.starts_with('-')
         {
-            return Err("Pi 模型标识无效".into());
+            return Err("The Pi model identifier is invalid.".into());
         }
         args.extend([
             "--provider".into(),
@@ -266,11 +266,11 @@ impl PiSession {
         inner.next_idle_check = None;
         inner.outcome = Some(match inner.last_stop.as_deref() {
             Some("stop") if !inner.cancelled => Ok(()),
-            Some("length") => Err("Pi 回答达到输出长度限制，本轮执行未完成".into()),
-            Some("error") => Err("Pi 模型请求失败，请查看 Trace".into()),
-            Some("aborted") => Err("Pi 当前执行已中止".into()),
-            _ if inner.cancelled => Err("Pi 当前执行已中止".into()),
-            _ => Err("Pi 未返回正常结束的 Agent 回答".into()),
+            Some("length") => Err("The Pi answer reached the output length limit. This turn did not complete.".into()),
+            Some("error") => Err("The Pi model request failed. Check Trace.".into()),
+            Some("aborted") => Err("The current Pi run was interrupted.".into()),
+            _ if inner.cancelled => Err("The current Pi run was interrupted.".into()),
+            _ => Err("Pi did not return a normally completed Agent answer.".into()),
         });
     }
     fn receive(&self, value: Value) -> Result<(), String> {
@@ -356,7 +356,7 @@ impl PiSession {
                 } else if command == "prompt" && value["data"]["disposition"] == "handled" {
                     // An extension consumed the input: no model run is promised.
                     inner.outcome =
-                        Some(Err("Pi 扩展处理了输入，没有可验证的 Agent 完成结果".into()));
+                        Some(Err("A Pi extension handled the input. No verifiable Agent completion result is available.".into()));
                 } else if command == "abort" && inner.cancelled && inner.outcome.is_none() {
                     Self::finish(&mut inner);
                 } else if command == "steer" {
@@ -418,7 +418,7 @@ impl PiSession {
                     }
                     inner.approvals.insert(id.clone(), value.clone());
                     self.emit(json!({"type":"runtime.permission_requested","requestId":id,"source":"pi-extension-confirm",
-                        "options":[{"optionId":"allow_once","name":"确认","kind":"allow_once"},{"optionId":"reject_once","name":"取消","kind":"reject_once"}],
+                        "options":[{"optionId":"allow_once","name":"Confirm","kind":"allow_once"},{"optionId":"reject_once","name":"Cancel","kind":"reject_once"}],
                         "toolCall":{"title":value["title"],"rawInput":{"message":value["message"]}}}));
                 } else if matches!(method, "select" | "input" | "editor" | "confirm") {
                     Self::write(

@@ -19,8 +19,8 @@ describe('secondary UI in English', () => {
   })
 
   it('translates Markdown controls without altering message content', () => {
-    render(<MarkdownMessage text={'用户内容保持原样\n\n```ts\nconst value = 1\n```'} />)
-    expect(screen.getByText('用户内容保持原样')).toBeTruthy()
+    render(<MarkdownMessage text={'User content stays unchanged: café\n\n```ts\nconst value = 1\n```'} />)
+    expect(screen.getByText('User content stays unchanged: café')).toBeTruthy()
     expect(screen.getByLabelText('ts code block')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy()
   })

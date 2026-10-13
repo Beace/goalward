@@ -1,52 +1,52 @@
-# 场景示例：治理线上用户反馈
+# Example scenario: improve online user feedback
 
-日期：2026-09-16
-归属：[以目标为中心的产品方案](../goal-driven-product-proposal.md)。这是检验通用机制的一个量化场景，不定义产品定位，也不规定其他目标的页面和流程。
+Date: 2026-09-16
+Parent: [Goal-centered product proposal](../goal-driven-product-proposal.md). This numeric scenario tests the general mechanism. It does not define product positioning or prescribe pages and workflows for other goals.
 
-## 用户意图
+## User intent
 
-“治理线上用户反馈，使反馈率降低到 1%。”
+“Improve online user feedback and reduce the feedback rate to 1%.”
 
-用户选择本场景后，逐步明确产品、人群和适用范围，以及“反馈率”的真实口径，例如反馈用户数 / 活跃用户数，或反馈单数 / 请求量。不能替用户推断分母。
+After choosing this scenario, the user progressively clarifies the product, population, and scope, and the actual feedback-rate definition, such as users submitting feedback / active users, or feedback tickets / requests. The denominator cannot be inferred on the user's behalf.
 
-成功条件记录阈值、统计窗口和时区；期限与持续达标窗口由用户按需设置，不能默认追加“连续两周”等要求。
+Success criteria record thresholds, statistical windows, and timezones. Users set deadlines and sustained-success windows as needed; requirements such as two consecutive weeks must not be added by default.
 
-## 在通用产品中的落地
+## Application within the general product
 
-| 通用能力 | 本场景的具体内容 |
+| General capability | Contents in this scenario |
 | --- | --- |
-| 目标与成功条件 | 用户指定范围内，反馈率 ≤ 1% |
-| 现状 | 当前反馈率、主要问题、已确认原因、已完成成果与阻塞 |
-| 信息来源 | 手工录入、报表导入或可复现的查询 |
-| 计划与任务 | 建立口径、分析分类、选择治理项、修复与验证、落地与观察 |
-| Agent 编排 | 按任务选择分析、实现、验证等角色及模型 |
-| 结果更新 | 加入已证实的问题、已完成的修复及新观测 |
-| 复盘 | 对比阶段预期与实际变化，确定下一批行动 |
+| Goal and success criteria | Feedback rate ≤ 1% within the user-defined scope |
+| Current state | Current feedback rate, major issues, confirmed causes, completed results, and blockers |
+| Information sources | Manual entry, report imports, or reproducible queries |
+| Plans and tasks | Establish definitions, analyze/classify, select improvements, fix/validate, deliver/observe |
+| Agent orchestration | Select roles and models for analysis, implementation, validation, and other task needs |
+| Result updates | Add established issues, completed fixes, and new observations |
+| Reviews | Compare stage expectations with actual changes and select the next actions |
 
-## 指标扩展
+## Metric extensions
 
-每次观测保存数值、适用的原始分子分母、统计区间、获取时间、来源和口径版本。最新有效观测构成当前指标视图，历史记录保留。
+Each observation saves the value, applicable original numerator/denominator, statistical period, retrieval time, source, and definition version. The latest valid observation forms the current metric view while history is retained.
 
-查询失败保留最近有效值并标记过期或失败，不将无数据作为零。较晚收到的旧数据不能覆盖较新的统计期；口径改变后不能直接连成可比较的趋势。
+Query failure retains the latest valid value and marks it stale or failed. Missing data is not zero. Late-arriving old data cannot replace a newer statistical period. Changed definitions cannot be joined directly into a comparable trend.
 
-任务完成率与目标结果分别展示。可以显示距目标的实际差距，不默认把不同任务的数量换算成反馈率改善，也不从同期下降直接断言任务的因果贡献。
+Task completion rates and goal outcomes are displayed separately. The actual gap from the target can be shown. Counts of different tasks are not automatically converted into feedback-rate improvement, and a contemporaneous decrease does not establish a task's causal contribution.
 
-## 一个完整推进过程
+## A complete progression
 
-1. 用户创建目标，提供当前观测或查询方式。
-2. 分析任务对反馈进行分类和去重，形成有证据的优先级建议。
-3. 用户选择治理项，由相应 Agent 或参与者分析、实施并验证。
-4. 验收后现状记录已交付成果；尚未发布时明确待发布。
-5. 发布与覆盖确认后，按合适的窗口观察后续数据。
-6. 新观测更新现状；复盘检查目标差距、已有贡献证据和待验证影响。
-7. 根据结果继续、调整或结束某些行动，创建下一批任务。
+1. The user creates a goal and supplies current observations or a query method.
+2. Analysis classifies and deduplicates feedback, producing evidence-supported priorities.
+3. The user selects improvement items; the relevant Agents or participants analyze, implement, and validate them.
+4. After acceptance, current state records delivered results. Unreleased work is explicitly pending release.
+5. After release and coverage confirmation, observe subsequent data over an appropriate window.
+6. New observations update context. Reviews inspect the remaining goal gap, existing contribution evidence, and impacts awaiting verification.
+7. Continue, adjust, or end actions based on results, then create the next task batch.
 
-分析成果、修复交付、发布和效果观察是不同结果，分别记录。其他场景无需套用这组阶段。
+Analysis results, delivered fixes, release, and impact observation are different results and are recorded separately. Other scenarios do not need this sequence of stages.
 
-## 周期复盘
+## Periodic reviews
 
-用户可以配置每周复盘。例如每周一对上一完整自然周生成记录，同时保存时区、统计区间、目标版本和所引用的观测。
+Users can configure weekly reviews, for example creating a record each Monday for the preceding complete calendar week. Records retain timezone, statistical period, goal version, and referenced observations.
 
-复盘回答本期变化、实际落地的工作、待观察效果、相对预期的偏差与下一步。没有期限或阶段预期时，只能报告当前变化及缺失条件，不断言按期达成或落后。
+Reviews cover changes in the period, actually delivered work, impacts still awaiting observation, deviations from expectations, and next steps. Without deadlines or stage expectations, they report current changes and missing conditions without declaring on-time achievement or delay.
 
-调度遵守通用产品的真实后台能力；启用周总结不会默认授权自动执行新的治理任务。
+Scheduling follows the general product's actual background capabilities. Enabling weekly summaries does not automatically authorize new improvement tasks.

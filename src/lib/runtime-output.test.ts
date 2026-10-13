@@ -5,7 +5,7 @@ import type { Adapter, AppState, RuntimeEvent } from './types'
 
 function fixture(adapter: Adapter = 'claude') {
   const initial = createInitialState()
-  const task = createTask(initial.settings, '流式验证', '/tmp/project', 'solo')
+  const task = createTask(initial.settings, 'Streaming verification', '/tmp/project', 'solo')
   const member = task.members[0]
   task.runs = [{ id: 'run', createdAt: '2026-09-16T03:00:00Z', prompt: 'test', directory: task.directory, members: [{ ...member, runtime: { ...initial.settings.runtimes[0], adapter }, model: '', status: 'running' }] }]
   let sequence = 0
@@ -30,25 +30,25 @@ describe('Codex app-server activity', () => {
     state = applyRuntimeEvent(state, raw('turn/started', { turn: { id: 'turn', status: 'inProgress' } }))
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', label: '等待 Runtime 输出' })
     state = applyRuntimeEvent(state, raw('item/reasoning/summaryPartAdded', { itemId: 'thinking', summaryIndex: 0 }))
-    state = applyRuntimeEvent(state, raw('item/reasoning/summaryTextDelta', { itemId: 'thinking', summaryIndex: 0, delta: '先核对' }))
-    state = applyRuntimeEvent(state, raw('item/reasoning/summaryTextDelta', { itemId: 'thinking', summaryIndex: 0, delta: '约束。' }))
-    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', label: '正在思考', summary: '先核对约束。' })
+    state = applyRuntimeEvent(state, raw('item/reasoning/summaryTextDelta', { itemId: 'thinking', summaryIndex: 0, delta: 'Check ' }))
+    state = applyRuntimeEvent(state, raw('item/reasoning/summaryTextDelta', { itemId: 'thinking', summaryIndex: 0, delta: 'constraints.' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', label: '正在思考', summary: 'Check constraints.' })
     state = applyRuntimeEvent(state, raw('item/reasoning/textDelta', { itemId: 'thinking', delta: 'PRIVATE_RAW_THINKING' }))
-    state = applyRuntimeEvent(state, item('item.completed', { id: 'thinking', type: 'reasoning', summary: ['先核对约束。'], content: ['PRIVATE_CONTENT'], signature: 'PRIVATE_SIGNATURE' }))
+    state = applyRuntimeEvent(state, item('item.completed', { id: 'thinking', type: 'reasoning', summary: ['Check constraints.'], content: ['PRIVATE_CONTENT'], signature: 'PRIVATE_SIGNATURE' }))
     expect(state.tasks[0].messages).toHaveLength(1)
-    expect(state.tasks[0].messages[0]).toMatchObject({ kind: 'reasoning', text: '先核对约束。', streaming: false })
+    expect(state.tasks[0].messages[0]).toMatchObject({ kind: 'reasoning', text: 'Check constraints.', streaming: false })
     expect(JSON.stringify(state.tasks[0].messages)).not.toContain('PRIVATE')
-    state = applyRuntimeEvent(state, item('item.started', { id: 'search', type: 'webSearch', query: 'API 资料' }))
-    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'web-search', summary: 'API 资料' })
+    state = applyRuntimeEvent(state, item('item.started', { id: 'search', type: 'webSearch', query: 'API material' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'web-search', summary: 'API material' })
     state = applyRuntimeEvent(state, item('item.started', { id: 'mcp', type: 'mcpToolCall', server: 'docs', tool: 'read', arguments: { topic: 'streaming' }, status: 'inProgress' }))
-    state = applyRuntimeEvent(state, raw('item/mcpToolCall/progress', { itemId: 'mcp', message: '正在读取文档' }))
-    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'tool', summary: '正在读取文档' })
+    state = applyRuntimeEvent(state, raw('item/mcpToolCall/progress', { itemId: 'mcp', message: 'Reading documents' }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'tool', summary: 'Reading documents' })
     state = applyRuntimeEvent(state, raw('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 24, outputTokens: 8 }, total: { inputTokens: 200, outputTokens: 100 } } }))
     state = applyRuntimeEvent(state, raw('model/rerouted', { fromModel: 'configured', toModel: 'actual', reason: 'capacity' }))
-    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'tool', summary: '正在读取文档' })
-    state = applyRuntimeEvent(state, item('item.completed', { id: 'mcp', type: 'mcpToolCall', status: 'completed', result: { text: '收到资料' } }))
+    expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'tool', summary: 'Reading documents' })
+    state = applyRuntimeEvent(state, item('item.completed', { id: 'mcp', type: 'mcpToolCall', status: 'completed', result: { text: 'Material received' } }))
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', label: '工具已返回，等待 Runtime 下一步' })
-    state = applyRuntimeEvent(state, raw('item/agentMessage/delta', { itemId: 'answer', delta: '可以继续整理任务。' }))
+    state = applyRuntimeEvent(state, raw('item/agentMessage/delta', { itemId: 'answer', delta: 'Continue organizing tasks.' }))
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('responding')
     state = applyRuntimeEvent(state, f.event('stopped'))
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('stopped')
@@ -71,13 +71,13 @@ describe('Codex app-server activity', () => {
 describe('public streaming output', () => {
   it('restores streaming for a confirmed live interrupted route without reviving a terminal Run', () => {
     const f = fixture('codex')
-    const change = f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '仍在输出' } })
+    const change = f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: 'Still streaming' } })
     const state = applyRuntimeEvent(f.state, change)
     state.tasks[0].runs[0].members[0].status = 'interrupted'
     const active = [{ runId: 'run', memberId: f.member.id }]
     const recovered = recoverInterruptedState(state, active)
     expect(recovered.tasks[0].runs[0].members[0].status).toBe('running')
-    expect(recovered.tasks[0].messages[0]).toMatchObject({ text: '仍在输出', streaming: true })
+    expect(recovered.tasks[0].messages[0]).toMatchObject({ text: 'Still streaming', streaming: true })
     state.tasks[0].runs[0].members[0].status = 'completed'
     const terminal = recoverInterruptedState(state, active)
     expect(terminal.tasks[0].runs[0].members[0].status).toBe('completed')
@@ -88,53 +88,53 @@ describe('public streaming output', () => {
     const item = (type: string, text: string) => f.json({ type, item: { id: 'answer', type: 'agent_message', text } })
     const change = (delta: string) => f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta } })
     let state = applyRuntimeEvent(f.state, item('item.started', ''))
-    state = applyRuntimeEvent(state, change('先确定'))
+    state = applyRuntimeEvent(state, change('Define '))
     const first = state.tasks[0].messages[0]
-    expect(first).toMatchObject({ text: '先确定', streaming: true })
-    const frame = change('成功标准。')
+    expect(first).toMatchObject({ text: 'Define ', streaming: true })
+    const frame = change('success criteria.')
     for (let offset = 0; offset < frame.text.length; offset += 7) {
       state = applyRuntimeEvent(state, f.event('stdout', frame.text.slice(offset, offset + 7)))
     }
     expect(state.tasks[0].messages).toHaveLength(1)
-    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '先确定成功标准。', streaming: true })
+    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: 'Define success criteria.', streaming: true })
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('responding')
     // Replaying a cache-less persisted trace must append each frame only once.
     const restored = JSON.parse(JSON.stringify(state)) as AppState
-    const final = item('item.completed', '先确定成功标准。再核对现状。')
+    const final = item('item.completed', 'Define success criteria first. Then verify the current state.')
     const replayed = applyRuntimeEvent(restored, final)
     expect(replayed).toEqual(applyRuntimeEvent(state, final))
     expect(replayed.tasks[0].messages).toHaveLength(1)
-    expect(replayed.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '先确定成功标准。再核对现状。', streaming: false })
-    expect(first.text).toBe('先确定')
+    expect(replayed.tasks[0].messages[0]).toMatchObject({ id: first.id, text: 'Define success criteria first. Then verify the current state.', streaming: false })
+    expect(first.text).toBe('Define ')
   })
 
   it.each(['failed', 'stopped'] as const)('retains a Codex delta-only partial reply after %s and journal recovery', kind => {
     const f = fixture('codex')
-    const delta = f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: '未完成的回复' } })
+    const delta = f.json({ method: 'item/agentMessage/delta', params: { threadId: 'thread', turnId: 'turn', itemId: 'answer', delta: 'Incomplete reply' } })
     let state = applyRuntimeEvent(f.state, delta)
     state = applyRuntimeEvent(state, f.event(kind))
-    expect(state.tasks[0].messages[0]).toMatchObject({ text: '未完成的回复', streaming: false })
+    expect(state.tasks[0].messages[0]).toMatchObject({ text: 'Incomplete reply', streaming: false })
     const restored = JSON.parse(JSON.stringify(state)) as AppState
     restored.tasks[0].messages = []
-    expect(recoverInterruptedState(restored).tasks[0].messages[0]).toMatchObject({ text: '未完成的回复', streaming: false })
+    expect(recoverInterruptedState(restored).tasks[0].messages[0]).toMatchObject({ text: 'Incomplete reply', streaming: false })
   })
 
   it('shows Claude text before the final message, then replaces the same message without duplicate result text', () => {
     const f = fixture()
     let state = applyRuntimeEvent(f.state, f.stream(start('message-1')))
     state = applyRuntimeEvent(state, f.stream(textBlock()))
-    state = applyRuntimeEvent(state, f.stream(delta('你好')))
+    state = applyRuntimeEvent(state, f.stream(delta('Hello')))
     const first = state.tasks[0].messages[0]
-    expect(first).toMatchObject({ text: '你好', streaming: true })
+    expect(first).toMatchObject({ text: 'Hello', streaming: true })
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('responding')
-    state = applyRuntimeEvent(state, f.stream(delta('，世界')))
-    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '你好，世界', createdAt: first.createdAt, streaming: true })
+    state = applyRuntimeEvent(state, f.stream(delta(', world')))
+    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: 'Hello, world', createdAt: first.createdAt, streaming: true })
     state = applyRuntimeEvent(state, f.stream({ type: 'message_stop' }))
-    state = applyRuntimeEvent(state, f.json({ type: 'assistant', message: { id: 'message-1', content: [{ type: 'text', text: '你好，世界。' }] } }))
-    state = applyRuntimeEvent(state, f.json({ type: 'result', result: '你好，世界。' }))
+    state = applyRuntimeEvent(state, f.json({ type: 'assistant', message: { id: 'message-1', content: [{ type: 'text', text: 'Hello, world.' }] } }))
+    state = applyRuntimeEvent(state, f.json({ type: 'result', result: 'Hello, world.' }))
     expect(state.tasks[0].messages).toHaveLength(1)
-    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: '你好，世界。', streaming: false })
-    expect(first.text).toBe('你好')
+    expect(state.tasks[0].messages[0]).toMatchObject({ id: first.id, text: 'Hello, world.', streaming: false })
+    expect(first.text).toBe('Hello')
   })
 
   it('reassembles fragmented thinking and text blocks while keeping signatures and tool JSON out of visible messages', () => {
@@ -143,16 +143,16 @@ describe('public streaming output', () => {
     const frames = [
       { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: 'PRIVATE_START' } },
       { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'PRIVATE_THINKING', text: 'PRIVATE_TEXT' } },
-      textBlock(1), delta('公开第一段', 1),
+      textBlock(1), delta('First public segment', 1),
       { type: 'content_block_delta', index: 1, delta: { type: 'signature_delta', signature: 'PRIVATE_SIGNATURE' } },
       { type: 'content_block_start', index: 2, content_block: { type: 'tool_use', name: 'Read', input: { text: 'PRIVATE_TOOL' } } },
       { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: 'PRIVATE_INPUT' } },
-      textBlock(3), delta('公开第二段', 3),
+      textBlock(3), delta('Second public segment', 3),
     ].map(event => JSON.stringify({ type: 'stream_event', event })).join('\n') + '\n'
     for (let offset = 0; offset < frames.length; offset += 17) state = applyRuntimeEvent(state, f.event('stdout', frames.slice(offset, offset + 17)))
     expect(state.tasks[0].messages.map(message => [message.kind, message.text])).toEqual([
       ['reasoning', 'PRIVATE_STARTPRIVATE_THINKING'],
-      ['message', '公开第一段\n\n公开第二段'],
+      ['message', 'First public segment\n\nSecond public segment'],
     ])
     expect(JSON.stringify(state.tasks[0].messages)).not.toContain('PRIVATE_TEXT')
     expect(JSON.stringify(state.tasks[0].messages)).not.toContain('PRIVATE_SIGNATURE')
@@ -183,8 +183,8 @@ describe('public streaming output', () => {
     const independent = fixture()
     let separate = applyRuntimeEvent(independent.state, independent.stream(start('same-message')))
     separate = applyRuntimeEvent(separate, independent.stream(textBlock()))
-    separate = applyRuntimeEvent(separate, independent.stream(delta('独立任务')))
-    expect(separate.tasks[0].messages.map(message => message.text)).toEqual(['独立任务'])
+    separate = applyRuntimeEvent(separate, independent.stream(delta('Independent task')))
+    expect(separate.tasks[0].messages.map(message => message.text)).toEqual(['Independent task'])
     expect(getRunActivity(earlier.tasks[0], earlier.tasks[0].runs[0]).lastEventAt).not.toBe(nextEvent.timestamp)
   })
 
@@ -192,17 +192,17 @@ describe('public streaming output', () => {
     const f = fixture()
     let state = applyRuntimeEvent(f.state, f.stream(start('message')))
     state = applyRuntimeEvent(state, f.stream(textBlock()))
-    state = applyRuntimeEvent(state, f.stream(delta('部分答复')))
+    state = applyRuntimeEvent(state, f.stream(delta('Partial reply')))
     state = applyRuntimeEvent(state, f.event(kind))
     expect(state.tasks[0].messages[0].streaming).toBe(false)
-    state = applyRuntimeEvent(state, f.stream(delta('尾部')))
-    expect(state.tasks[0].messages[0]).toMatchObject({ text: '部分答复尾部', streaming: false })
+    state = applyRuntimeEvent(state, f.stream(delta(' tail')))
+    expect(state.tasks[0].messages[0]).toMatchObject({ text: 'Partial reply tail', streaming: false })
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe(kind)
   })
 
   it('clears streaming indicators when restoring an interrupted application', () => {
     const f = fixture('generic')
-    const state = applyRuntimeEvent(f.state, f.event('stdout', '部分输出'))
+    const state = applyRuntimeEvent(f.state, f.event('stdout', 'Partial output'))
     expect(state.tasks[0].messages[0].streaming).toBe(true)
     const restored = recoverInterruptedState(state)
     expect(restored.tasks[0].messages[0].streaming).toBe(false)
@@ -211,11 +211,11 @@ describe('public streaming output', () => {
 
   it('reconstructs public text ignored by an older UI from persisted events without needing another stdout event', () => {
     const f = fixture()
-    f.state.tasks[0].events = [f.stream(start('old-message')), f.stream(textBlock()), f.stream(delta('重载后可见'))]
+    f.state.tasks[0].events = [f.stream(start('old-message')), f.stream(textBlock()), f.stream(delta('Visible after reload'))]
     expect(f.state.tasks[0].messages).toEqual([])
     const recovered = recoverInterruptedState(JSON.parse(JSON.stringify(f.state)) as AppState)
     expect(recovered.tasks[0].messages).toHaveLength(1)
-    expect(recovered.tasks[0].messages[0]).toMatchObject({ text: '重载后可见', streaming: false })
+    expect(recovered.tasks[0].messages[0]).toMatchObject({ text: 'Visible after reload', streaming: false })
     expect(recoverInterruptedState(recovered)).toEqual(recovered)
   })
 
@@ -224,17 +224,17 @@ describe('public streaming output', () => {
     f.state.tasks[0].events = [
       f.stream(start('thinking-message')),
       f.stream({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
-      f.stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '先检查' } }),
+      f.stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Check ' } }),
       f.json({ type: 'system', subtype: 'thinking_tokens', estimated_tokens: 4, estimated_tokens_delta: 4 }),
-      f.stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '上下文。' } }),
+      f.stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'the context.' } }),
       f.stream({ type: 'content_block_stop', index: 0 }),
     ]
     const recovered = recoverInterruptedState(JSON.parse(JSON.stringify(f.state)) as AppState)
     expect(recovered.tasks[0].messages).toHaveLength(1)
-    expect(recovered.tasks[0].messages[0]).toMatchObject({ kind: 'reasoning', text: '先检查上下文。', streaming: false })
+    expect(recovered.tasks[0].messages[0]).toMatchObject({ kind: 'reasoning', text: 'Check the context.', streaming: false })
   })
 
-  it.each([['公开答复'], ['公开第一段', '公开第二段']])('migrates an older saved Claude result without duplicating replayed deltas: %j', (...parts) => {
+  it.each([['Public answer'], ['First public segment', 'Second public segment']])('migrates an older saved Claude result without duplicating replayed deltas: %j', (...parts) => {
     const f = fixture()
     const task = f.state.tasks[0]
     task.runs[0].members[0].status = 'completed'
@@ -255,10 +255,10 @@ describe('public streaming output', () => {
     const task = f.state.tasks[0]
     const other = { ...task.runs[0].members[0], id: 'other' }
     task.runs[0].members.push(other)
-    task.events = [f.stream(start('partial')), f.stream(textBlock()), f.stream(delta('公开部分'))]
+    task.events = [f.stream(start('partial')), f.stream(textBlock()), f.stream(delta('Public part'))]
     task.messages = [
-      { id: `runtime:run:${f.member.id}:result:complete`, role: 'assistant', runId: 'run', memberId: f.member.id, text: '公开部分及缺失的后续', createdAt: task.createdAt },
-      { id: 'runtime:run:other:result:other', role: 'assistant', runId: 'run', memberId: 'other', text: '公开部分', createdAt: task.createdAt },
+      { id: `runtime:run:${f.member.id}:result:complete`, role: 'assistant', runId: 'run', memberId: f.member.id, text: 'Public part and missing continuation', createdAt: task.createdAt },
+      { id: 'runtime:run:other:result:other', role: 'assistant', runId: 'run', memberId: 'other', text: 'Public part', createdAt: task.createdAt },
     ]
     const recovered = recoverInterruptedState(JSON.parse(JSON.stringify(f.state)) as AppState)
     for (const message of task.messages) expect(recovered.tasks[0].messages).toContainEqual(message)
@@ -281,8 +281,8 @@ describe('public streaming output', () => {
     try {
       let state = applyRuntimeEvent(f.state, f.stream(start('many-deltas')))
       state = applyRuntimeEvent(state, f.stream(textBlock()))
-      for (let index = 0; index < 100; index++) state = applyRuntimeEvent(state, f.stream(delta('字')))
-      expect(state.tasks[0].messages[0].text).toBe('字'.repeat(100))
+      for (let index = 0; index < 100; index++) state = applyRuntimeEvent(state, f.stream(delta('x')))
+      expect(state.tasks[0].messages[0].text).toBe('x'.repeat(100))
       expect(parse.mock.calls.length).toBeLessThanOrEqual(104)
     } finally { parse.mockRestore() }
   })
@@ -297,8 +297,8 @@ describe('run activity from actual protocol events', () => {
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'web-search', label: '正在检索网页' })
     state = applyRuntimeEvent(state, f.json({ type: 'item.completed', item: { id: 'search-1', type: 'web_search', query: 'AI news' } }))
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'waiting', summary: 'AI news' })
-    state = applyRuntimeEvent(state, f.json({ type: 'item.completed', item: { id: 'answer', type: 'agent_message', text: '检索结果' } }))
-    expect(state.tasks[0].messages[0]).toMatchObject({ text: '检索结果', streaming: false })
+    state = applyRuntimeEvent(state, f.json({ type: 'item.completed', item: { id: 'answer', type: 'agent_message', text: 'Search results' } }))
+    expect(state.tasks[0].messages[0]).toMatchObject({ text: 'Search results', streaming: false })
     state = applyRuntimeEvent(state, f.json({ type: 'turn.completed', usage: {} }))
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0]).phase).toBe('waiting')
     const terminal = f.event('completed')
@@ -308,8 +308,8 @@ describe('run activity from actual protocol events', () => {
 
   it('handles public Codex item snapshots while keeping reasoning and raw command arguments out of summaries', () => {
     const f = fixture('codex')
-    let state = applyRuntimeEvent(f.state, f.json({ type: 'item.updated', item: { id: 'answer', type: 'agent_message', text: '公开' } }))
-    state = applyRuntimeEvent(state, f.json({ type: 'item.completed', item: { id: 'answer', type: 'agent_message', text: '公开结果' } }))
+    let state = applyRuntimeEvent(f.state, f.json({ type: 'item.updated', item: { id: 'answer', type: 'agent_message', text: 'Public' } }))
+    state = applyRuntimeEvent(state, f.json({ type: 'item.completed', item: { id: 'answer', type: 'agent_message', text: 'Public result' } }))
     expect(state.tasks[0].messages).toHaveLength(1)
     state = applyRuntimeEvent(state, f.json({ type: 'item.started', item: { id: 'cmd', type: 'command_execution', command: 'SECRET_COMMAND' } }))
     expect(getRunActivity(state.tasks[0], state.tasks[0].runs[0])).toMatchObject({ phase: 'tool', summary: '执行本机命令' })

@@ -48,7 +48,7 @@ case "$line" in *'"method":"session/prompt"'*) ;; *) exit 15;; esac
         codex_streaming: false,
         additional_directories: vec![],
         directory: directory.to_string_lossy().into(),
-        prompt: "literal $(do not execute) 中文".into(),
+        prompt: "literal $(do not execute) café".into(),
     }
 }
 fn manager(
@@ -87,7 +87,7 @@ read -r line
 #[test]
 fn kimi_permissions_gate_public_stream_and_completion_is_protocol_driven() {
     let directory = tempfile::tempdir().unwrap();
-    let update = serde_json::json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"超过旧上限前的公开输出"}}}});
+    let update = serde_json::json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Public output before the previous limit"}}}});
     let prelude =
         format!("i=0; while [ $i -lt 5105 ]; do printf '%s\\n' '{update}'; i=$((i + 1)); done");
     let ending = format!(
@@ -95,7 +95,7 @@ fn kimi_permissions_gate_public_stream_and_completion_is_protocol_driven() {
 {PERMISSION}
 case "$line" in *'"id":73'*'"optionId":"allow"'*) ;; *) exit 16;; esac
 printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"fixture-session","update":{{"sessionUpdate":"agent_thought_chunk","content":{{"type":"text","text":"PRIVATE_THOUGHT"}}}}}}}}'
-printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"fixture-session","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"公开回答"}}}}}}}}'
+printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"fixture-session","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"Public answer"}}}}}}}}'
 printf '%s\n' '{{"jsonrpc":"2.0","id":6,"result":{{"stopReason":"end_turn"}}}}'
 while read -r line; do :; done
 "#
@@ -141,7 +141,7 @@ while read -r line; do :; done
         .iter()
         .map(|event| event.text.as_str())
         .collect::<String>();
-    assert!(all.contains("公开回答"));
+    assert!(all.contains("Public answer"));
     assert!(!all.contains("PRIVATE_THOUGHT"));
     let saved = fs::read_to_string(
         directory
@@ -625,7 +625,7 @@ effort="high"
         );
         let history = wires[2]["messages"].to_string();
         assert!(
-            history.contains("literal $(do not execute) 中文"),
+            history.contains("literal $(do not execute) café"),
             "Original user prompt must reach the second model request: {}",
             wires[1]["messages"]
                 .as_array()

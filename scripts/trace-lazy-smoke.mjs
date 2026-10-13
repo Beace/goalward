@@ -13,10 +13,10 @@ import {TracePanel} from '${baseline ? './TracePanelBefore' : '/src/components/T
 import {createInitialState,createTask} from '/src/lib/domain'
 import {getTaskArtifacts} from '/src/lib/artifacts'
 import '/src/index.css'
-const settings=createInitialState().settings;const task=createTask(settings,'执行过程加载与对话性能验收','/tmp','solo');
-task.messages=Array.from({length:8},(_,i)=>({id:'reply-'+i,role:'assistant',createdAt:task.createdAt,text:('# 回复 '+i+'\\n\\n'+('段落 **强调** [报告](./report.md) 和代码。\\n\\n').repeat(18))}));
+const settings=createInitialState().settings;const task=createTask(settings,'Trace loading and conversation performance verification','/tmp','solo');
+task.messages=Array.from({length:8},(_,i)=>({id:'reply-'+i,role:'assistant',createdAt:task.createdAt,text:('# Reply '+i+'\\n\\n'+('Paragraph **emphasis** [report](./report.md) and code.\\n\\n').repeat(18))}));
 const member={...task.members[0],status:'running',runtime:{...settings.runtimes[0],adapter:'codex'},model:''};task.runs=[{id:'run',createdAt:task.createdAt,prompt:'test',directory:'/tmp',members:[member]}];let n=0;
-function event(){return {id:'event-'+(++n),taskId:task.id,runId:'run',memberId:member.id,timestamp:task.createdAt,kind:'stdout',text:JSON.stringify({type:'item.completed',item:{id:'tool-'+n,type:'mcp_tool_call',server:'fixture',tool:'read',result:{content:'原始内容'.repeat(300)}}})+'\\n'}}
+function event(){return {id:'event-'+(++n),taskId:task.id,runId:'run',memberId:member.id,timestamp:task.createdAt,kind:'stdout',text:JSON.stringify({type:'item.completed',item:{id:'tool-'+n,type:'mcp_tool_call',server:'fixture',tool:'read',result:{content:'Raw content'.repeat(300)}}})+'\\n'}}
 task.events=Array.from({length:1000},event);window.__durations=[];
 function Harness(){const [current,setCurrent]=useState(task);window.__append=()=>setCurrent(t=>({...t,events:[...t.events,event()]}));return <div className="app-shell"><main style={{display:'flex',flex:1,minHeight:0}}><div style={{flex:1,minWidth:0}}><Workbench task={current} settings={settings} artifacts={getTaskArtifacts(current)} selectedRunId="" onSelectRun={()=>{}} onChange={()=>{}} onSend={async()=>{}} onStop={()=>{}} onSettings={()=>{}} onInspector={()=>{}} inspectorOpen={true} onDuplicate={()=>{}} onOpenArtifact={a=>{window.__artifact=a}}/></div><div style={{display:'flex',width:336,minHeight:0}}><TracePanel task={current} run={current.runs[0]} onClose={()=>{}} onExport={()=>{}}/></div></main></div>}
 createRoot(document.getElementById('root')).render(<Profiler id="workbench" onRender={(_id,_phase,duration)=>window.__durations.push(duration)}><Harness/></Profiler>);`)
@@ -45,8 +45,8 @@ try {
     assert.equal(measurements.scrollTop, 100)
     const input=page.getByRole('textbox', {name:'任务指令'})
     await page.evaluate(() => { window.__streamTimer=setInterval(()=>window.__append(),30) })
-    await input.pressSequentially('持续输出时继续输入',{delay:20})
-    await expect(input).toHaveValue('持续输出时继续输入')
+    await input.pressSequentially('Continue typing while streaming',{delay:20})
+    await expect(input).toHaveValue('Continue typing while streaming')
     await page.evaluate(() => clearInterval(window.__streamTimer))
     const trigger=page.locator('.trace-trigger').first()
     await trigger.click();await expect(trigger).toHaveAttribute('aria-expanded','true')
@@ -61,9 +61,9 @@ try {
     if(!baseline) {
       const fixture=await page.evaluate(async()=>{
         const {createInitialState,createTask}=await import('/src/lib/domain.ts');
-        const state=createInitialState();const task=createTask(state.settings,'按需加载测试任务','/tmp','solo');
+        const state=createInitialState();const task=createTask(state.settings,'Lazy-loading test task','/tmp','solo');
         state.tasks=[task];state.activeTaskId=task.id;
-        task.messages=[{id:'reply',role:'assistant',text:'[报告](./report.md)',createdAt:task.createdAt}];
+        task.messages=[{id:'reply',role:'assistant',text:'[Report](./report.md)',createdAt:task.createdAt}];
         const member={...task.members[0],status:'completed',model:'',runtime:state.settings.runtimes[0]};
         task.runs=[{id:'run',createdAt:task.createdAt,prompt:'fixture',directory:'/tmp',members:[member]}];
         task.events=[{id:'done',taskId:task.id,runId:'run',memberId:member.id,kind:'completed',timestamp:task.createdAt,text:'done'}];
@@ -72,8 +72,8 @@ try {
       await page.evaluate(state=>localStorage.setItem('goalward.preview.v1',JSON.stringify(state)),fixture)
       const requests=[];page.on('request',request=>requests.push(request.url()))
       await page.goto('http://127.0.0.1:1420/')
-      await page.locator('.task-nav-item').filter({hasText:'按需加载测试任务'}).click()
-      await expect(page.getByRole('heading',{name:'按需加载测试任务',exact:true})).toBeVisible()
+      await page.locator('.task-nav-item').filter({hasText:'Lazy-loading test task'}).click()
+      await expect(page.getByRole('heading',{name:'Lazy-loading test task',exact:true})).toBeVisible()
       await expect(page.locator('[data-inspector-toggle]')).toHaveAttribute('aria-expanded','false')
       assert.equal(await page.locator('.trace-panel').count(),0)
       assert(!requests.some(url=>url.includes('/components/TracePanel.tsx')), 'Trace UI must not load before requested')

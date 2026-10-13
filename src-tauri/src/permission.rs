@@ -8,7 +8,7 @@ fn validate_list(values: &[String]) -> Result<(), String> {
             .iter()
             .any(|value| value.len() > 4096 || value.contains('\0'))
     {
-        return Err("权限配置列表最多 128 项，每项最多 4096 字节且不能包含空字符".into());
+        return Err("Permission lists allow at most 128 entries, each at most 4096 bytes and without null characters.".into());
     }
     Ok(())
 }
@@ -19,7 +19,7 @@ fn validate_directories(directories: &[String]) -> Result<(), String> {
         let path = Path::new(directory);
         if directory.trim() != directory || !path.is_absolute() || !path.is_dir() {
             return Err(format!(
-                "权限配置的额外目录必须是已存在的绝对路径：{directory}"
+                "Additional permission directories must be existing absolute paths: {directory}"
             ));
         }
     }
@@ -122,7 +122,7 @@ fn reject_conflicts(adapter: &str, extra: &[String]) -> Result<(), String> {
         // positional prompt text. Reject it before launching rather than silently
         // claiming that the configured permissions were applied.
         if conflict || arg == "--" {
-            return Err(format!("额外启动参数 {flag} 与访问权限配置冲突；请在权限设置中配置，或恢复为继承 Runtime 配置"));
+            return Err(format!("The extra launch argument {flag} conflicts with access permissions. Configure it in permission settings or restore inherited runtime permissions."));
         }
     }
     Ok(())
@@ -161,15 +161,15 @@ pub fn arguments(runtime: &RuntimeConfig, extra: &[String]) -> Result<Vec<String
                 config.sandbox.as_str(),
                 "inherit" | "read-only" | "workspace-write" | "danger-full-access"
             ) {
-                return Err("未知的 Codex 沙箱权限模式".into());
+                return Err("Unknown Codex sandbox permission mode.".into());
             }
             if !matches!(config.network.as_str(), "inherit" | "allow" | "deny") {
-                return Err("未知的 Codex 沙箱命令网络权限".into());
+                return Err("Unknown Codex sandbox command network permission.".into());
             }
             if config.sandbox != "workspace-write"
                 && (config.network != "inherit" || !config.additional_directories.is_empty())
             {
-                return Err("Codex 网络和额外可写目录设置仅适用于工作区可写模式".into());
+                return Err("Codex network and additional writable directory settings only apply in workspace-write mode.".into());
             }
             validate_directories(&config.additional_directories)?;
             let explicit = config.sandbox != "inherit"
@@ -209,7 +209,7 @@ pub fn arguments(runtime: &RuntimeConfig, extra: &[String]) -> Result<Vec<String
                 config.mode.as_str(),
                 "inherit" | "manual" | "acceptEdits" | "plan" | "dontAsk" | "bypassPermissions"
             ) {
-                return Err("未知的 Claude Code 权限模式".into());
+                return Err("Unknown Claude Code permission mode.".into());
             }
             validate_directories(&config.additional_directories)?;
             validate_list(&config.allowed_tools)?;
@@ -222,7 +222,7 @@ pub fn arguments(runtime: &RuntimeConfig, extra: &[String]) -> Result<Vec<String
                     tool.trim().is_empty() || tool.starts_with('-') || tool.contains(['\r', '\n'])
                 })
             {
-                return Err("Claude Code 工具规则不能为空或以连字符开头".into());
+                return Err("Claude Code tool rules cannot be empty or start with a hyphen.".into());
             }
             let explicit = config.mode != "inherit"
                 || !config.additional_directories.is_empty()
@@ -256,7 +256,7 @@ pub fn arguments(runtime: &RuntimeConfig, extra: &[String]) -> Result<Vec<String
                 .as_ref()
                 .is_some_and(|config| !matches!(config.mode.as_str(), "auto" | "manual"))
             {
-                return Err("未知的 Kimi 权限模式".into());
+                return Err("Unknown Kimi permission mode.".into());
             }
         }
         "generic" => {

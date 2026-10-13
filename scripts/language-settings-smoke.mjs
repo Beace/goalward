@@ -18,7 +18,7 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const results = []
 
 async function openAppearance(page, language) {
-  await page.getByRole('button', { name: labels[language].settings, exact: true }).click()
+  await page.getByRole('navigation', { name: language === 'zh' ? '工作空间导航' : 'Workspace navigation', exact: true }).getByRole('button', { name: labels[language].settings, exact: true }).click()
   await page.getByRole('button', { name: labels[language].appearance, exact: true }).click()
   await expect(page.getByRole('button', { name: labels[language].appearance, exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('combobox', { name: labels[language].language, exact: true })).toBeVisible()

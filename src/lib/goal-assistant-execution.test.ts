@@ -8,11 +8,11 @@ import type { Run, RuntimeEvent } from './types'
 
 function fixture() {
   const state = createInitialState()
-  const goal = createGoal({ title: '完善资料' })
+  const goal = createGoal({ title: 'Improve material' })
   goal.assistant = { requestPhase: 'plan' }
   const task = createGoalAssistantTask(state.settings, { goalId: goal.id, directory: '/app/assistant' })
   state.goals = [goal]
-  const run: Run = { id: 'plan-run', createdAt: '2026-10-12T01:00:00Z', directory: task.directory, prompt: '已确认目标', context: captureRunContext(state, task), members: [{ ...task.members[0], runtime: state.settings.runtimes[0], model: 'saved-model', effectiveReasoningEffort: 'high', status: 'running', sessionId: 'thread-1' }] }
+  const run: Run = { id: 'plan-run', createdAt: '2026-10-12T01:00:00Z', directory: task.directory, prompt: 'Confirmed goal', context: captureRunContext(state, task), members: [{ ...task.members[0], runtime: state.settings.runtimes[0], model: 'saved-model', effectiveReasoningEffort: 'high', status: 'running', sessionId: 'thread-1' }] }
   task.runs = [run]
   const event = (payload: unknown, overrides: Partial<RuntimeEvent> = {}): RuntimeEvent => ({ id: `event-${task.events.length}`, kind: 'stdout', taskId: task.id, runId: run.id, memberId: run.members[0].id, timestamp: run.createdAt, text: `${JSON.stringify(payload)}\n`, ...overrides })
   const append = (payload: unknown, overrides: Partial<RuntimeEvent> = {}) => { task.events.push(event(payload, overrides)) }
@@ -137,13 +137,13 @@ describe('Planning response scope', () => {
   it('shows stable public partial prose while withholding reasoning and internal action JSON', () => {
     const { task, run } = fixture()
     task.messages = [
-      { id: 'old', role: 'assistant', text: '旧轮回复', runId: 'other-run', createdAt: '' },
-      { id: 'reasoning', role: 'assistant', kind: 'reasoning', text: '内部思考', runId: run.id, createdAt: '' },
-      { id: 'foreign', role: 'assistant', memberId: 'other-member', text: '其他成员', runId: run.id, createdAt: '' },
-      { id: 'reply', role: 'assistant', text: '先调查条件。\n\n```go', streaming: true, runId: run.id, createdAt: '' },
+      { id: 'old', role: 'assistant', text: 'Previous turn reply', runId: 'other-run', createdAt: '' },
+      { id: 'reasoning', role: 'assistant', kind: 'reasoning', text: 'Internal reasoning', runId: run.id, createdAt: '' },
+      { id: 'foreign', role: 'assistant', memberId: 'other-member', text: 'Other member', runId: run.id, createdAt: '' },
+      { id: 'reply', role: 'assistant', text: 'Investigate conditions first.\n\n```go', streaming: true, runId: run.id, createdAt: '' },
     ]
-    expect(getGoalAssistantRunResponse(task, run)).toBe('先调查条件。')
+    expect(getGoalAssistantRunResponse(task, run)).toBe('Investigate conditions first.')
     task.messages[3].text += 'alward\n{"proposals":[]}\n```'
-    expect(getGoalAssistantRunResponse(task, run)).toBe('先调查条件。')
+    expect(getGoalAssistantRunResponse(task, run)).toBe('Investigate conditions first.')
   })
 })

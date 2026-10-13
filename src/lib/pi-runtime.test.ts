@@ -30,22 +30,22 @@ describe('Pi runtime', () => {
       { type: 'session', id: 'pi-session-1' },
       { type: 'message_start', message: { role: 'user', content: [{ type: 'text', text: 'USER_ONLY' }] } },
       { type: 'message_start', message: { role: 'assistant', content: [] } },
-      delta('thinking_delta', 0, '检查上下文'), delta('text_delta', 1, '第一'), delta('text_delta', 1, '段🙂'),
-      { type: 'message_end', message: { role: 'assistant', stopReason: 'toolUse', content: [{ type: 'thinking', thinking: '检查上下文' }, { type: 'text', text: '第一段🙂' }, { type: 'toolCall', id: 'tool-1', name: 'bash' }] } },
+      delta('thinking_delta', 0, 'Check the context'), delta('text_delta', 1, 'First '), delta('text_delta', 1, 'segment🙂'),
+      { type: 'message_end', message: { role: 'assistant', stopReason: 'toolUse', content: [{ type: 'thinking', thinking: 'Check the context' }, { type: 'text', text: 'First segment🙂' }, { type: 'toolCall', id: 'tool-1', name: 'bash' }] } },
       { type: 'tool_execution_start', toolCallId: 'tool-1', toolName: 'bash', args: { command: 'echo test' } },
       { type: 'tool_execution_update', toolCallId: 'tool-1', toolName: 'bash', partialResult: { content: [{ type: 'text', text: 'PARTIAL' }] } },
       { type: 'tool_execution_end', toolCallId: 'tool-1', toolName: 'bash', result: { content: [{ type: 'text', text: 'TOOL_ONLY' }] }, isError: false },
       { type: 'message_end', message: { role: 'toolResult', content: [{ type: 'text', text: 'TOOL_ONLY' }] } },
       { type: 'message_start', message: { role: 'assistant', content: [] } },
-      delta('text_delta', 0, '结'),
-      { type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: '结论' }] } },
+      delta('text_delta', 0, 'Conclu'),
+      { type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Conclusion' }] } },
       { type: 'agent_end', messages: [] },
     ].map(frame => JSON.stringify(frame)).join('\n') + '\n'
     for (let i = 0; i < frames.length; i += 23) state = applyRuntimeEvent(state, f.event(frames.slice(i, i + 23)))
     state = applyRuntimeEvent(state, f.event('done', 'completed'))
     const task = state.tasks[0], run = task.runs[0], member = run.members[0]
     const output = getRuntimeOutput(task, run, member)
-    expect(output.map(item => [item.kind, item.text])).toEqual([['reasoning', '检查上下文'], ['message', '第一段🙂'], ['message', '结论']])
+    expect(output.map(item => [item.kind, item.text])).toEqual([['reasoning', 'Check the context'], ['message', 'First segment🙂'], ['message', 'Conclusion']])
     expect(output.every(item => !item.streaming)).toBe(true)
     const reloaded = structuredClone(task)
     expect(getRuntimeOutput(reloaded, reloaded.runs[0], reloaded.runs[0].members[0])).toEqual(output)
@@ -55,8 +55,8 @@ describe('Pi runtime', () => {
     const calls = trace.filter(item => item.call)
     expect(calls).toHaveLength(1)
     expect(calls[0].call).toMatchObject({ id: 'tool-1', status: 'completed', input: { command: 'echo test' }, output: { content: [{ type: 'text', text: 'TOOL_ONLY' }] } })
-    expect(trace.filter(item => item.message).map(item => item.message?.text)).toEqual(['第一段🙂', '结论'])
-    expect(trace.filter(item => item.reasoning).map(item => item.reasoning?.text)).toEqual(['检查上下文'])
+    expect(trace.filter(item => item.message).map(item => item.message?.text)).toEqual(['First segment🙂', 'Conclusion'])
+    expect(trace.filter(item => item.reasoning).map(item => item.reasoning?.text)).toEqual(['Check the context'])
     expect(JSON.stringify(task.messages)).not.toMatch(/TOOL_ONLY|USER_ONLY|PARTIAL/)
   })
 

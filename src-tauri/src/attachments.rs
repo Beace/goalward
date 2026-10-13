@@ -14,7 +14,7 @@ pub(crate) fn image_preview(path: &str) -> Result<String, String> {
 }
 
 fn image_limit_error(max_bytes: u64) -> String {
-    format!("图片超过 {} MB 预览上限。", max_bytes / (1024 * 1024))
+    format!("The image exceeds the {} MB preview limit.", max_bytes / (1024 * 1024))
 }
 
 pub(crate) fn image_preview_with_limit(
@@ -22,12 +22,12 @@ pub(crate) fn image_preview_with_limit(
     max_bytes: Option<u64>,
 ) -> Result<String, String> {
     if !Path::new(path).is_absolute() {
-        return Err("图片缺少本地绝对路径。".into());
+        return Err("The image is missing an absolute local path.".into());
     }
-    let file = fs::File::open(path).map_err(|_| "图片不存在或无法访问，可能已被移动或删除。")?;
-    let metadata = file.metadata().map_err(|_| "无法读取图片信息。")?;
+    let file = fs::File::open(path).map_err(|_| "The image does not exist or cannot be accessed. It may have been moved or deleted.")?;
+    let metadata = file.metadata().map_err(|_| "Could not read image information.")?;
     if !metadata.is_file() {
-        return Err("此路径不是图片文件。".into());
+        return Err("This path is not an image file.".into());
     }
     if max_bytes.is_some_and(|limit| metadata.len() > limit) {
         return Err(image_limit_error(max_bytes.unwrap()));
@@ -35,7 +35,7 @@ pub(crate) fn image_preview_with_limit(
     let mut bytes = Vec::new();
     file.take(max_bytes.map_or(u64::MAX, |limit| limit.saturating_add(1)))
         .read_to_end(&mut bytes)
-        .map_err(|_| "图片读取失败。")?;
+        .map_err(|_| "Failed to read the image.")?;
     image_data_url(Path::new(path), bytes, max_bytes)
 }
 
@@ -77,7 +77,7 @@ pub(crate) fn image_data_url(
                     .map(|png| format!("data:image/png;base64,{}", STANDARD.encode(png)));
             }
         }
-        return Err("此文件不是受支持的图片，或图片内容已损坏。".into());
+        return Err("This file is not a supported image or its contents are damaged.".into());
     };
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
@@ -90,16 +90,16 @@ fn native_image_png(bytes: &[u8], max_bytes: Option<u64>) -> Result<Vec<u8>, Str
     objc2::rc::autoreleasepool(|_| {
         let image =
             NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(), &NSData::with_bytes(bytes))
-                .ok_or("图片解码失败。")?;
+                .ok_or("Failed to decode the image.")?;
         let data = unsafe {
             image.representationUsingType_properties(
                 NSBitmapImageFileType::PNG,
                 &NSDictionary::new(),
             )
         }
-        .ok_or("图片转换失败。")?;
+        .ok_or("Failed to convert the image.")?;
         if max_bytes.is_some_and(|limit| data.length() as u64 > limit) {
-            return Err(format!("转换后的{}", image_limit_error(max_bytes.unwrap())));
+            return Err(format!("Converted image: {}", image_limit_error(max_bytes.unwrap())));
         }
         Ok(data.to_vec())
     })
@@ -111,7 +111,7 @@ pub async fn read_attachment_image(
     path: String,
 ) -> Result<String, String> {
     if window.label() != "main" {
-        return Err("此窗口无法预览本地图片。".into());
+        return Err("This window cannot preview local images.".into());
     }
     tauri::async_runtime::spawn_blocking(move || image_preview(&path))
         .await
@@ -127,18 +127,18 @@ pub struct Attachment {
 fn existing_file(path: &Path) -> Result<Attachment, String> {
     if !path.is_absolute() || !path.is_file() {
         return Err(format!(
-            "无法添加文件（不存在或不是文件）：{}",
+            "Could not add the file (missing or not a file): {}",
             path.display()
         ));
     }
     // Keep the source filename, including when a symlink resolves to another name.
     let name = path
         .file_name()
-        .ok_or("文件名无效")?
+        .ok_or("The file name is invalid.")?
         .to_string_lossy()
         .into_owned();
-    let path = fs::canonicalize(path).map_err(|e| format!("无法读取 {name}：{e}"))?;
-    fs::File::open(&path).map_err(|e| format!("无法读取 {name}：{e}"))?;
+    let path = fs::canonicalize(path).map_err(|e| format!("Could not read {name}: {e}"))?;
+    fs::File::open(&path).map_err(|e| format!("Could not read {name}: {e}"))?;
     Ok(Attachment {
         name,
         path: path.to_string_lossy().into_owned(),
@@ -147,7 +147,7 @@ fn existing_file(path: &Path) -> Result<Attachment, String> {
 
 fn persist(root: &Path, name: &str, bytes: &[u8]) -> Result<Attachment, String> {
     if bytes.len() > MAX_BYTES {
-        return Err("剪贴板内容超过 32 MB，请先保存成文件，再从 Finder 复制。".into());
+        return Err("Clipboard content exceeds 32 MB. Save it as a file, then copy it from Finder.".into());
     }
     let name = name
         .rsplit(['/', '\\'])
@@ -155,7 +155,7 @@ fn persist(root: &Path, name: &str, bytes: &[u8]) -> Result<Attachment, String> 
         .filter(|name| !name.is_empty() && *name != "." && *name != "..")
         .unwrap_or("clipboard-file");
     if name.chars().any(char::is_control) {
-        return Err("附件文件名包含无效字符".into());
+        return Err("The attachment file name contains invalid characters.".into());
     }
     let directory = root
         .join("attachments")
@@ -190,10 +190,10 @@ pub async fn save_clipboard_file(
     data: String,
 ) -> Result<Attachment, String> {
     if window.label() != "main" {
-        return Err("此窗口无法添加附件".into());
+        return Err("This window cannot add attachments.".into());
     }
     if data.len() > MAX_BYTES.div_ceil(3) * 4 {
-        return Err("剪贴板内容超过 32 MB".into());
+        return Err("Clipboard content exceeds 32 MB.".into());
     }
     let root = window
         .app_handle()
@@ -201,7 +201,7 @@ pub async fn save_clipboard_file(
         .app_data_dir()
         .map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = STANDARD.decode(data).map_err(|_| "剪贴板文件内容无效")?;
+        let bytes = STANDARD.decode(data).map_err(|_| "Clipboard file content is invalid.")?;
         persist(&root, &name, &bytes)
     })
     .await
@@ -213,7 +213,7 @@ pub async fn save_clipboard_file(
 #[tauri::command]
 pub fn read_clipboard_attachments(window: tauri::WebviewWindow) -> Result<Vec<Attachment>, String> {
     if window.label() != "main" {
-        return Err("此窗口无法读取剪贴板附件".into());
+        return Err("This window cannot read clipboard attachments.".into());
     }
     let root = window
         .app_handle()
@@ -239,16 +239,16 @@ fn read_board(root: &Path, board: &objc2_app_kit::NSPasteboard) -> Result<Vec<At
         if let Some(items) = board.pasteboardItems() {
             for item in items.iter() {
                 if let Some(value) = item.stringForType(&NSString::from_str("public.file-url")) {
-                    let url = NSURL::URLWithString(&value).ok_or("剪贴板文件地址无效")?;
+                    let url = NSURL::URLWithString(&value).ok_or("The clipboard file URL is invalid.")?;
                     if !url.isFileURL() {
-                        return Err("剪贴板不是本地文件地址".into());
+                        return Err("The clipboard does not contain a local file URL.".into());
                     }
                     // Finder can publish file:///.file/id=… reference URLs.
                     // Foundation resolves these against the filesystem before Rust opens them.
                     let path = url
                         .filePathURL()
                         .and_then(|url| url.path())
-                        .ok_or("剪贴板文件已被移动或无法访问")?;
+                        .ok_or("The clipboard file has been moved or cannot be accessed.")?;
                     let file = existing_file(Path::new(&path.to_string()))?;
                     if !files
                         .iter()
@@ -262,19 +262,19 @@ fn read_board(root: &Path, board: &objc2_app_kit::NSPasteboard) -> Result<Vec<At
         if !files.is_empty() {
             return Ok(files);
         }
-        let name = format!("截图-{}.png", chrono::Local::now().format("%Y%m%d-%H%M%S"));
+        let name = format!("screenshot-{}.png", chrono::Local::now().format("%Y%m%d-%H%M%S"));
         if let Some(data) = board.dataForType(&NSString::from_str("public.png")) {
             if data.length() > MAX_BYTES {
-                return Err("剪贴板图片超过 32 MB".into());
+                return Err("The clipboard image exceeds 32 MB.".into());
             }
             return Ok(vec![persist(root, &name, &data.to_vec())?]);
         }
         if let Some(data) = board.dataForType(&NSString::from_str("public.tiff")) {
             if data.length() > MAX_BYTES {
-                return Err("剪贴板图片超过 32 MB".into());
+                return Err("The clipboard image exceeds 32 MB.".into());
             }
             let image = NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(), &data)
-                .ok_or("无法解码剪贴板图片")?;
+                .ok_or("Could not decode the clipboard image.")?;
             // The empty dictionary contains no incorrectly typed property values.
             let png = unsafe {
                 image.representationUsingType_properties(
@@ -282,7 +282,7 @@ fn read_board(root: &Path, board: &objc2_app_kit::NSPasteboard) -> Result<Vec<At
                     &NSDictionary::new(),
                 )
             }
-            .ok_or("无法保存剪贴板图片")?;
+            .ok_or("Could not save the clipboard image.")?;
             return Ok(vec![persist(root, &name, &png.to_vec())?]);
         }
         Ok(Vec::new())
@@ -302,7 +302,7 @@ mod tests {
     fn previews_image_bytes_and_rejects_text_missing_relative_and_oversized_files() {
         let root = tempfile::tempdir().unwrap();
         let png = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=").unwrap();
-        let path = root.path().join("图片 with spaces.png");
+        let path = root.path().join("image with spaces.png");
         fs::write(&path, &png).unwrap();
         assert_eq!(
             image_preview(path.to_str().unwrap()).unwrap(),
@@ -332,9 +332,9 @@ mod tests {
     #[test]
     fn persists_exact_bytes_with_safe_unique_paths_and_original_names() {
         let root = tempfile::tempdir().unwrap();
-        let first = persist(root.path(), "../../中文 screenshot.png", b"image bytes").unwrap();
-        let second = persist(root.path(), "中文 screenshot.png", b"next image").unwrap();
-        assert_eq!(first.name, "中文 screenshot.png");
+        let first = persist(root.path(), "../../résumé screenshot.png", b"image bytes").unwrap();
+        let second = persist(root.path(), "résumé screenshot.png", b"next image").unwrap();
+        assert_eq!(first.name, "résumé screenshot.png");
         assert_ne!(first.path, second.path);
         assert!(Path::new(&first.path).starts_with(root.path().join("attachments")));
         assert_eq!(fs::read(first.path).unwrap(), b"image bytes");
@@ -344,10 +344,10 @@ mod tests {
     #[test]
     fn original_files_are_referenced_without_copying_or_modifying() {
         let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("报告 with spaces.pdf");
+        let path = root.path().join("report with spaces.pdf");
         fs::write(&path, b"original").unwrap();
         let attachment = existing_file(&path).unwrap();
-        assert_eq!(attachment.name, "报告 with spaces.pdf");
+        assert_eq!(attachment.name, "report with spaces.pdf");
         assert_eq!(
             Path::new(&attachment.path),
             fs::canonicalize(&path).unwrap()
@@ -372,7 +372,7 @@ mod tests {
             uuid::Uuid::new_v4()
         )));
         let paths = [
-            root.path().join("中文 #报告.pdf"),
+            root.path().join("résumé #report.pdf"),
             root.path().join("image with spaces.png"),
         ];
         let items: Vec<_> = paths
@@ -405,7 +405,7 @@ mod tests {
         )));
         let files = read_board(root.path(), &board).unwrap();
         assert_eq!(files.len(), 2);
-        assert_eq!(files[0].name, "中文 #报告.pdf");
+        assert_eq!(files[0].name, "résumé #report.pdf");
         assert_eq!(files[1].name, "image with spaces.png");
         assert_eq!(fs::read(&files[1].path).unwrap(), b"source content");
 
@@ -424,7 +424,7 @@ mod tests {
             )
         }
         .unwrap();
-        let tiff_path = root.path().join("预览.tiff");
+        let tiff_path = root.path().join("preview.tiff");
         fs::write(&tiff_path, tiff.to_vec()).unwrap();
         assert!(image_preview(tiff_path.to_str().unwrap())
             .unwrap()

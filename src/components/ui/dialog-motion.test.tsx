@@ -22,7 +22,7 @@ it('retains live opacity, position and content when a Select surface detaches be
   const state: DialogMotionState = { open: true, enabled: true, surfaces: new Map() }
   const { result } = renderHook(() => useDialogSurfaceFade('popover'), { wrapper: ({ children }) => <DialogMotionContext.Provider value={state}>{children}</DialogMotionContext.Provider> })
   const node = document.createElement('div')
-  node.innerHTML = '<span id="original-option" role="option">浅色</span>'
+  node.innerHTML = '<span id="original-option" role="option">Light</span>'
   node.animate = animate
   node.getBoundingClientRect = () => ({ left: 100, top: 200, width: 320, height: 110 }) as DOMRect
   document.body.append(node)
@@ -36,7 +36,7 @@ it('retains live opacity, position and content when a Select surface detaches be
   expect(typeof detach).toBe('function')
   act(() => { detach?.() })
   const ghost = document.querySelector<HTMLElement>('[data-dialog-exit=popover]')!
-  expect(ghost.textContent).toBe('浅色')
+  expect(ghost.textContent).toBe('Light')
   expect(ghost.style.opacity).toBe('0.6')
   expect(ghost.style.left).toBe('100px')
   expect(ghost.style.width).toBe('320px')

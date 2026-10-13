@@ -202,8 +202,8 @@ try {
     throw new Error('Unexpected development or user-data file in app bundle')
   }
   const guide = await readFile(join(root, 'docs/install-macos-trial.txt'), 'utf8')
-  const releaseGuide = `版本：${version}\n架构：${universal ? 'Apple Silicon + Intel / universal' : 'Apple Silicon / arm64'}\n\n${guide}`
-  if (await readFile(join(app, 'Contents/Resources/installation/安装说明.txt'), 'utf8') !== guide) throw new Error('App is missing the current installation guide')
+  const releaseGuide = `Version: ${version}\nArchitecture: ${universal ? 'Apple Silicon + Intel / universal' : 'Apple Silicon / arm64'}\n\n${guide}`
+  if (await readFile(join(app, 'Contents/Resources/installation/INSTALL.txt'), 'utf8') !== guide) throw new Error('App is missing the current installation guide')
   const prefix = `${config.productName.replace(/\s+/g, '-')}_${version}_macos-${architecture}`
   const dmg = join(workspace, `${prefix}.dmg`)
   const zip = join(workspace, `${prefix}.zip`)
@@ -272,7 +272,7 @@ try {
     for (const file of [`${config.productName.replace(/\s+/g, '-')}_${version}_macos-universal.app.tar.gz`, `${config.productName.replace(/\s+/g, '-')}_${version}_macos-universal.app.tar.gz.sig`, 'latest.json']) await rm(join(output, file), { force: true })
   }
   await writeFile(join(output, 'SHA256SUMS.txt'), artifacts.map(item => `${item.sha256}  ${item.file}\n`).join(''))
-  await writeFile(join(output, '安装说明.txt'), releaseGuide)
+  await writeFile(join(output, 'INSTALL.txt'), releaseGuide)
   await writeFile(join(output, 'BUILD-INFO.json'), JSON.stringify({ product, version, builtAt, packagedAt: new Date().toISOString(), architecture, architectures: expectedArchitectures, minimumMacOS, signing: 'ad-hoc', notarized: false, ...(sourceCommit ? { sourceCommit } : {}), sourceDigest: before, appBundleDigest: verifiedAppDigest, installerDigest: installerBefore, binarySha256: sha256(await readFile(binary)), ...(repackagedFromZipSha256 ? { repackagedFromZipSha256 } : {}), ...(updaterInfo ? { updater: updaterInfo } : {}), artifacts }, null, 2) + '\n')
   console.log(`\nDistribution files: ${resolve(output)}`)
 } finally {

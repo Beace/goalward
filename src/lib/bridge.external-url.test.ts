@@ -14,7 +14,7 @@ beforeEach(() => {
 describe('external web links', () => {
   it('normalizes absolute web URLs and rejects unsafe schemes, credentials and controls', async () => {
     const { normalizeExternalHttpUrl } = await import('./bridge')
-    expect(normalizeExternalHttpUrl('HTTPS://example.com/中文?q=a%20b#section')).toBe('https://example.com/%E4%B8%AD%E6%96%87?q=a%20b#section')
+    expect(normalizeExternalHttpUrl('HTTPS://example.com/café?q=a%20b#section')).toBe('https://example.com/caf%C3%A9?q=a%20b#section')
     expect(normalizeExternalHttpUrl('http://127.0.0.1:1420/')).toBe('http://127.0.0.1:1420/')
     for (const value of ['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,test', 'mailto:a@example.com', 'codex://threads/test', '/tmp/report.html', '//example.com', 'https:example.com', 'https://user:password@example.com', 'https://user@example.com', ' https://example.com', 'https://example.com/a b', 'https://example.com\n', 'https://example.com\0', 'https://', '--args', '']) {
       expect(normalizeExternalHttpUrl(value), value).toBeNull()

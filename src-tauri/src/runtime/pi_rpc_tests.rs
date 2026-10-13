@@ -30,7 +30,7 @@ fn request(directory: &Path, body: &str) -> StartRequest {
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     serde_json::from_value(json!({"taskId":"pi-task","runId":"first","memberId":"member",
         "runtime":{"id":"pi","name":"Pi fixture","adapter":"pi","executable":executable,"enabled":true,"args":[]},
-        "directory":directory,"model":"fixture/model","prompt":"literal $(do not execute) 中文\nline two"})).unwrap()
+        "directory":directory,"model":"fixture/model","prompt":"literal $(do not execute) café\nline two"})).unwrap()
 }
 fn manager(directory: &Path) -> RuntimeManager {
     RuntimeManager::new(Arc::new(Storage::new(directory.join("data")).unwrap()))
@@ -133,7 +133,7 @@ while True:
     if command['type']=='get_state': state(command); continue
     assert command['type']=='prompt'
     index+=1
-    if index==1: assert command['message']=='literal $(do not execute) 中文\nline two'
+    if index==1: assert command['message']=='literal $(do not execute) café\nline two'
     ack(command,{'disposition':'started'})
     emit({'type':'agent_start'})
     emit({'type':'message_update','assistantMessageEvent':{'type':'text_delta','contentIndex':0,'delta':'live'}})

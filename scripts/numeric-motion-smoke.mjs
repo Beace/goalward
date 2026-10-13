@@ -26,15 +26,15 @@ import '/src/components/workspace.css'
 const noop=()=>{}
 const seed=createInitialState()
 const timestamp=new Date().toISOString()
-const goal=createGoal({title:'数字与图表动效验收',expected:'在保持真实目标和可用控件的同时看到渐进加载',criteria:['有证据的标准','待验证的标准']},timestamp)
+const goal=createGoal({title:'Number and chart motion verification',expected:'Observe gradual loading while retaining real targets and usable controls',criteria:['Criterion with evidence','Criterion awaiting verification']},timestamp)
 goal.criteria[0]={...goal.criteria[0],status:'satisfied',evidence:'Synthetic accepted evidence'}
-goal.currentState.entries=[{id:'fixture-metric',kind:'metric',text:'本次测量保留来源与定义',createdAt:timestamp,source:{kind:'user',label:'Synthetic browser evidence'},metric:{name:'观测指标',value:42.75,unit:'%',observedAt:timestamp,definition:'合成的数值观测，用于验证小数与单位的行内布局'}}]
-const achieved=createGoal({title:'已经完成的目标',expected:'验收通过',criteria:['已验收']},timestamp)
+goal.currentState.entries=[{id:'fixture-metric',kind:'metric',text:'This measurement retains its source and definition',createdAt:timestamp,source:{kind:'user',label:'Synthetic browser evidence'},metric:{name:'Observed metric',value:42.75,unit:'%',observedAt:timestamp,definition:'Synthetic numeric observation for verifying inline decimal and unit layout'}}]
+const achieved=createGoal({title:'Completed goal',expected:'Acceptance passed',criteria:['Accepted']},timestamp)
 achieved.status='achieved'
 achieved.criteria[0]={...achieved.criteria[0],status:'satisfied',evidence:'Synthetic completion evidence'}
-const unknown=createGoal({title:'没有完成标准的目标',expected:'尚待澄清'},timestamp)
+const unknown=createGoal({title:'Goal without completion criteria',expected:'Still needs clarification'},timestamp)
 const tasks=Array.from({length:8},(_,index)=>{
-  const task=createWorkspaceTask(seed.settings,{title:'合成任务 '+(index+1),directory:'/tmp/numeric-motion',goalId:goal.id})
+  const task=createWorkspaceTask(seed.settings,{title:'Synthetic task '+(index+1),directory:'/tmp/numeric-motion',goalId:goal.id})
   task.createdAt=timestamp
   task.businessStatus=index<3?'done':index<5?'in_progress':index===5?'blocked':'todo'
   if(index<3)task.results=[{id:'accepted-'+index,summary:'Synthetic delivered result',evidence:'Synthetic accepted evidence',verdict:'accepted',createdAt:timestamp,reviewedAt:timestamp}]
@@ -46,27 +46,27 @@ function Harness(){
   const [revision,setRevision]=useState(0),[surface,setSurface]=useState('shared'),[updated,setUpdated]=useState(false),[replay,setReplay]=useState(0),[known,setKnown]=useState(NaN)
   window.__numeric={mount:()=>setMounted(true),setNumber,setProgress,setKnown,rerender:()=>setRevision(value=>value+1),surface:setSurface,updateGoal:()=>setUpdated(true),fixture}
   const currentGoal=updated?{...goal,criteria:[goal.criteria[0],{...goal.criteria[1],status:'satisfied',evidence:'Synthetic newly verified evidence'}]}:goal
-  const controls=<header style={{position:'sticky',top:0,zIndex:20,display:'flex',flexWrap:'wrap',gap:8,padding:12,borderBottom:'1px solid var(--border)',background:'var(--background)'}}><Button size="sm" onClick={()=>{setSurface('shared');setMounted(true);setReplay(value=>value+1)}}>重播数字与进度</Button><Button size="sm" variant="outline" onClick={()=>{setNumber(value=>value+10000);setProgress(value=>Math.min(100,value+20))}}>增加目标</Button><Button size="sm" variant="outline" onClick={()=>{setNumber(value=>Math.max(0,value-8000));setProgress(value=>Math.max(0,value-20))}}>降低目标</Button><Button size="sm" variant="outline" onClick={()=>setSurface('dashboard')}>Dashboard</Button><Button size="sm" variant="outline" onClick={()=>setSurface('goal')}>目标图表</Button><span style={{fontSize:11,alignSelf:'center',color:'var(--muted-foreground)'}}>真实组件 · 合成数据 · 可切换系统减少动态效果</span></header>
+  const controls=<header style={{position:'sticky',top:0,zIndex:20,display:'flex',flexWrap:'wrap',gap:8,padding:12,borderBottom:'1px solid var(--border)',background:'var(--background)'}}><Button size="sm" onClick={()=>{setSurface('shared');setMounted(true);setReplay(value=>value+1)}}>Replay numbers and progress</Button><Button size="sm" variant="outline" onClick={()=>{setNumber(value=>value+10000);setProgress(value=>Math.min(100,value+20))}}>Increase targets</Button><Button size="sm" variant="outline" onClick={()=>{setNumber(value=>Math.max(0,value-8000));setProgress(value=>Math.max(0,value-20))}}>Decrease targets</Button><Button size="sm" variant="outline" onClick={()=>setSurface('dashboard')}>Dashboard</Button><Button size="sm" variant="outline" onClick={()=>setSurface('goal')}>Goal chart</Button><span style={{fontSize:11,alignSelf:'center',color:'var(--muted-foreground)'}}>Actual components · Synthetic data · System reduced motion can be toggled</span></header>
   if(surface==='dashboard')return <>{controls}<div style={{height:'calc(100vh - 57px)',display:'flex',flexDirection:'column'}}><DashboardPage state={fixture} onGoal={noop} onTask={noop} onGoals={noop} onTasks={noop} onNewTask={noop}/></div></>
-  if(surface==='goal')return <>{controls}<main style={{padding:24,maxWidth:700}}><h1 style={{fontSize:14,marginBottom:20}}>实际 GoalProgress · 合成数据</h1><GoalProgress goal={currentGoal} tasks={tasks} onTasks={noop} onCriterion={noop}/><Button id="after-chart" style={{marginTop:20}}>后续键盘焦点</Button></main></>
+  if(surface==='goal')return <>{controls}<main style={{padding:24,maxWidth:700}}><h1 style={{fontSize:14,marginBottom:20}}>Actual GoalProgress · Synthetic data</h1><GoalProgress goal={currentGoal} tasks={tasks} onTasks={noop} onCriterion={noop}/><Button id="after-chart" style={{marginTop:20}}>Next keyboard focus target</Button></main></>
   return <>{controls}<main style={{padding:24,maxWidth:680,margin:'0 auto'}} data-revision={revision}>
-    <h1 style={{fontSize:14,marginBottom:20}}>数字、进度与首次可见动效 · 合成数据</h1>
-    <Button id="focus-control" variant="outline">保持焦点的操作</Button>
+    <h1 style={{fontSize:14,marginBottom:20}}>Numbers, progress, and first-visible motion · Synthetic data</h1>
+    <Button id="focus-control" variant="outline">Control that retains focus</Button>
     {mounted&&<div key={replay}>
       <div style={{display:'grid',gap:16,marginTop:24}}>
-        <p>整数 <AnimatedNumber id="controlled-number" value={number}/></p>
-        <p>负数 <AnimatedNumber id="negative-number" value={-12.75}/></p>
-        <p>小数 <AnimatedNumber id="fraction-number" value={3.14159}/></p>
-        <p>大数 <AnimatedNumber id="large-number" value={1234567890} format={value=>Math.round(value).toLocaleString('en-US')}/></p>
-        <p>保留数值字符串 <AnimatedNumberText id="numeric-string" value="+12.50"/></p>
-        <p>未知 <AnimatedNumber id="unknown-number" value={known}/></p>
-        <p>保持字符串 <AnimatedNumberText id="literal-string" value="007"/></p>
-        <p>实时计数 <AnimatedNumber id="live-number" value={number} animateUpdates={false}/></p>
-        <Progress id="controlled-progress" value={progress} aria-label="真实进度目标"/>
+        <p>Integer <AnimatedNumber id="controlled-number" value={number}/></p>
+        <p>Negative number <AnimatedNumber id="negative-number" value={-12.75}/></p>
+        <p>Fraction <AnimatedNumber id="fraction-number" value={3.14159}/></p>
+        <p>Large number <AnimatedNumber id="large-number" value={1234567890} format={value=>Math.round(value).toLocaleString('en-US')}/></p>
+        <p>Retained numeric string <AnimatedNumberText id="numeric-string" value="+12.50"/></p>
+        <p>Unknown <AnimatedNumber id="unknown-number" value={known}/></p>
+        <p>Retained string <AnimatedNumberText id="literal-string" value="007"/></p>
+        <p>Live count <AnimatedNumber id="live-number" value={number} animateUpdates={false}/></p>
+        <Progress id="controlled-progress" value={progress} aria-label="Actual progress target"/>
         <div style={{position:'relative',height:28,border:'1px solid var(--border)',borderRadius:4}}><AnimatedFill id="controlled-fill" value={progress} className="bg-primary"/></div>
       </div>
       <div style={{height:'140vh'}}/>
-      <section id="offscreen-region" style={{padding:20,border:'1px solid var(--border)'}}><p>首次进入视口 <AnimatedNumber id="offscreen-number" value={9876}/></p><Progress id="offscreen-progress" value={64} aria-label="视口内真实进度"/><div style={{position:'relative',height:28,marginTop:16}}><AnimatedFill id="offscreen-fill" value={64} className="bg-primary"/></div></section>
+      <section id="offscreen-region" style={{padding:20,border:'1px solid var(--border)'}}><p>First viewport entry <AnimatedNumber id="offscreen-number" value={9876}/></p><Progress id="offscreen-progress" value={64} aria-label="Actual progress in viewport"/><div style={{position:'relative',height:28,marginTop:16}}><AnimatedFill id="offscreen-fill" value={64} className="bg-primary"/></div></section>
     </div>}
   </main></>
 }
@@ -212,7 +212,7 @@ try {
       await expect(page.locator('#literal-string')).toHaveText('007')
       await expect(page.locator('#numeric-string .animated-number-target')).toHaveText('+12.50')
       await expect(page.locator('#large-number [data-slot="animated-number-value"]')).toHaveText('1,234,567,890')
-      await expect(page.getByRole('progressbar', { name: '真实进度目标' })).toHaveAttribute('aria-valuenow', '73')
+      await expect(page.getByRole('progressbar', { name: 'Actual progress target' })).toHaveAttribute('aria-valuenow', '73')
       scenario.checks.accessibility = { trueTargetFromFirstFrame: true, reservedWidth: true, focusPreserved: true, unknownAndLeadingZeroRemainLiteral: true }
 
       const becameKnown = await frames(page, { numbers: ['#unknown-number'], actions: [{ at: 0, known: 42.5 }] })
@@ -301,8 +301,8 @@ try {
         goalCompletion: assertLoad(dashboard, 'fills', '.metric-complete [data-slot="progress"]', 33, reduced),
         weeklyCompletion: assertLoad(dashboard, 'fills', '.metric-week [data-slot="progress"]', 38, reduced),
       }
-      await expect(page.getByLabel('没有完成标准的目标：目标标准验收率 —')).toBeVisible()
-      assert.equal(await page.getByLabel('没有完成标准的目标：进度').getByRole('progressbar').count(), 0)
+      await expect(page.getByLabel('Goal without completion criteria：目标标准验收率 —')).toBeVisible()
+      assert.equal(await page.getByLabel('Goal without completion criteria：进度').getByRole('progressbar').count(), 0)
       await page.screenshot({ path: `${output}/${width}-${theme}-${reducedMotion}-dashboard.png` })
 
       const goalCharts = await frames(page, { fills: ['.goal-progress-task-segments [data-status="done"] .animated-fill-container', '.goal-progress-criterion-segments [data-status="satisfied"] .animated-fill-container'], actions: [{ at: 0, surface: 'goal' }] })
@@ -311,12 +311,12 @@ try {
         scenario.checks.goalChart ??= {}
         scenario.checks.goalChart[selector] = assertLoad(goalCharts, 'fills', selector, 100, reduced)
       }
-      const criterion = page.getByRole('button', { name: '待验证的标准：待验证', exact: true })
+      const criterion = page.getByRole('button', { name: 'Criterion awaiting verification：待验证', exact: true })
       const rect = await criterion.boundingBox()
       assert(rect.height >= 28 && rect.width >= 40, 'Chart controls retain minimum usable targets')
       await criterion.focus()
       await page.evaluate(() => window.__numeric.updateGoal())
-      const verified = page.getByRole('button', { name: '待验证的标准：已满足', exact: true })
+      const verified = page.getByRole('button', { name: 'Criterion awaiting verification：已满足', exact: true })
       await expect(verified).toBeFocused()
       assert.deepEqual(await verified.boundingBox(), rect, 'Verification state changes retain chart control geometry')
       await verified.press('Enter')
@@ -360,7 +360,7 @@ try {
       scenario.checks.actualApp.settingsModelTabsAndUpdateSurface = true
       await page.getByRole('button', { name: '返回工作台', exact: true }).click()
       await page.locator('.primary-navigation').getByRole('button', { name: /^目标/ }).click()
-      await page.getByRole('button', { name: '打开目标：数字与图表动效验收', exact: true }).click()
+      await page.getByRole('button', { name: '打开目标：Number and chart motion verification', exact: true }).click()
       const metric = page.locator('.goal-metric strong')
       await metric.scrollIntoViewIfNeeded()
       await expect(metric.locator('[data-slot="animated-number-value"]')).toHaveText('42.75')

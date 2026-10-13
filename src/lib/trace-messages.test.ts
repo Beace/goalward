@@ -17,16 +17,16 @@ function fixture() {
 describe('Kimi trace message aggregation', () => {
   it('retains exact text, all sources and a stable identity for thousands of chunks without modifying raw events', () => {
     const { task, chunk } = fixture()
-    task.events = [chunk('第一段\n')]
+    task.events = [chunk('First segment\n')]
     const id = getTraceDisplayEntries(task)[0].id
-    task.events = [...task.events, ...Array.from({ length: 6000 }, (_, i) => chunk(`${i} 中文🙂 `))]
+    task.events = [...task.events, ...Array.from({ length: 6000 }, (_, i) => chunk(`${i} café🙂 `))]
     const original = JSON.stringify(task.events)
     const entries = getTraceDisplayEntries(task)
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe(id)
     expect(entries[0].message?.records).toHaveLength(6001)
     expect(entries[0].sourceIds).toEqual(task.events.map(event => event.id))
-    expect(entries[0].message?.text).toBe('第一段\n' + Array.from({ length: 6000 }, (_, i) => `${i} 中文🙂 `).join(''))
+    expect(entries[0].message?.text).toBe('First segment\n' + Array.from({ length: 6000 }, (_, i) => `${i} café🙂 `).join(''))
     expect(entries[0].message?.status).toBe('running')
     expect(JSON.stringify(task.events)).toBe(original)
   })
@@ -61,14 +61,14 @@ describe('Kimi trace message aggregation', () => {
 
   it('retains the row across incomplete transport frames and merges reassembled chunks', () => {
     const { task, chunk, event } = fixture()
-    const second = chunk('后半段\n')
-    task.events = [chunk('前半段'), event(null, { text: second.text.slice(0, 30) })]
+    const second = chunk('Second half\n')
+    task.events = [chunk('First half'), event(null, { text: second.text.slice(0, 30) })]
     const first = getTraceDisplayEntries(task)[0]
     task.events.push(event(null, { text: second.text.slice(30) }))
     const merged = getTraceDisplayEntries(task)
     expect(merged).toHaveLength(1)
     expect(merged[0].id).toBe(first.id)
-    expect(merged[0].message?.text).toBe('前半段后半段\n')
+    expect(merged[0].message?.text).toBe('First halfSecond half\n')
     expect(merged[0].sourceIds).toHaveLength(3)
   })
 

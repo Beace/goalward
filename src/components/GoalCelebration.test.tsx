@@ -9,9 +9,9 @@ afterEach(() => { cleanup(); vi.useRealTimers(); motionPreference.reduced = fals
 describe('Goal confirmation feedback', () => {
   it('announces confirmation without moving keyboard focus and permits immediate dismissal', () => {
     const dismiss = vi.fn()
-    render(<><button>确认来源</button><GoalCelebration onDismiss={dismiss} /></>)
-    screen.getByRole('button', { name: '确认来源' }).focus()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: '确认来源' }))
+    render(<><button>Confirm source</button><GoalCelebration onDismiss={dismiss} /></>)
+    screen.getByRole('button', { name: 'Confirm source' }).focus()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Confirm source' }))
     expect(screen.getByRole('status').textContent).toContain('目标已明确')
     expect(document.querySelectorAll('.goal-celebration-particles i')).toHaveLength(16)
     fireEvent.click(screen.getByRole('button', { name: '关闭目标确认提示' }))

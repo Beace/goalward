@@ -5,8 +5,8 @@ await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const results = []
 const key = 'goalward.preview.v1'
-const baseTitle = '整理桌面工具试用记录'
-const editedTitle = '整理桌面工具试用记录与改进建议'
+const baseTitle = 'Organize desktop tool trial records'
+const editedTitle = 'Organize desktop tool trial records and improvement suggestions'
 try {
   for (const width of [1536, 1280]) for (const reducedMotion of ['no-preference', 'reduce']) {
     const page = await browser.newPage({ viewport: { width, height: width === 1536 ? 960 : 720 }, reducedMotion })
@@ -25,11 +25,11 @@ try {
     await page.evaluate(({key, title}) => {
       const state = JSON.parse(localStorage.getItem(key))
       const timestamp = new Date().toISOString()
-      const task = {id:'sample-1',title,directory:'/tmp/task-actions-example',mode:'solo',members:[],createdAt:timestamp,messages:[{id:'message-1',role:'user',text:'保留试用依据',createdAt:timestamp}],events:[],runs:[{id:'run-1',createdAt:timestamp,directory:'/tmp/original',prompt:'整理资料',members:[],context:{task:{title,acceptance:'保留原始记录',businessStatus:'todo'}}}],goalId:'goal-1',acceptance:'保留原始记录',executor:'human',businessStatus:'todo',priority:'normal',dependencies:[],results:[],plan:[]}
-      const source={kind:'task',label:'任务结果：'+title,taskId:task.id,reference:'试用记录.md'}
-      const snapshot={version:1,summary:'已经完成首轮试用',entries:[{id:'entry-1',kind:'artifact',text:'首轮记录已归档',source,createdAt:timestamp}],createdAt:timestamp,reason:'用户核对',source}
-      state.tasks=[task,{...task,id:'sample-2',title:'规划下一轮试用',goalId:undefined,messages:[],runs:[],dependencies:['sample-1']}]
-      state.goals=[{id:'goal-1',title:'交付可试用的桌面工具',intent:'',expected:'完成核心流程验收',constraints:'',deadline:'',status:'active',version:1,criteria:[],definitions:[],currentState:snapshot,stateHistory:[],proposals:[],plan:[],reviews:[],createdAt:timestamp,updatedAt:timestamp}]
+      const task = {id:'sample-1',title,directory:'/tmp/task-actions-example',mode:'solo',members:[],createdAt:timestamp,messages:[{id:'message-1',role:'user',text:'Keep trial evidence',createdAt:timestamp}],events:[],runs:[{id:'run-1',createdAt:timestamp,directory:'/tmp/original',prompt:'Organize material',members:[],context:{task:{title,acceptance:'Keep original records',businessStatus:'todo'}}}],goalId:'goal-1',acceptance:'Keep original records',executor:'human',businessStatus:'todo',priority:'normal',dependencies:[],results:[],plan:[]}
+      const source={kind:'task',label:'Task result: '+title,taskId:task.id,reference:'trial-records.md'}
+      const snapshot={version:1,summary:'Completed the first trial',entries:[{id:'entry-1',kind:'artifact',text:'First trial records archived',source,createdAt:timestamp}],createdAt:timestamp,reason:'User verification',source}
+      state.tasks=[task,{...task,id:'sample-2',title:'Plan the next trial',goalId:undefined,messages:[],runs:[],dependencies:['sample-1']}]
+      state.goals=[{id:'goal-1',title:'Deliver a desktop tool ready for trial',intent:'',expected:'Complete core workflow acceptance',constraints:'',deadline:'',status:'active',version:1,criteria:[],definitions:[],currentState:snapshot,stateHistory:[],proposals:[],plan:[],reviews:[],createdAt:timestamp,updatedAt:timestamp}]
       state.agents=[];state.activeTaskId=task.id;state.activeGoalId='goal-1'
       localStorage.setItem(key,JSON.stringify(state))
     }, {key,title:baseTitle})
@@ -41,7 +41,7 @@ try {
     const edit = () => page.getByRole('button',{name:`编辑任务：${baseTitle}`,exact:true})
     await edit().click()
     await expect(page.getByRole('textbox',{name:'编辑任务名称'})).toBeFocused()
-    await page.getByRole('textbox',{name:'编辑任务名称'}).fill('尚未保存的名称')
+    await page.getByRole('textbox',{name:'编辑任务名称'}).fill('Unsaved name')
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(edit()).toBeFocused()
@@ -51,7 +51,7 @@ try {
     await page.getByRole('textbox',{name:'编辑任务名称'}).fill('   ')
     await expect(page.getByRole('button',{name:'保存任务',exact:true})).toBeDisabled()
     await page.getByRole('textbox',{name:'编辑任务名称'}).fill(editedTitle)
-    await page.getByRole('textbox',{name:'编辑验收要求'}).fill('原始记录和改进建议均有来源依据')
+    await page.getByRole('textbox',{name:'编辑验收要求'}).fill('Original records and improvement suggestions have source evidence')
     await page.getByRole('textbox',{name:'编辑任务目录'}).fill('/tmp/next-task-workspace')
     await page.getByRole('combobox',{name:'任务优先级'}).click()
     await page.getByRole('option',{name:'高优先级',exact:true}).click()
@@ -74,9 +74,9 @@ try {
     await expect(page.getByText('1 个任务仍依赖此任务', {exact:true})).toBeVisible()
     await settleDialog()
     await page.screenshot({path:`${output}/delete-blocked-${width}-${reducedMotion}.png`})
-    await page.getByRole('dialog').getByRole('button',{name:'规划下一轮试用'}).click()
-    await expect(page.getByRole('heading',{name:'规划下一轮试用',exact:true})).toBeFocused()
-    await page.getByRole('button',{name:'编辑任务：规划下一轮试用',exact:true}).click()
+    await page.getByRole('dialog').getByRole('button',{name:'Plan the next trial'}).click()
+    await expect(page.getByRole('heading',{name:'Plan the next trial',exact:true})).toBeFocused()
+    await page.getByRole('button',{name:'编辑任务：Plan the next trial',exact:true}).click()
     await page.getByRole('checkbox',{name:editedTitle,exact:true}).uncheck()
     await page.getByRole('button',{name:'保存任务',exact:true}).click()
     await tasksNav().click()

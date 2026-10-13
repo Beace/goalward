@@ -590,18 +590,18 @@ describe('SettingsPage appearance', () => {
     const initial = settings()
     const savedDescription = '使用本机 Codex CLI 的登录与配置；安装状态需检测。'
     initial.runtimes[0].description = savedDescription
-    initial.runtimes[1].description = 'My own Claude Code notes 中文'
+    initial.runtimes[1].description = 'My own Claude Code notes café'
     const onSave = vi.fn(async (_settings: Settings) => undefined)
     render(<I18nProvider><SettingsPage settings={initial} activeCount={0} onSave={onSave} onAppearanceChange={vi.fn(async () => undefined)} onBack={vi.fn()} onExport={vi.fn()} /></I18nProvider>)
     fireEvent.click(await screen.findByRole('button', { name: 'Advanced startup settings' }))
     expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('Uses local Codex CLI login and configuration; installation must be checked.')
     fireEvent.click(screen.getByRole('button', { name: /^Claude Code\s*Disabled/ }))
-    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('My own Claude Code notes 中文')
+    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('My own Claude Code notes café')
     fireEvent.click(screen.getByRole('button', { name: /^Codex\s*Disabled/ }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Local Codex' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
     expect(onSave.mock.calls[0][0].runtimes[0].description).toBe(savedDescription)
-    expect(onSave.mock.calls[0][0].runtimes[1].description).toBe('My own Claude Code notes 中文')
+    expect(onSave.mock.calls[0][0].runtimes[1].description).toBe('My own Claude Code notes café')
   })
 })

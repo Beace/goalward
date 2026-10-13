@@ -5,8 +5,8 @@ const output = 'test-results/sidebar'
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const results = []
-const title = '生成一篇如何做好业务品质的 html 文档并汇总所有验证结果与后续改进计划'
-const goal = '持续提升业务品质并完善质量诊断自动化工作流与交付验收标准'
+const title = 'Create an HTML document on business quality with all verification results and follow-up improvements'
+const goal = 'Improve business quality and its automated diagnosis workflow and delivery acceptance criteria'
 try {
   for (const [width, height] of [[1536, 960], [1280, 720]]) for (const reducedMotion of ['no-preference', 'reduce']) {
     const page = await browser.newPage({ viewport: { width, height }, reducedMotion })
@@ -15,7 +15,7 @@ try {
     await page.goto('http://127.0.0.1:1420')
     await page.getByRole('button', { name: '创建目标', exact: true }).first().click()
     await page.locator('#goal-title').fill(goal)
-    await page.locator('#goal-expected').fill('完成品质文档')
+    await page.locator('#goal-expected').fill('Complete the quality document')
     await page.getByRole('dialog').getByRole('button', { name: '创建目标', exact: true }).click()
     await page.getByRole('button', { name: '创建任务', exact: true }).click()
     await page.locator('#task-title').fill(title)

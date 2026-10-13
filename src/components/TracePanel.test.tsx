@@ -8,13 +8,13 @@ import type { Run, RuntimeEvent, Task } from '@/lib/types'
 afterEach(cleanup)
 const run: Run = {
   id: 'run', createdAt: '2026-09-16T03:18:12Z', prompt: 'search', directory: '/tmp',
-  members: [{ id: 'member', name: 'Codex', role: '执行', runtimeId: 'codex', modelId: '', model: '', status: 'completed', runtime: { id: 'codex', name: 'Codex', adapter: 'codex', executable: 'codex', enabled: true, args: [], defaultModel: '', description: '' } }],
+  members: [{ id: 'member', name: 'Codex', role: 'Implementation', runtimeId: 'codex', modelId: '', model: '', status: 'completed', runtime: { id: 'codex', name: 'Codex', adapter: 'codex', executable: 'codex', enabled: true, args: [], defaultModel: '', description: '' } }],
 }
 function event(id: string, kind: RuntimeEvent['kind'], text: string): RuntimeEvent {
   return { id, kind, text, taskId: 'task', runId: run.id, memberId: 'member', timestamp: run.createdAt }
 }
 function task(events: RuntimeEvent[]): Task {
-  return { id: 'task', title: '测试', directory: '/tmp', mode: 'solo', members: run.members, messages: [], runs: [run], events, createdAt: run.createdAt }
+  return { id: 'task', title: 'Test', directory: '/tmp', mode: 'solo', members: run.members, messages: [], runs: [run], events, createdAt: run.createdAt }
 }
 const search = JSON.stringify({ type: 'item.started', item: { id: 'search', type: 'web_search', query: 'agent runtime' } }) + '\n'
 const failure = JSON.stringify({ type: 'item.completed', item: { id: 'error', type: 'error', message: 'Search temporarily unavailable' } }) + '\n'
@@ -26,7 +26,7 @@ describe('trace inspector', () => {
     const trigger = screen.getByRole('button', { name: /网页搜索/ })
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(view.container.querySelector('.trace-detail')).toBeNull()
-    view.rerender(<TracePanel task={task([...events, event('next', 'stderr', '新记录')])} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
+    view.rerender(<TracePanel task={task([...events, event('next', 'stderr', 'New record')])} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
     expect(view.container.querySelector('.trace-detail')).toBeNull()
     fireEvent.click(trigger)
     expect(screen.getByRole('region', { name: '入参' })).toBeTruthy()
@@ -36,7 +36,7 @@ describe('trace inspector', () => {
     expect(screen.getByRole('region', { name: '入参' }).textContent).toContain('agent runtime')
   })
   it('mounts only a window of a long trace and retains the full record count during streaming', () => {
-    const events = Array.from({ length: 1000 }, (_, index) => event(`diagnostic-${index}`, 'stderr', `诊断记录 ${index}`))
+    const events = Array.from({ length: 1000 }, (_, index) => event(`diagnostic-${index}`, 'stderr', `Diagnostic record ${index}`))
     const view = render(<TracePanel task={task(events)} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
     expect(screen.getByText(hasSemanticText('1000 条记录'))).toBeTruthy()
     const mounted = view.container.querySelectorAll('.trace-event').length
@@ -45,7 +45,7 @@ describe('trace inspector', () => {
     expect(view.container.querySelectorAll('.trace-raw-record')).toHaveLength(0)
     const first = view.container.querySelector('.trace-trigger')!
     fireEvent.click(first)
-    view.rerender(<TracePanel task={task([...events, event('next', 'stderr', '继续输出')])} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
+    view.rerender(<TracePanel task={task([...events, event('next', 'stderr', 'Continue output')])} run={run} onClose={vi.fn()} onExport={vi.fn()} />)
     expect(screen.getByText(hasSemanticText('1001 条记录'))).toBeTruthy()
     expect(view.container.querySelector('.trace-trigger')).toBe(first)
     expect(first.getAttribute('aria-expanded')).toBe('true')
@@ -57,7 +57,7 @@ describe('trace inspector', () => {
     const copy = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } })
     const kimi: Run = { ...run, members: run.members.map(member => ({ ...member, status: 'running', runtime: { ...member.runtime, adapter: 'kimi' } })) }
-    const chunks = Array.from({ length: 121 }, (_, index) => event(`chunk-${index}`, 'stdout', JSON.stringify({ type: 'kimi.acp.update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `片段${index}\n` } } }) + '\n'))
+    const chunks = Array.from({ length: 121 }, (_, index) => event(`chunk-${index}`, 'stdout', JSON.stringify({ type: 'kimi.acp.update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Segment${index}\n` } } }) + '\n'))
     const initial = { ...task(chunks.slice(0, 120)), runs: [kimi] }
     const view = render(<TracePanel task={initial} run={kimi} onClose={vi.fn()} onExport={vi.fn()} />)
     const original = screen.getByRole('button', { name: /生成回复/ })
@@ -76,7 +76,7 @@ describe('trace inspector', () => {
     expect(meta.getByText(hasSemanticText('1 项执行中'))).toBeTruthy()
     expect(view.container.querySelectorAll('.trace-raw-record')).toHaveLength(50)
     fireEvent.click(screen.getByRole('button', { name: '复制完整回复内容' }))
-    await waitFor(() => expect(copy).toHaveBeenLastCalledWith(chunks.map((_, index) => `片段${index}\n`).join('')))
+    await waitFor(() => expect(copy).toHaveBeenLastCalledWith(chunks.map((_, index) => `Segment${index}\n`).join('')))
     fireEvent.click(screen.getAllByRole('button', { name: '复制事件输出' })[0])
     await waitFor(() => expect(copy).toHaveBeenLastCalledWith(chunks[50].text))
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))

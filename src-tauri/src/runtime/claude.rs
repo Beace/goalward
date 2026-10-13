@@ -39,7 +39,7 @@ pub(super) fn arguments(request: &StartRequest) -> Result<Vec<String>, String> {
                 | "--permission-prompts"
                 | "--"
         ) {
-            return Err(format!("Claude 原生会话由应用管理，不支持额外参数 {flag}"));
+            return Err(format!("Native Claude sessions are managed by the app. The extra argument {flag} is not supported."));
         }
     }
     let model = if request.model.trim().is_empty() {
@@ -289,7 +289,7 @@ impl ClaudeSession {
                             },
                         );
                         self.emit(json!({"type":"runtime.permission_requested","requestId":id,
-                            "options":[{"optionId":"allow_once","name":"允许一次","kind":"allow_once"},{"optionId":"reject_once","name":"拒绝","kind":"reject_once"}],
+                            "options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},{"optionId":"reject_once","name":"Deny","kind":"reject_once"}],
                             "toolCall":{"title":request["tool_name"],"toolCallId":request["tool_use_id"],"rawInput":request["input"]}}));
                     }
                 } else {

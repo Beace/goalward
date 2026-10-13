@@ -45,7 +45,7 @@ fn reject_conflicts(adapter: &str, extra: &[String]) -> Result<(), String> {
         };
         if conflict || arg == "--" {
             return Err(format!(
-                "额外启动参数 {flag} 与思考强度配置冲突；请移除冲突参数，或将思考强度设为继承 Runtime 配置"
+                "The extra launch argument {flag} conflicts with reasoning effort settings. Remove the conflicting argument or inherit runtime reasoning settings."
             ));
         }
     }
@@ -75,7 +75,7 @@ pub fn arguments(
                     | "max"
                     | "ultra"
             ) {
-                return Err("Codex 不支持此思考强度配置".into());
+                return Err("Codex does not support this reasoning effort setting.".into());
             }
             reject_conflicts(adapter, extra)?;
             Ok(vec![
@@ -85,7 +85,7 @@ pub fn arguments(
         }
         "claude" => {
             if !matches!(effort, "low" | "medium" | "high" | "xhigh" | "max") {
-                return Err("Claude Code 不支持此思考强度配置".into());
+                return Err("Claude Code does not support this reasoning effort setting.".into());
             }
             reject_conflicts(adapter, extra)?;
             Ok(vec!["--effort".into(), effort.into()])
@@ -98,13 +98,13 @@ pub fn arguments(
                 || effort.len() > 64
                 || !effort.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
             {
-                return Err("Kimi 不支持此思考强度配置".into());
+                return Err("Kimi does not support this reasoning effort setting.".into());
             }
             Ok(Vec::new())
         }
-        "pi" => Err("Pi 思考强度当前继承 Runtime 配置；未验证模型支持的档位，不能显式覆盖".into()),
+        "pi" => Err("Pi reasoning effort currently inherits runtime settings. Supported model levels have not been verified, so explicit overrides are unavailable.".into()),
         "generic" => Err(
-            "通用 Runtime 尚未提供统一的思考强度参数；请使用继承 Runtime 配置，并按该 Runtime 文档配置启动参数".into(),
+            "Generic runtimes do not provide a unified reasoning effort parameter yet. Inherit runtime settings and configure launch arguments using the runtime documentation.".into(),
         ),
         _ => Err("Unsupported runtime adapter".into()),
     }
@@ -168,7 +168,7 @@ mod tests {
         }
         assert!(arguments("generic", Some("high"), &[])
             .unwrap_err()
-            .contains("尚未提供统一"));
+            .contains("do not provide a unified"));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 ## Mandatory project constraints
 
-Read and follow [AGENTS.md](../AGENTS.md). The project uses **shadcn/ui** as its common UI component foundation. Preserve the current compact desktop visual direction through shared theme tokens and component variants in both dark and light themes. New or changed motion must use the actual **apple-design** skill from its installed `SKILL.md`. Apply its motion and accessibility guidance within the existing visual system.
+Read and follow [AGENTS.md](../AGENTS.md). The project uses **shadcn/ui** as its common UI component foundation. Preserve the current compact desktop visual direction through shared theme tokens and component variants in all themes. New or changed motion must use the actual **apple-design** skill from its installed `SKILL.md`. Apply its motion and accessibility guidance within the existing visual system.
 
 The exported HTML drafts remain design references. This requirement governs subsequent implementation; it does not mean the existing HTML is already a shadcn/ui application.
 
@@ -14,7 +14,7 @@ The first draft is the main workbench during a three-agent collaboration. It mus
 
 ## Primary visual source
 
-The current workbench and settings designs are the visual baseline. Preserve their layered neutral surfaces, restrained warm sand/bronze accent, precise UI typography, compact controls, and fine borders. The dark palette keeps the existing near-black values; the light palette translates the same hierarchy to warm off-white surfaces. shadcn/ui supplies the component foundation; its default theme does not replace these project visuals.
+The current workbench and settings designs are the visual baseline. Preserve their layered neutral surfaces, restrained warm sand/bronze accent, precise UI typography, compact controls, and fine borders. The dark palette keeps the existing near-black values; the light palette translates the same hierarchy to warm off-white surfaces. The explicitly selected Cobalt2 palette uses the blue surfaces and yellow accent documented below. shadcn/ui supplies the component foundation; its default theme does not replace these project visuals.
 
 Historical inspiration: Superdesign library style `neural-noir-interface-style` (Neural Noir Interface Style).
 
@@ -120,16 +120,16 @@ Supporting text, strong borders, and error colors are adapted for readability in
 - Icons: consistent 16 px simple outline functional icons, stroke 1.5 px; no emoji avatars or invented vendor logos. Runtime identities use locally bundled official logo assets beside their text labels (16–20 px, up to 24 px in detail headers), preserving their original proportions and published colors. Ensure fixed white assets remain distinguishable on light surfaces through a shared neutral backing treatment; do not alter original asset bytes. This small brand-color exception does not change the neutral/sand interface theme. Source records live in `assets/branding/runtime-source-*.md`; unknown custom runtimes retain a neutral terminal icon.
 - Identity: use Goalward as the app title and the current app icon documented in `assets/branding/README.md`. Historical S-mark assets are not the Goalward icon. The brand update does not change interface colors, dimensions, motion, or vendor runtime identities.
 
-## 信息密度与渐进展示
+## Information density and progressive disclosure
 
-- 工作台以用户内容为主，工具栏和文件列表项默认一行；工具栏 / 产物行基准 40 px，Tabs item 32 px，图标按钮至少 28 × 28 px。使用既有字体和间距 token，不通过缩小文字或点击区域挤内容。
-- 产物行采用「文件图标 · 文件名 · 灰色路径 · 右对齐的复制 / 预览按钮」。名称优先展示，路径使用 `muted-foreground` 填充同一行剩余空间，过长省略；名称最多占行宽的 45%，长名称也可省略，按钮保持完整可见。完整名称、路径、成员与执行来源在悬停或键盘聚焦时查看。未落盘内容显示“回复内容”并使用“复制内容”，网页显示 URL 并使用“复制链接”，避免虚构文件路径。
-- 文件类型图标统一复用 `src/components/FileIcon.tsx`，列表和预览标题保持一致。HTML 使用橙色代码文件图标，Markdown 使用蓝色 M 与向下箭头，CSS / 样式文件使用紫色画笔；代码、配置、图片、表格、压缩包、音视频等按扩展名识别，未知类型回退为灰色通用文件。保持 16 px 细线与固定占位，颜色辅助识别，不替代图形与文件名；类型图标不代表该格式一定支持内嵌预览。
-- 文件类型色是中性色工作台的局部例外，仅用于类型图标。颜色在 `src/index.css` 的 `--file-icon-*` token 中集中管理；深色 / 浅色分别为：橙 `#E6A071` / `#A45A22`、蓝 `#83B4E8` / `#386DA6`、紫 `#B59CDE` / `#7955AC`、青 `#78C6D6` / `#237385`、黄 `#D7BE78` / `#826821`、绿 `#89B99A` / `#35744C`、红 `#DF9294` / `#AD4D56`。文件名、灰色路径和操作按钮沿用当前主题，不用类型色表示运行状态。
-- 上级 Tab 已表达当前视图时省略重复标题。扩展名已说明文件类型时省略重复徽标；来源、实现方式、刷新时间和一般性帮助不单独占行，移入提示或详情。验收状态、错误和待操作事项保留明确反馈。
-- 常见操作使用共享图标按钮，设置 accessible name 与悬停说明；复制成功在原按钮显示勾选并通过 live region 宣告，失败提供可读、可重试的反馈。高频切换即时响应，反馈不推动列表或预览内容位移。
-- Tab 图标、文字和关闭按钮共享同一 item 的背景 / 边框；关闭图标和点击区域均须包含在其边界内，不拼成独立的额外列。
-- 在 1536 × 960、1280 × 720 及拖窄分栏时检查：列表行高、长名称省略、按钮完整可见、无横向页面溢出；键盘可查看完整信息、复制并打开文件。精简展示不删减持久化的来源数据。
+- Prioritize user content in the workbench. Toolbars and file-list items use a single row by default. The baseline height for toolbar / artifact rows is 40 px, Tab items are 32 px, and icon buttons are at least 28 × 28 px. Use existing font and spacing tokens instead of shrinking text or hit areas to squeeze in content.
+- Artifact rows use "File icon · File name · Gray path · Right-aligned copy / preview buttons". Prioritize the name; the path uses `muted-foreground` to fill remaining space on the same row and truncates when long. Names use at most 45% of the row width and may also truncate, while buttons remain fully visible. Expose the full name, path, member, and execution source on hover or keyboard focus. Content that has not been written to disk shows "Reply content" with "Copy content"; web pages show a URL with "Copy link", avoiding invented file paths.
+- Reuse `src/components/FileIcon.tsx` for file-type icons consistently in lists and preview titles. HTML uses an orange code-file icon; Markdown uses a blue M with a downward arrow; CSS / style files use a purple paintbrush. Identify code, configuration, images, spreadsheets, archives, audio, video, and similar files by extension, falling back to a gray generic file for unknown types. Keep 16 px fine-line icons and fixed reserved space. Color assists recognition without replacing shape or file names; a type icon does not guarantee embedded-preview support.
+- File-type colors are a local exception to the neutral workbench palette, used only for type icons. Centralize them in `src/index.css` as `--file-icon-*` tokens. Dark / light values respectively: orange `#E6A071` / `#A45A22`, blue `#83B4E8` / `#386DA6`, purple `#B59CDE` / `#7955AC`, cyan `#78C6D6` / `#237385`, yellow `#D7BE78` / `#826821`, green `#89B99A` / `#35744C`, and red `#DF9294` / `#AD4D56`. File names, gray paths, and action buttons retain the current theme; do not use file-type colors for execution status.
+- Omit repeated headings when a parent Tab already identifies the current view. Omit redundant badges when the extension identifies the file type. Source, implementation method, refresh time, and general help belong in tooltips or details instead of separate rows. Keep clear feedback for acceptance status, errors, and required actions.
+- Use shared icon buttons for common actions, with accessible names and hover descriptions. Copy success shows a check on the original button and is announced through a live region; failure provides readable feedback and retry. Frequent switches respond immediately, and feedback does not shift list or preview content.
+- Tab icons, text, and close buttons share the same item's background / border. Both the close icon and its hit area must remain inside that boundary, rather than forming an extra independent column.
+- At 1536 × 960, 1280 × 720, and with narrowed panes, check row height, long-name truncation, fully visible buttons, and absence of horizontal page overflow. Keyboard users must be able to inspect complete information, copy, and open files. Compact presentation must not delete persisted source data.
 
 ## shadcn/ui implementation contract
 
@@ -174,27 +174,27 @@ Official references: [component source model](https://ui.shadcn.com/docs), [comp
 
 ## Existing task workbench content (retained execution reference)
 
-- Project: goalward; task: 为工作台增加全局命令面板.
-- Mode switch: 单 Agent / 协作 (协作 active).
+- Project: goalward; task: Add a global command palette to the workbench.
+- Mode switch: Single Agent / Collaboration (Collaboration active).
 - Keep the conversation prominent. Runtime, model, and reasoning selectors live in the composer footer, without a large member-card roster above the conversation. Multi-agent configuration uses an independent compact member selector; viewing or editing a member never changes the message recipient.
-- Member one: 协调 / 实现, Codex, GPT-6-Astra (illustrative configuration), implementing command search.
-- Member two: 测试, Claude Code, 默认配置, running keyboard interaction tests.
-- Member three: 审查, Pi, 默认配置, waiting for implementation changes.
-- 添加成员 opens a local panel listing Codex, Claude Code, Pi, DeepSeek Harness, Kimi CLI and their illustrative connection state. All five runtime names must be discoverable on the first page, with DeepSeek Harness visible in the runtime availability list or menu.
+- Member one: Coordination / Implementation, Codex, GPT-6-Astra (illustrative configuration), implementing command search.
+- Member two: Testing, Claude Code, Default configuration, running keyboard interaction tests.
+- Member three: Review, Pi, Default configuration, waiting for implementation changes.
+- Add member opens a local panel listing Codex, Claude Code, Pi, DeepSeek Harness, Kimi CLI and their illustrative connection state. All five runtime names must be discoverable on the first page, with DeepSeek Harness visible in the runtime availability list or menu.
 - Separate runtime and model controls; selecting an agent never silently changes message recipient.
-- Tabs: 任务对话 / 成员会话 / 产物 3.
+- Tabs: Task conversation / Member sessions / Artifacts 3.
 - User request is compact; coordinator answer shows a three-item assignment list; a member result shows linked files; running activity uses a small compact block.
-- Composer has explicit target 发给：协调者 · Codex, attachment action, contextual chips, and send action.
+- Composer has explicit target Send to: Coordinator · Codex, attachment action, contextual chips, and send action.
 - Right trace shows nested actionable event rows, readable timestamps and duration, ownership, one expanded tool call with command or params and result. Include an actual trace identifier in small monospace text.
-- Bottom status includes 本地服务已连接 and 2 运行中 · 1 等待. Clearly mark the prototype as 示例数据 in a small global label.
-- Historical execution menu: 第 2 次执行, opens earlier run entries.
+- Bottom status includes Local service connected and 2 running · 1 waiting. Clearly mark the prototype as Example data in a small global label.
+- Historical execution menu: Run 2, opens earlier run entries.
 - Sidebar runtime availability includes all five names with small official identity logos and separate compact ready / unconfigured indicators. A brand logo communicates runtime identity, not connection status; historical execution identities come from the saved runtime snapshot.
 
 ## Interaction fidelity
 
 Implement lightweight prototype interactions if the draft environment supports them: solo/collaboration toggle, select member, runtime and model dropdowns, add-member menu, conversation/artifact tabs, trace expansion/filter, recipient selector, and inspector collapse. These operate on mock data and must never imply a real runtime was launched.
 
-Runtime/model controls changed during a run show 下次执行生效. Runtime handoff explicitly previews the context and creates a new session. A compact persistent run indicator near the composer shows elapsed time and the latest public activity; the conversation also displays current search/tool/waiting feedback. Trace contains only publicly exposed runtime events, not inaccessible private model reasoning. Unknown model/use/cost values must remain unknown rather than invented numbers.
+Runtime/model controls changed during a run show Applies to the next run. Runtime handoff explicitly previews the context and creates a new session. A compact persistent run indicator near the composer shows elapsed time and the latest public activity; the conversation also displays current search/tool/waiting feedback. Trace contains only publicly exposed runtime events, not inaccessible private model reasoning. Unknown model/use/cost values must remain unknown rather than invented numbers.
 
 ## Motion and accessibility
 
@@ -203,7 +203,7 @@ Runtime/model controls changed during a run show 下次执行生效. Runtime han
 - Offscreen data starts when it enters the viewport. A rerender does not replay a completed entrance. Live `prefers-reduced-motion` changes immediately settle the current presentation at the real value and remove counting/fill movement; turning motion back on does not replay a visible entrance. Data animation never delays requests, changes stored values or announces fabricated completion.
 
 - **Motion authority: `apple-design`.** Read the current installed skill before designing or implementing motion. The following rules derive from its response, interruptibility, spring, gesture, spatial-consistency, and accessibility guidance. Resolve the installation path again on another machine.
-- **Default development workflow:** Every interactive UI change follows the [default motion workflow in AGENTS.md](../AGENTS.md#前端交互动效的默认开发流程). Proactively implement purposeful feedback with `apple-design` and `animate`; use `find-animation-opportunities` for a read-only discovery pass when filling gaps in existing pages, then implement within the authorized scope. Reuse the shared shadcn/ui components, `src/lib/motion.ts`, and centralized CSS motion parameters. Verify generated animation styles, entry/exit behavior, and the applicable interaction checks below; audit-only requests remain read-only. The project rules and `apple-design` take precedence over supplemental skill examples.
+- **Default development workflow:** Every interactive UI change follows the [default motion workflow in AGENTS.md](../AGENTS.md#default-development-workflow-for-frontend-interaction-motion). Proactively implement purposeful feedback with `apple-design` and `animate`; use `find-animation-opportunities` for a read-only discovery pass when filling gaps in existing pages, then implement within the authorized scope. Reuse the shared shadcn/ui components, `src/lib/motion.ts`, and centralized CSS motion parameters. Verify generated animation styles, entry/exit behavior, and the applicable interaction checks below; audit-only requests remain read-only. The project rules and `apple-design` take precedence over supplemental skill examples.
 - **Immediate response:** show pressed feedback on pointer-down; commit actions through the normal click / keyboard activation behavior. No artificial delay or waiting for a transition before processing input.
 - **Continuous interruption:** retarget from the current on-screen value, preserving velocity continuity. Never lock input while an animation runs or restart from a stale logical target.
 - **Restrained springs:** the skill's design reference is damping ratio `1.0` with response `0.3–0.4 s` for default UI motion. Use slight bounce (ratio around `0.8`) only for genuine momentum-driven releases. Response is not fixed duration; damping ratio is not the animation library's physical `damping` coefficient. Map these concepts to the selected library's actual API through shared presets; do not blindly configure `damping: 1`.
@@ -230,7 +230,7 @@ These are project-specific applications of the skill, rather than additional cla
 
 - Avoid continuous decorative animations and entry sequences. Functional running feedback remains compact and must have a reduced-motion equivalent.
 - Verify with interactive examples: normal and reduced motion, mid-animation reversal, repeated switching, pointer cancellation, keyboard navigation, and streaming content. Review in slow motion when needed to catch position or velocity jumps.
-- Clear keyboard focus rings in warm sand; readable contrast; semantic button labels and titles for icon-only actions.
+- Clear keyboard focus rings in the current theme's accent; readable contrast; semantic button labels and titles for icon-only actions.
 - Suggested shortcuts: Cmd+K global command, Cmd+N new task, Cmd+Enter send, Esc close overlay. These are product design proposals.
 
 ## Strict fidelity
@@ -242,7 +242,7 @@ Use ONLY the fonts, colors, spacing, and component styles defined in this design
 - Every floating toast is centered against the full window at `top: 56px` (40 px title bar plus 16 px gap). Never position it at the bottom or center it against only the conversation pane.
 - Use the current theme's raised neutral surface, strong neutral border, primary text, 6 px corners, and the shared overlay shadow. In dark mode these remain `#202222`, `#454B47`, and `#EAECE8`. Keep compact 13 px / 21 px text, a 16 px semantic icon, and a 28 px labeled close control. Maximum width is 560 px, constrained to the viewport minus 32 px; long text wraps.
 - Success uses the current theme's green circle-check icon; information uses secondary text for its info icon; error uses the failure color for its circle-alert icon. Dark values remain `#89B99A`, `#B1B7AE`, and `#D58D83`. The surface stays neutral across these states. Warm sand is for selection and actions, never the default successful toast fill.
-- Type is supplied explicitly by the action result. Do not infer success from arbitrary text, and never render caught errors with a success icon. “任务已更新” is success; “下次执行生效” is information; failed saves are errors.
+- Type is supplied explicitly by the action result. Do not infer success from arbitrary text, and never render caught errors with a success icon. "Task updated" is success; "Applies to the next run" is information; failed saves are errors.
 - Render one latest notification in the shared host. Retriggers update the current content and timeout, preserving the current opacity instead of replaying an entrance. Toasts never delay the operation or move focus on appearance.
 - This occasional feedback uses the shared short opacity transition only, with the same entrance/exit path and no positional movement or bounce. Preserve the node through exit so closing/reopening reverses from its current opacity. Reduced motion updates statically. Solid surfaces already satisfy reduced transparency; increased contrast strengthens the border.
 - Prototype duration: success/info 5 seconds, errors 8 seconds; pause dismissal while hovered or keyboard-focused. Closing by keyboard returns focus to the triggering control if it still exists. A labeled close button is always present. Announce ordinary results politely and errors assertively; hidden notifications are inert.

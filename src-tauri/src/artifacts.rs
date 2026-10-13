@@ -26,13 +26,13 @@ pub struct ArtifactFile {
 
 fn resolve(directory: &str, path: &str) -> Result<PathBuf, String> {
     if directory.is_empty() || path.is_empty() {
-        return Err("产物缺少执行目录或文件路径。".into());
+        return Err("The artifact is missing its run directory or file path.".into());
     }
     let root = Path::new(directory)
         .canonicalize()
-        .map_err(|_| "执行目录不存在或无法访问。")?;
+        .map_err(|_| "The run directory does not exist or cannot be accessed.")?;
     if !root.is_dir() {
-        return Err("执行目录不是文件夹。".into());
+        return Err("The run directory is not a folder.".into());
     }
     let input = Path::new(path);
     let file = if input.is_absolute() {
@@ -42,12 +42,12 @@ fn resolve(directory: &str, path: &str) -> Result<PathBuf, String> {
     };
     let file = file
         .canonicalize()
-        .map_err(|_| "文件不存在或无法访问，可能已被移动或删除。")?;
+        .map_err(|_| "The file does not exist or cannot be accessed. It may have been moved or deleted.")?;
     if !file.starts_with(&root) {
-        return Err("此文件位于本次执行目录之外，无法在应用中读取。".into());
+        return Err("This file is outside the current run directory and cannot be read in the app.".into());
     }
     if !file.is_file() {
-        return Err("此路径不是普通文件。".into());
+        return Err("This path is not a regular file.".into());
     }
     Ok(file)
 }
@@ -66,9 +66,9 @@ fn validate_pdf(handle: &mut File) -> Result<(), String> {
     let mut signature = [0; 5];
     handle
         .read_exact(&mut signature)
-        .map_err(|_| "此文件不是受支持的 PDF，或文件内容已损坏。")?;
+        .map_err(|_| "This file is not a supported PDF or its contents are damaged.")?;
     if signature != *b"%PDF-" {
-        return Err("此文件不是受支持的 PDF，或文件内容已损坏。".into());
+        return Err("This file is not a supported PDF or its contents are damaged.".into());
     }
     Ok(())
 }
@@ -84,8 +84,8 @@ fn read_with_limit(
     max_preview_bytes: u64,
 ) -> Result<ArtifactFile, String> {
     let file = resolve(directory, path)?;
-    let mut handle = File::open(&file).map_err(|_| "无法读取此文件。")?;
-    let size = handle.metadata().map_err(|_| "无法读取文件信息。")?.len();
+    let mut handle = File::open(&file).map_err(|_| "Could not read this file.")?;
+    let size = handle.metadata().map_err(|_| "Could not read file information.")?.len();
     if !allow_large && size > max_preview_bytes {
         // Metadata alone is enough to ask for an override; do not allocate or read content.
         return Ok(preview_metadata(&file, size, true));
@@ -122,10 +122,10 @@ fn read_with_limit(
         .by_ref()
         .take(limit.map_or(u64::MAX, |limit| limit.saturating_add(1)))
         .read_to_end(&mut bytes)
-        .map_err(|_| "读取文件失败。")?;
+        .map_err(|_| "Failed to read the file.")?;
     if limit.is_some_and(|limit| bytes.len() as u64 > limit) {
         // Keep the gate even if a file grew after the metadata check.
-        let size = handle.metadata().map_err(|_| "无法读取文件信息。")?.len();
+        let size = handle.metadata().map_err(|_| "Could not read file information.")?.len();
         return Ok(preview_metadata(&file, size, true));
     }
     let mut result = preview_metadata(&file, bytes.len() as u64, false);
@@ -134,9 +134,9 @@ fn read_with_limit(
         return Ok(result);
     }
     let content = String::from_utf8(bytes)
-        .map_err(|_| "此文件不是 UTF-8 文本，请使用系统打开或在 Finder 中查看。")?;
+        .map_err(|_| "This file is not UTF-8 text. Open it with the system application or view it in Finder.")?;
     if content.contains('\0') {
-        return Err("此文件为二进制内容，请使用系统打开或在 Finder 中查看。".into());
+        return Err("This file contains binary data. Open it with the system application or view it in Finder.".into());
     }
     result.content = content;
     Ok(result)
@@ -145,7 +145,7 @@ fn main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() == "main" {
         Ok(())
     } else {
-        Err("此窗口无法访问本地产物。".into())
+        Err("This window cannot access local artifacts.".into())
     }
 }
 #[tauri::command]
@@ -172,26 +172,26 @@ fn read_pdf_chunk(
     max_preview_bytes: u64,
 ) -> Result<Vec<u8>, String> {
     if length == 0 || length > MAX_PDF_CHUNK_BYTES {
-        return Err("PDF 单次读取范围必须为 1 字节至 1 MB。".into());
+        return Err("Each PDF read range must be between 1 byte and 1 MB.".into());
     }
     let file = resolve(directory, path)?;
-    let mut handle = File::open(&file).map_err(|_| "无法读取此文件。")?;
-    let size = handle.metadata().map_err(|_| "无法读取文件信息。")?.len();
+    let mut handle = File::open(&file).map_err(|_| "Could not read this file.")?;
+    let size = handle.metadata().map_err(|_| "Could not read file information.")?.len();
     if !allow_large && size > max_preview_bytes {
-        return Err("文件超过 500 MB 预览上限，请点击“仍要打开”后继续加载。".into());
+        return Err("The file exceeds the 500 MB preview limit. Select Open anyway to continue loading.".into());
     }
     validate_pdf(&mut handle)?;
     if offset > size {
-        return Err("PDF 读取范围超出文件大小。".into());
+        return Err("The PDF read range exceeds the file size.".into());
     }
     handle
         .seek(SeekFrom::Start(offset))
-        .map_err(|_| "无法定位 PDF 读取范围。")?;
+        .map_err(|_| "Could not seek to the PDF read range.")?;
     let mut bytes = Vec::new();
     handle
         .take(length as u64)
         .read_to_end(&mut bytes)
-        .map_err(|_| "PDF 读取失败。")?;
+        .map_err(|_| "Failed to read the PDF.")?;
     Ok(bytes)
 }
 
@@ -265,7 +265,7 @@ pub async fn open_artifact(
     tauri::async_runtime::spawn_blocking(move || {
         let file = resolve(&directory, &path)?;
         if !reveal && !can_open(&file) {
-            return Err("此类型请使用 Finder 查看。".into());
+            return Err("View this file type in Finder.".into());
         }
         #[cfg(target_os = "macos")]
         {
@@ -279,15 +279,15 @@ pub async fn open_artifact(
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .status()
-                .map_err(|_| "无法打开此文件。")?;
+                .map_err(|_| "Could not open this file.")?;
             if result.success() {
                 Ok(())
             } else {
-                Err("系统未能打开此文件。".into())
+                Err("The system could not open this file.".into())
             }
         }
         #[cfg(not(target_os = "macos"))]
-        Err("此平台尚未接入本地文件打开。".into())
+        Err("Opening local files is not supported on this platform yet.".into())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -301,7 +301,7 @@ pub async fn save_artifact(
 ) -> Result<Option<String>, String> {
     main_window(&window)?;
     if content.len() as u64 > MAX_SAVE_BYTES {
-        return Err("文档超过 2 MB 保存上限。".into());
+        return Err("The document exceeds the 2 MB save limit.".into());
     }
     let name = Path::new(&name)
         .file_name()
@@ -312,19 +312,19 @@ pub async fn save_artifact(
         let selected = app
             .dialog()
             .file()
-            .set_title("保存产物")
+            .set_title("Save artifact")
             .set_file_name(&name)
             .blocking_save_file();
         let Some(selected) = selected else {
             return Ok(None);
         };
-        let path = selected.into_path().map_err(|_| "保存位置不是本地路径。")?;
+        let path = selected.into_path().map_err(|_| "The save destination is not a local path.")?;
         if let Ok(meta) = path.symlink_metadata() {
             if meta.file_type().is_symlink() || !meta.is_file() {
-                return Err("请选择普通文件作为保存位置。".into());
+                return Err("Choose a regular file as the save destination.".into());
             }
         }
-        std::fs::write(&path, content.as_bytes()).map_err(|_| "文件保存失败。")?;
+        std::fs::write(&path, content.as_bytes()).map_err(|_| "Failed to save the file.")?;
         Ok(Some(path.to_string_lossy().into_owned()))
     })
     .await
@@ -345,15 +345,15 @@ mod tests {
     fn text_limit_includes_boundary_and_override_loads_content() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().to_str().unwrap();
-        let path = root.path().join("报告.html");
-        std::fs::write(&path, "<h1>品质</h1>").unwrap();
+        let path = root.path().join("report.html");
+        std::fs::write(&path, "<h1>Quality</h1>").unwrap();
         let size = std::fs::metadata(&path).unwrap().len();
-        let result = read_with_limit(directory, "报告.html", false, size).unwrap();
-        assert_eq!(result.content, "<h1>品质</h1>");
+        let result = read_with_limit(directory, "report.html", false, size).unwrap();
+        assert_eq!(result.content, "<h1>Quality</h1>");
         assert_eq!(result.bytes, size);
         assert_eq!(result.too_large, None);
 
-        let blocked = read_with_limit(directory, "报告.html", false, size - 1).unwrap();
+        let blocked = read_with_limit(directory, "report.html", false, size - 1).unwrap();
         assert_eq!(blocked.too_large, Some(true));
         assert_eq!(blocked.bytes, size);
         assert!(blocked.content.is_empty());
@@ -363,8 +363,8 @@ mod tests {
         assert_eq!(json["tooLarge"], true);
         assert_eq!(json["path"], path.canonicalize().unwrap().to_str().unwrap());
         assert!(json.get("imageDataUrl").is_none());
-        let loaded = read_with_limit(directory, "报告.html", true, size - 1).unwrap();
-        assert_eq!(loaded.content, "<h1>品质</h1>");
+        let loaded = read_with_limit(directory, "report.html", true, size - 1).unwrap();
+        assert_eq!(loaded.content, "<h1>Quality</h1>");
         assert_eq!(loaded.too_large, None);
         assert_eq!(MAX_PREVIEW_BYTES, 500 * 1024 * 1024);
         assert_eq!(MAX_SAVE_BYTES, 2 * 1024 * 1024);
@@ -393,7 +393,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().to_str().unwrap();
         let png = png_bytes();
-        let path = root.path().join("图片 with spaces.PNG");
+        let path = root.path().join("image with spaces.PNG");
         std::fs::write(&path, &png).unwrap();
         let result = read(directory, path.to_str().unwrap(), false).unwrap();
         assert_eq!(
@@ -418,21 +418,21 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().to_str().unwrap();
         let pdf = b"%PDF-1.7\npreview page bytes\n%%EOF";
-        let path = root.path().join("图纸.PDF");
+        let path = root.path().join("drawing.PDF");
         std::fs::write(&path, pdf).unwrap();
-        let result = read(directory, "图纸.PDF", false).unwrap();
+        let result = read(directory, "drawing.PDF", false).unwrap();
         assert_eq!(result.pdf, Some(true));
         assert_eq!(result.bytes, pdf.len() as u64);
         assert!(result.content.is_empty());
         assert!(result.image_data_url.is_none());
         assert_eq!(
-            read_pdf_chunk(directory, "图纸.PDF", 5, 6, false, MAX_PREVIEW_BYTES).unwrap(),
+            read_pdf_chunk(directory, "drawing.PDF", 5, 6, false, MAX_PREVIEW_BYTES).unwrap(),
             &pdf[5..11]
         );
         assert_eq!(
             read_pdf_chunk(
                 directory,
-                "图纸.PDF",
+                "drawing.PDF",
                 pdf.len() as u64 - 2,
                 10,
                 false,
@@ -443,7 +443,7 @@ mod tests {
         );
         assert!(read_pdf_chunk(
             directory,
-            "图纸.PDF",
+            "drawing.PDF",
             pdf.len() as u64 + 1,
             1,
             false,
@@ -451,28 +451,28 @@ mod tests {
         )
         .is_err());
         assert!(
-            read_pdf_chunk(directory, "图纸.PDF", u64::MAX, 1, false, MAX_PREVIEW_BYTES).is_err()
+            read_pdf_chunk(directory, "drawing.PDF", u64::MAX, 1, false, MAX_PREVIEW_BYTES).is_err()
         );
-        assert!(read_pdf_chunk(directory, "图纸.PDF", 0, 0, false, MAX_PREVIEW_BYTES).is_err());
+        assert!(read_pdf_chunk(directory, "drawing.PDF", 0, 0, false, MAX_PREVIEW_BYTES).is_err());
         assert!(read_pdf_chunk(
             directory,
-            "图纸.PDF",
+            "drawing.PDF",
             0,
             MAX_PDF_CHUNK_BYTES + 1,
             false,
             MAX_PREVIEW_BYTES
         )
         .is_err());
-        assert!(read_pdf_chunk(directory, "图纸.PDF", 0, 5, false, 10).is_err());
+        assert!(read_pdf_chunk(directory, "drawing.PDF", 0, 5, false, 10).is_err());
         assert_eq!(
-            read_pdf_chunk(directory, "图纸.PDF", 0, 5, true, 10).unwrap(),
+            read_pdf_chunk(directory, "drawing.PDF", 0, 5, true, 10).unwrap(),
             b"%PDF-"
         );
 
         for content in [b"not-a-pdf".as_slice(), b"%PDF".as_slice()] {
             std::fs::write(&path, content).unwrap();
-            assert!(read(directory, "图纸.PDF", false).is_err());
-            assert!(read_pdf_chunk(directory, "图纸.PDF", 0, 5, true, MAX_PREVIEW_BYTES).is_err());
+            assert!(read(directory, "drawing.PDF", false).is_err());
+            assert!(read_pdf_chunk(directory, "drawing.PDF", 0, 5, true, MAX_PREVIEW_BYTES).is_err());
         }
     }
 

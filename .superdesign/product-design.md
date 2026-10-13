@@ -1,163 +1,163 @@
-# Goalward — 目标驱动工作台设计说明
+# Goalward — Goal-driven workbench design
 
-> 产品以目标为主线，经过任务、执行、产物与证据、复盘形成闭环；Coding Agent 代理与协作是执行能力。一级入口为目标、Agents、任务、运行中，保留 Runtime / 模型设置与本页描述的执行工作台。下文包含早期任务中心设计和规划能力；当前真实能力以 README 与 [产品提案](../docs/goal-driven-product-proposal.md) 的能力矩阵为准。
+> Goals guide the product through tasks, execution, artifacts and evidence, and review to complete the loop; Coding Agent proxying and collaboration provide execution capabilities. Primary navigation includes Goals, Agents, Tasks, and Running, while retaining Runtime / model settings and the execution workbench described here. The following includes the early task-centered design and planned capabilities. Refer to README and the capability matrix in the [product proposal](../docs/goal-driven-product-proposal.md) for current actual capabilities.
 
-## 设计范围
+## Design scope
 
-首版为桌面应用界面设计，使用类似 IDE 的高密度分栏布局。正式应用支持中文与英文界面，首次跟随系统语言，其他语言回退为英文；主题默认跟随操作系统，也可在设置的外观中选择深色或浅色。主题、字体、语言立即生效并自动保存；历史画布使用中文深色示例。面向需要管理多个 Agent 执行环境的开发者。首张画布展示一个任务由三个 Agent 协作执行的状态。历史画布中的运行、模型、trace、用量和文件内容均为设计示例，真实接入能力以 README 为准。
+The first version designs a desktop application with a dense, IDE-like split layout. The formal application supports Chinese and English UI, initially following the system language and falling back to English for other languages. The theme follows the operating system by default, with Dark and Light available under Settings → Appearance. Theme, font, and language take effect immediately and save automatically; historical canvases use Chinese dark-mode examples. The target users are developers managing multiple Agent execution environments. The first canvas shows a task being executed collaboratively by three Agents. Runs, models, traces, usage, and file content on historical canvases are design examples; README defines actual integration capabilities.
 
-## 产品对象
+## Product objects
 
-- 工作空间：关联本地项目、资料和任务。
-- 任务 Task：保存用户目标、对话、约束、执行历史和产物。
-- 执行 Run：一次执行批次，固定记录本次成员配置、输入、过程和结果。
-- Agent 成员：独立会话和状态的执行实例；同一个 runtime 可以创建多个成员。
-- Runtime：负责启动和驱动 Agent 的执行程序，例如 DeepSeek Harness、Codex、Claude Code、Pi。
-- Model：成员使用的模型，可选列表由 runtime 的适配器与配置提供。
+- Workspace: associates local projects, reference materials, and tasks.
+- Task: stores the user's goal, conversation, constraints, execution history, and artifacts.
+- Run: an execution batch with a fixed record of member configuration, input, process, and result.
+- Agent member: an execution instance with its own session and state; one runtime can create multiple members.
+- Runtime: the executable that starts and drives an Agent, such as DeepSeek Harness, Codex, Claude Code, or Pi.
+- Model: the model a member uses; the runtime's adapter and configuration supply available options.
 
-基本关系：一个任务有多次执行，一次执行包含一或多个 Agent 成员，每个成员绑定 runtime 与本次实际模型。
+Basic relationship: a task has multiple runs; a run contains one or more Agent members; each member is bound to a runtime and the actual model used in that run.
 
-## 主工作台
+## Main workbench
 
-建议基准视口为 1536 × 960，至少在 1280 × 800 下可用。
+The recommended baseline viewport is 1536 × 960, with usability at least at 1280 × 800.
 
-### 桌面框架
+### Desktop frame
 
-- 顶部 40 px 原生感标题栏，包含窗口按钮、工作空间与全局命令搜索。
-- 左侧 224 px 任务导航。
-- 中间弹性任务工作区，推荐宽度 760 px 以上。
-- 右侧 336 px 执行检查器，可折叠、可调宽度。
-- 底部 24 px 状态栏，展示本地执行服务与运行概况。
-- 各分栏独立滚动；消息输入区固定在中间栏底部。
+- A 40 px native-feeling title bar contains window controls, workspace context, and global command search.
+- A 224 px task navigation pane on the left.
+- A flexible central task workspace, preferably at least 760 px wide.
+- A 336 px execution inspector on the right, collapsible and resizable.
+- A 24 px bottom status bar shows local execution-service status and running activity.
+- Each pane scrolls independently; the message composer stays fixed at the bottom of the central pane.
 
-### 左侧任务导航
+### Left task navigation
 
-- 项目 / 工作空间切换。
-- 新建任务、任务搜索。
-- 运行中任务与最近任务；每行呈现标题、状态、参与成员数。
-- 底部运行时管理入口，展示可用数量。
-- 底部固定“设置”文字入口，打开独立全局设置页，并可从设置页返回当前工作台。
+- Project / workspace switching.
+- New task and task search.
+- Running and recent tasks; each row shows title, status, and participating member count.
+- A bottom runtime-management entry shows the available count.
+- A fixed "Settings" text entry at the bottom opens the independent global settings page, which can return to the current workbench.
 
-### 全局设置页
+### Global settings
 
-- 运行时：管理已注册 Runtime、可执行文件路径、认证来源、默认模型、适配器检测结果与高级启动配置。
-- 模型与供应商：区分模型目录、供应商连接和 Runtime 可用模型绑定；Runtime 自带登录与统一供应商凭据按能力使用。
-- 外观：主题支持跟随系统（默认）、深色、浅色；同一分类提供界面字体与语言设置。三者选择后立即全局生效，单独自动保存并在成功保存后跨重启保留；跟随系统模式响应操作系统主题变化。外观保存不提交其他分类的配置草稿。
-- 执行默认值：新任务模式、默认 Runtime 与成员数量上限。
-- 记录与存储：聊天 / Trace 保存位置、保留策略与导出。
-- 应用更新：启动及定期检查公开 GitHub Release，手动下载、安装和重启；更新包和版本签名通过后才能安装，实际 Agent 运行中或设置未保存时阻止安装与重启。
-- 全局默认值用于新建成员；已有成员保留配置快照，主动恢复默认后才更新。保存设置不自动重启运行中的实例。
-- 详细字段和交互见同目录 settings-design.md。
+- Runtimes: manage registered runtimes, executable paths, authentication sources, default models, adapter detection results, and advanced launch configuration.
+- Models & providers: distinguish the model catalog, provider connections, and bindings of available models to runtimes. Use runtime-owned login and shared provider credentials according to supported capabilities.
+- Appearance: theme supports System (default), Dark, and Light; the same category contains UI font and language settings. All three apply globally on selection, save separately and automatically, and persist across restarts after successful saving. System mode responds to operating-system theme changes. Appearance saves do not submit configuration drafts from other categories.
+- Execution defaults: new-task mode, default runtime, and member-count limit.
+- History & storage: chat / trace storage location, retention policy, and export.
+- App updates: check public GitHub Releases at startup and periodically; allow manual download, install, and restart. Installation requires successful update-package and version-signature verification. Active Agents or unsaved settings block installation and restart.
+- Global defaults apply to newly created members. Existing members retain configuration snapshots and update only after explicitly restoring defaults. Saving settings does not automatically restart running instances.
+- See settings-design.md in the same directory for detailed fields and interactions.
 
-### 中间任务工作区
+### Central task workspace
 
-1. 标题区：任务标题、工作目录、执行编号与状态。
-2. 执行控制：单 Agent / 协作分段选择器、停止执行。暂停仅在适配器报告支持时出现。
-3. 成员配置：不在对话顶部占用整块卡片；Runtime、模型和思考强度位于底部输入区。单 Agent 使用紧凑一行，多 Agent 通过独立的配置成员选择器切换编辑对象，发送接收者保持独立。
-4. 添加成员：在同一页面弹出 runtime 选择器，展示 DeepSeek Harness / Codex / Claude Code / Pi 的就绪状态及接入动作。
-5. 工作视图：任务对话 / 成员会话 / 产物，保留同一个任务上下文。
-6. 协作分工：谁负责实现、测试、审查；哪些子任务并行、哪些正在等待依赖。
-7. 任务对话：用户指令、协调者计划、成员结果摘要、验证与最终汇总。
-8. 输入区：接收者选择器、输入框、紧凑成员配置和发送动作；运行时在附近持续呈现真实执行状态、耗时、最近公开活动及停止入口。
+1. Header: task title, working directory, run number, and status.
+2. Execution controls: Single Agent / Collaboration segmented selector and Stop. Show Pause only when the adapter reports support.
+3. Member configuration: do not occupy a large card region above the conversation. Runtime, model, and reasoning effort belong in the bottom composer. Single Agent uses a compact row; multiple Agents use an independent member selector to choose which configuration to edit, while the message recipient remains separate.
+4. Add member: open a runtime selector on the same page, showing readiness and connection actions for DeepSeek Harness / Codex / Claude Code / Pi.
+5. Work views: Task conversation / Member sessions / Artifacts, retaining the same task context.
+6. Collaboration assignments: who implements, tests, and reviews; which subtasks run in parallel and which wait for dependencies.
+7. Task conversation: user instructions, coordinator plan, member result summaries, validation, and final summary.
+8. Composer: recipient selector, input, compact member configuration, and Send. During execution, continuously show actual status, elapsed time, the latest public activity, and Stop nearby.
 
-### 产物列表
+### Artifact list
 
-产物 Tab 内每个文件使用 40 px 单行：文件图标、名称、灰色路径，以及固定右对齐的复制与预览按钮。路径填充剩余空间，过长省略；点击复制按钮获取完整路径。省略重复的“任务产物”标题、类型徽标及底部通用说明。名称悬停或键盘聚焦时可查看完整名称、路径及来源成员 / 执行批次。网页显示并复制链接，回复内嵌文档显示“回复内容”并复制内容。验收结果同样采用单行摘要与必要状态，证据按需查看；来源记录仍完整保留。
+Each file in the Artifacts Tab uses one 40 px row: file icon, name, gray path, and fixed right-aligned copy and preview buttons. The path fills the remaining space and truncates when long; the copy button retrieves the full path. Omit a redundant "Task artifacts" heading, type badges, and generic footer instructions. Hovering or keyboard-focusing a name exposes its full name, path, source member, and execution batch. Web pages display and copy links; documents embedded in replies display "Reply content" and copy the content. Acceptance results also use one-line summaries with necessary status, exposing evidence on demand while retaining complete source records.
 
-### 右侧执行检查器
+### Right execution inspector
 
-- 标签：执行过程 / 成员 / 文件。
-- Trace 按成员、工具、时间或失败状态筛选。
-- 树形事件显示时间、归属、工具 / 动作、耗时和执行状态。
-- 展开事件可查看参数、标准输出、错误、关联文件和父子事件。
-- 与聊天双向定位：点“查看执行”定位事件，点“关联对话”返回对应消息。
-- 运行记录的成员、runtime、实际模型固定保存，不能因后来切换配置而被重写。
-- 未提供的 token、费用、上下文窗口等值展示为未提供，不能用 0 或估算冒充实测。
+- Tabs: Execution / Members / Files.
+- Filter traces by member, tool, time, or failure state.
+- Tree events show time, owner, tool / action, duration, and execution status.
+- Expanded events show parameters, standard output, errors, related files, and parent / child events.
+- Navigate both ways with chat: "View execution" locates an event; "Related conversation" returns to the corresponding message.
+- Run records preserve members, runtimes, and actual models; later configuration changes must not rewrite them.
+- Show unavailable token, cost, context-window, and similar values as unavailable. Do not present zero or estimates as measured values.
 
-## 核心交互
+## Core interactions
 
-### 新建任务
+### New task
 
-输入目标 → 选工作目录 → 选单 Agent / 协作 → 配置成员 → 开始执行。
+Enter a goal → Choose a working directory → Choose Single Agent / Collaboration → Configure members → Start execution.
 
-协作模式可提供“实现 + 测试 + 审查”预设，并允许调整每个成员的 runtime、模型和职责。
+Collaboration may offer an "Implementation + Testing + Review" preset, with each member's runtime, model, and role adjustable.
 
-### 选择与切换
+### Selection and switching
 
-- 点击成员：查看该成员的会话或 trace，不替换执行者。
-- 切模型：只列出该 runtime 已配置且支持的选项；运行中变更标记下次执行生效。
-- 待生效配置：输入区明确“下次执行”的可编辑配置，并保留本次执行的实际 runtime / model / 思考强度摘要，不以新选择覆盖当前执行信息。
-- 更换 runtime：创建新会话并交接目标、约束、进展、文件和下一步；可预览交接内容。
-- 立即更换：明确动作“停止当前执行并交接”，保留旧 run 和原会话记录。
-- 协作转单 Agent：选择继续执行的成员；运行中先处理已有成员状态，再开始新批次。
-- 从单 Agent 转协作：添加成员及职责，保留任务目标和已确认成果。
-- 运行中增减成员或切换执行模式：先展示待生效成员方案；继续当前执行与结束当前批次并按新方案继续是两个明确动作，不直接隐藏正在执行的成员。
+- Select a member: view its session or trace without replacing the executor.
+- Change model: list only configured options supported by that runtime; mark changes during a run as applying to the next run.
+- Pending configuration: clearly identify editable "Next run" settings in the composer and retain a summary of the current run's actual runtime / model / reasoning effort. New selections must not replace current-run information.
+- Change runtime: create a new session and hand off the goal, constraints, progress, files, and next action, with a handoff preview.
+- Change immediately: use an explicit "Stop current run and hand off" action, preserving the old run and original session records.
+- Collaboration to Single Agent: select the member that will continue; handle existing member states during an active run before starting a new batch.
+- Single Agent to Collaboration: add members and roles while preserving the task goal and confirmed outcomes.
+- Add / remove members or change execution mode during a run: first show the pending member plan. Continuing the current run and ending the current batch to continue with the new plan are distinct explicit actions. Do not simply hide active members.
 
-### 消息路由
+### Message routing
 
-- 默认发给协调者，由其分派并汇总。
-- 可 @某个成员 直接指挥；输入框持续显示当前接收者。
-- 可显式发给所有成员，发送前清楚显示接收人数。
-- 查看某个成员的历史不应静默更改消息接收者。
-- 运行中追加指令是否即时注入由适配器能力决定；不支持时明确显示排队到下一轮。
+- Send to the coordinator by default, for assignment and aggregation.
+- Direct a specific member with an @mention; keep the current recipient visible in the composer.
+- Allow explicit messages to all members, clearly showing recipient count before sending.
+- Viewing a member's history must not silently change the recipient.
+- Immediate injection of additional instructions during a run depends on adapter capability. If unsupported, clearly show that instructions are queued for the next turn.
 
-### 并行协作
+### Parallel collaboration
 
-- 一个成员负责协调，但协调是职责，不绑定某个特定厂商。
-- 每个成员有可见的职责、当前子任务和依赖状态。
-- 代码编辑任务为成员展示独立工作副本 / 分支；将待汇总变更呈现在产物中。
-- 协调者负责汇总，对重叠修改展示冲突和审阅入口。
-- 成员失败不等于整项任务失败；可重试、交接或结束该成员。
+- One member coordinates, but coordination is a role rather than a binding to a specific vendor.
+- Each member has a visible role, current subtask, and dependency state.
+- For code-editing tasks, show each member's independent working copy / branch, with changes awaiting aggregation in Artifacts.
+- The coordinator aggregates results; overlapping modifications expose conflicts and a review entry.
+- A member failure does not mean the entire task failed. Allow retry, handoff, or ending that member's work.
 
-### Trace 与聊天
+### Trace and chat
 
-- 聊天用于保存指令、解释和结论。
-- Trace 用于保存 runtime 实际公开的事件：模型请求元信息、工具调用、参数、输出、文件变化、重试、错误和等待。
-- 不承诺记录模型不可访问的内部思考；runtime 未提供的事件显示覆盖缺口。
-- 对话区实时更新 Runtime 公开的正文及搜索/工具活动，标出等待和终态。Codex exec JSONL 当前只公开完整正文段落，不能伪造逐字输出；Claude stream-json 使用公开的文本增量事件。
-- 流式内容只在用户仍接近底部时自动跟随。用户向上阅读时保持位置，并提供回到最新内容入口；多成员中任一消息增长都应能触发正确跟随。
-- 每个事件绑定 task / run / member / session 与父事件，支持筛选、定位和导出。
+- Chat stores instructions, explanations, and conclusions.
+- Trace stores events actually exposed by the runtime: model-request metadata, tool calls, parameters, output, file changes, retries, errors, and waiting.
+- Do not promise to record inaccessible internal model reasoning; show coverage gaps for events the runtime does not expose.
+- The conversation updates public runtime text and search / tool activity in real time, marking waiting and terminal states. Codex exec JSONL currently exposes only complete text segments, so do not fabricate character-by-character output; Claude stream-json uses public text delta events.
+- Automatically follow streaming content only while the user remains near the bottom. Preserve position when the user reads earlier content and provide an entry to return to the latest content. Growth of any member's message must trigger correct following when appropriate.
+- Bind every event to task / run / member / session and its parent event, supporting filtering, navigation, and export.
 
-## 页面状态
+## Page states
 
-| 状态 | 页面重点 |
+| State | Page focus |
 | --- | --- |
-| 新建任务 | 目标、目录、执行模式和成员配置 |
-| 单 Agent 执行中 | 一个成员、对话、当前动作和停止 |
-| 协作执行中 | 多成员、职责、依赖、协调者汇总和 trace |
-| 等待用户操作 | 明确成员、操作请求和相关上下文 |
-| 成员失败 | 局部影响、失败事件、重试或交接 |
-| 任务完成 | 汇总、产物、验证结果、继续执行 |
-| 历史回看 | 选择 run，查看当时配置和事件 |
-| Runtime 管理 | 安装 / 连接 / 路径 / 账号 / 模型配置 / 启停 |
+| New task | Goal, directory, execution mode, and member configuration |
+| Single Agent running | One member, conversation, current action, and Stop |
+| Collaboration running | Multiple members, roles, dependencies, coordinator summary, and trace |
+| Waiting for user action | Identify the member, requested action, and relevant context |
+| Member failed | Local impact, failed event, retry, or handoff |
+| Task complete | Summary, artifacts, validation results, and continued execution |
+| History review | Select a run and view its original configuration and events |
+| Runtime management | Installation / connection / path / account / model configuration / start and stop |
 
-## 首稿示例内容
+## First-draft example content
 
-- 项目：goalward。
-- 任务：为工作台增加全局命令面板。
-- Codex 成员：协调 / 实现，正在接入命令面板；模型示例 GPT-6-Astra。
-- Claude Code 成员：测试，正在补齐快捷键与搜索行为的测试；模型展示“默认配置”。
-- Pi 成员：审查，等待实现变更后审查焦点管理；模型展示“默认配置”。
-- DeepSeek Harness：可通过添加成员或运行时管理接入。
-- 示例文件：CommandPalette.tsx、useCommandSearch.ts、command-palette.spec.ts。
-- 右侧展开一个读取文件或测试命令事件，清晰展示成员归属与结果。
-- 底部接收者：协调者 · Codex。
+- Project: goalward.
+- Task: Add a global command palette to the workbench.
+- Codex member: Coordination / Implementation, integrating the command palette; illustrative model GPT-6-Astra.
+- Claude Code member: Testing, adding tests for shortcuts and search behavior; show "Default configuration" for its model.
+- Pi member: Review, waiting for implementation changes before reviewing focus management; show "Default configuration" for its model.
+- DeepSeek Harness: available through Add member or runtime management.
+- Example files: CommandPalette.tsx, useCommandSearch.ts, command-palette.spec.ts.
+- Expand one file-read or test-command event on the right, clearly showing member ownership and result.
+- Bottom recipient: Coordinator · Codex.
 
-## 首版范围建议
+## Recommended first-version scope
 
-优先完成统一任务、成员配置、运行时启动与停止、流式会话、可追溯工具事件、协作消息路由和产物汇总。运行时安装向导、远程运行环境、复杂可视化 DAG 编排、长期记忆管理与自动化调度在核心工作流确认后扩展。
+Prioritize unified tasks, member configuration, runtime startup and shutdown, streaming sessions, traceable tool events, collaboration message routing, and artifact aggregation. Extend runtime installation guidance, remote execution environments, complex visual DAG orchestration, long-term memory management, and automation scheduling after the core workflow is confirmed.
 
-运行时接入能力须逐一验证。设计中的统一入口不代表它们已经支持相同的模型、恢复、暂停、注入消息、用量统计或 trace 事件协议。
-
-
-### 对话内容格式
-
-Agent 公开回复以 Markdown / GFM 排版，包含标题、强调、引用、嵌套列表、表格、任务列表、代码块和脚注。保持当前主题的紧凑字体、暖沙色链接、细边框，并通过共享 token 响应深色 / 浅色切换。代码块提供复制并独立横向滚动，宽表格也只在自身区域滚动。流式内容在原消息内更新，不增加入场动画；未闭合代码块可逐步补全。已有历史消息直接使用新渲染器，持久化仍保存原始文本。用户输入及执行 trace 保持原文。Markdown 中的 HTTP / HTTPS、本地文件链接、行内代码文件路径和可识别的裸路径，点击后在右侧产物预览打开。远程网页支持刷新、复制链接和系统浏览器打开；禁止内嵌的网站或需要登录的页面可使用系统浏览器入口。本地相对路径以消息所属 Run 的目录为基准；Markdown 文件中的相对链接以该文件目录为基准，原生读取仍遵守执行目录边界。HTML 不作为聊天中的可执行内容，图片通过显式链接查看。
+Validate runtime integration capabilities individually. A unified design entry does not imply that runtimes support the same models, resume, pause, message injection, usage reporting, or trace-event protocols.
 
 
-### 执行事件分类（2026-09-16）
+### Conversation content format
 
-执行检查器读取 Runtime 协议事件类型，标题展示网页搜索、生成回复、命令执行、文件变更、工具调用、会话等类别；紧凑标签表示开始、进行中、完成或失败，辅以类型图标和简短查询 / 命令摘要。完成一个工具步骤不等于整次任务完成；只有实际进程终态代表执行结束。普通 stderr 为诊断输出，结构化错误和进程失败进入错误筛选。同一工具调用依据执行批次、成员和协议调用 ID 合并开始、更新与结束，在同一行显示状态、起止时间和已知耗时；没有调用 ID 的事件不猜测关联。展开区区分入参与出参，以两空格缩进、层级线和类型高亮展示 JSON，普通文本保持原文。执行中显示 loading，减少动态效果时保持静态图标和文字状态；工具结果到达后原位更新，不重播整块入场动画。停止或本次执行结束后仍缺失工具终态时，不持续显示 loading。原始协议记录折叠保留，原始记录复制仍取原文，入参和出参可分别复制。跨 read 的 JSON 分片按执行、成员和输出通道重组；未知类型不丢弃，也不冒充已支持的事件。仅改变展示投影，历史数据无需迁移。
+Render public Agent replies as Markdown / GFM, including headings, emphasis, quotations, nested lists, tables, task lists, code blocks, and footnotes. Keep the current theme's compact typography, warm sand links, and fine borders, using shared tokens for dark / light switching. Code blocks offer copy and independent horizontal scrolling; wide tables scroll only within their own region. Streaming updates the existing message without entry animation; incomplete code blocks can be completed incrementally. Existing historical messages use the new renderer directly, while persistence continues to store raw text. Preserve user input and execution traces verbatim. Clicking HTTP / HTTPS links, local file links, inline code paths, and recognizable bare paths in Markdown opens them in the right artifact preview. Remote pages support refresh, copy link, and opening in the system browser. Sites that prohibit embedding or require login can use the system-browser entry. Resolve local relative paths against the message's Run directory; resolve relative links in Markdown files against the file's directory. Native reads still respect execution-directory boundaries. HTML is not executable chat content; view images through explicit links.
 
 
-Kimi CLI 已纳入目标与 Agent 第二轮原型的 Runtime 选择；正式应用适配、模型能力读取和权限回调仍按接入实施阶段处理。
+### Execution event classification (2026-09-16)
+
+The execution inspector reads runtime protocol event types and displays categories such as Web search, Response generation, Command execution, File changes, Tool calls, and Session. Compact labels indicate Started, In progress, Completed, or Failed, accompanied by type icons and short query / command summaries. Completing a tool step does not complete the entire task; only the actual process terminal state marks execution end. Ordinary stderr is diagnostic output; structured errors and process failures appear in the error filter. Merge a tool call's start, update, and end using its execution batch, member, and protocol call ID. Show status, start / end times, and known duration in one row; do not guess relationships for events without call IDs. Expanded details distinguish inputs and outputs, displaying JSON with two-space indentation, hierarchy guides, and type highlighting while retaining plain text verbatim. Show loading during execution; reduced motion retains a static icon and status text. Update in place when tool results arrive without replaying whole-block entry animation. Do not keep showing loading for missing tool terminal states after stopping or ending the run. Keep raw protocol records collapsed; raw-record copy retrieves the original text, and inputs and outputs can be copied separately. Reassemble JSON fragments across reads by run, member, and output channel. Do not discard unknown types or imply they are supported events. Only change the display projection; historical data requires no migration.
+
+
+Kimi CLI is included in the runtime selection of the second-round Goal and Agent prototypes. Formal application adaptation, model-capability discovery, and permission callbacks remain part of the integration implementation phase.

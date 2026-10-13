@@ -205,10 +205,10 @@ pub fn build_arguments(request: &StartRequest) -> Result<Vec<String>, String> {
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
         {
-            return Err("Runtime 会话 ID 无效；未启动新会话".into());
+            return Err("The runtime session ID is invalid. No new session was started.".into());
         }
         if request.runtime.adapter == "generic" {
-            return Err("通用 Runtime 尚无原生会话续接协议".into());
+            return Err("Generic runtimes do not support native session continuation yet.".into());
         }
     }
     match request.runtime.adapter.as_str() {
@@ -466,7 +466,7 @@ impl RuntimeManager {
         let _lifecycle = self
             .lifecycle_gate
             .try_lock()
-            .map_err(|_| "应用更新正在安装或重启，请稍后再启动任务")?;
+            .map_err(|_| "An app update is installing or restarting. Start the task later.")?;
         for id in [
             &request.task_id,
             &request.run_id,
@@ -483,7 +483,7 @@ impl RuntimeManager {
         }
         if request.prompt.len() > 1024 * 1024 {
             return Err(
-                "对话上下文超过单次发送的 1 MiB 限制；内容已保留，未截断或启动新会话".into(),
+                "Conversation context exceeds the 1 MiB per-message limit. Content was retained without truncation or starting a new session.".into(),
             );
         }
         let directory = std::path::Path::new(&request.directory);
@@ -1121,14 +1121,14 @@ impl RuntimeManager {
         let _lifecycle = self
             .lifecycle_gate
             .try_lock()
-            .map_err(|_| "本机任务正在启动或应用更新正在进行，请稍后重试")?;
+            .map_err(|_| "A local task is starting or an app update is in progress. Try again later.")?;
         if !self
             .processes
             .lock()
-            .map_err(|_| "无法确认本机 Runtime 状态，未安装或重启应用")?
+            .map_err(|_| "The local runtime state could not be confirmed. The app was not installed or restarted.")?
             .is_empty()
         {
-            return Err("仍有本机任务正在运行或停止，请等待任务结束后再安装或重启应用".into());
+            return Err("Local tasks are still running or stopping. Wait for them to finish before installing or restarting the app.".into());
         }
         self.close_native_connections();
         operation()
@@ -1328,7 +1328,7 @@ mod tests {
                 let error = manager
                     .start(request(directory.path(), "exit 0"), Arc::new(|_| {}))
                     .unwrap_err();
-                assert!(error.contains("应用更新"));
+                assert!(error.contains("app update"));
                 assert!(manager.processes.lock().unwrap().is_empty());
                 Ok(())
             })
@@ -1811,21 +1811,21 @@ mod tests {
     fn json_fragments_are_delivered_live_and_preserved_in_trace() {
         assert_gated_stream(
             "printf '%s' '{\"type\":\"assistant\",\"content\":\"'",
-            "printf '%s\\n' '中文\"}'",
+            "printf '%s\\n' 'café\"}'",
             "stdout",
             "{\"type\":\"assistant\",\"content\":\"",
-            "{\"type\":\"assistant\",\"content\":\"中文\"}\n",
+            "{\"type\":\"assistant\",\"content\":\"café\"}\n",
         );
     }
 
     #[test]
     fn split_utf8_flushes_preceding_text_without_corrupting_the_character() {
         assert_gated_stream(
-            "printf 'A\\344'",
-            "printf '\\270\\255B'",
+            "printf 'A\\342'",
+            "printf '\\202\\254B'",
             "stdout",
             "A",
-            "A中B",
+            "A€B",
         );
     }
 
@@ -1838,7 +1838,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         manager
             .start(
-                request(directory.path(), "printf 'A\\344'"),
+                request(directory.path(), "printf 'A\\342'"),
                 Arc::new(move |event| {
                     let _ = tx.send(event);
                 }),
@@ -2009,15 +2009,15 @@ mod tests {
         for index in 0..6000 {
             sink.output(
                 if index % 2 == 0 { "stdout" } else { "stderr" },
-                format!("第 {index} 条完整输出\n").as_bytes(),
+                format!("Complete output {index}\n").as_bytes(),
             );
         }
-        sink.output("stdout", "最后的中文回答🙂\n".as_bytes());
+        sink.output("stdout", "Final answer 🙂\n".as_bytes());
         sink.event("completed", "finished".into(), Some(0));
         let events: Vec<_> = rx.try_iter().collect();
         assert_eq!(events.len(), 6002);
-        assert_eq!(events[5999].text, "第 5999 条完整输出\n");
-        assert_eq!(events[6000].text, "最后的中文回答🙂\n");
+        assert_eq!(events[5999].text, "Complete output 5999\n");
+        assert_eq!(events[6000].text, "Final answer 🙂\n");
         assert_eq!(events[6001].kind, "completed");
         let recovered = storage
             .load_trace_events(&[crate::types::TraceRef {
@@ -2092,7 +2092,7 @@ mod tests {
             .start(
                 request(
                     directory.path(),
-                    "head -c 8191 /dev/zero | tr '\\0' x; printf '中文\\n'",
+                    "head -c 8191 /dev/zero | tr '\\0' x; printf '€ café\\n'",
                 ),
                 Arc::new(move |e| {
                     let _ = tx.send(e);
@@ -2105,7 +2105,7 @@ mod tests {
             .filter(|e| e.kind == "stdout")
             .map(|e| e.text.as_str())
             .collect();
-        assert_eq!(text, format!("{}中文\n", "x".repeat(8191)));
+        assert_eq!(text, format!("{}€ café\n", "x".repeat(8191)));
         manager.shutdown();
     }
 }

@@ -1,124 +1,124 @@
-# Goalward — 全局设置页
+# Goalward — Global settings page
 
-## 本轮需求
+## Requirements for this iteration
 
-用户要求“应该有一个设置页面，可以设置和管理这些 runtime 和模型等等”。新增一个独立的桌面设置页面，沿用现有工作台的高密度设计与共享主题。正式应用支持跟随系统、深色和浅色主题，默认跟随系统；历史原型保留其深色示例。工作台左下角始终可见“设置”文字入口；设置页左侧导航底部固定“返回工作台”，位于实例状态说明下方，与进入设置的位置保持接近。顶部右侧保留自动检测操作。
+The user requested a settings page to configure and manage runtimes, models, and related options. Add an independent desktop settings page using the existing workbench's dense design and shared theme. The formal application supports System, Dark, Light, and Cobalt2 themes, defaulting to System; historical prototypes retain their dark examples. A "Settings" text entry remains visible at the workbench's bottom left. A fixed "Back to workbench" entry sits at the bottom of the settings navigation, below the instance-status explanation and close to the position used to enter settings. Keep automatic detection at the top right.
 
-## 信息结构
+## Information structure
 
-设置替换工作区，保留同一套原生标题栏与状态栏。首稿默认显示 Runtime 设置，三栏为：
+Settings replaces the workspace while retaining the same native title bar and status bar. The first draft opens Runtime settings by default, with three columns:
 
-1. 左侧 200 px 设置分类：运行时、模型与供应商、外观、执行默认值、记录与存储、应用更新。
-2. 中间 264 px Runtime 列表：搜索、添加 Runtime，Codex / Claude Code / Pi / DeepSeek Harness / Kimi CLI 五项。
-3. 右侧弹性详情：当前 Runtime 的状态、接入配置、默认模型与能力、启动配置。使用紧凑分组表单，无大面积数据卡片。
+1. A 200 px left settings navigation: Runtimes, Models & providers, Appearance, Execution defaults, History & storage, and App updates.
+2. A 264 px middle runtime list: search, Add runtime, and five entries for Codex / Claude Code / Pi / DeepSeek Harness / Kimi CLI.
+3. Flexible right details: current runtime status, connection configuration, default model and capabilities, and launch configuration. Use compact grouped forms without large data cards.
 
-目标视口 1536 × 960；1280 × 720 保持可用。页面宽高随窗口变化，每栏独立滚动，底部保存区域固定。
+Target viewport: 1536 × 960, remaining usable at 1280 × 720. Page dimensions follow the window; each column scrolls independently, with the bottom save region fixed.
 
-## Runtime 管理
+## Runtime management
 
-### 列表
+### List
 
-- 每行显示 runtime 名称、启用状态、配置是否就绪。
-- 展示应用层的注册配置；运行中实例数量可以显示，但不要把启用配置等同于启动一个进程。
-- Codex 选中、Claude Code 就绪、Pi 就绪、DeepSeek Harness 与 Kimi CLI 待配置，均为示例状态。
-- 添加 Runtime 支持注册已安装的 CLI / Harness 与本地可执行文件路径。
+- Each row shows runtime name, enabled state, and configuration readiness.
+- Show application-level registered configuration. Active instance count may appear, but enabling configuration must not be equated with launching a process.
+- Codex selected, Claude Code ready, Pi ready, and DeepSeek Harness / Kimi CLI awaiting configuration are all example states.
+- Add runtime supports registering installed CLI / Harness programs and local executable paths.
 
-### 所选 Runtime 详情
+### Selected runtime details
 
-- 名称：Codex。
-- 说明：Agent 执行环境，供任务成员选择。
-- 是否启用：控制是否出现在新任务的 runtime 列表中。
-- 可执行文件：示例 ~/bin/codex，提供选择文件和自动检测入口。
-- 安装 / 版本检测：显示示例检测状态、重新检测，不虚构真实版本。
-- 认证来源：使用 Runtime 自身登录状态；提供查看连接状态。支持自定义供应商时再显示供应商凭据绑定。
-- 连接检测：明确区分可执行文件检测与认证 / 模型可用性检查。
-- 默认模型：示例 GPT-6-Astra，标注用户已配置的示例值。
-- 可用模型：选取适配器已识别或用户已配置的模型；允许从“模型与供应商”中管理，不能暗示任意模型都能配给任意 runtime。
-- 能力摘要：恢复会话、流式事件、工具事件、运行中追加指令。标注由适配器检测；未知能力显示待检测。暂停不作为所有 runtime 的通用承诺。
-- 启动参数：可折叠的高级设置，参数列表、环境变量键值（秘密值只展示掩码）、工作目录默认来源。示例不包含真实密钥、真实账号或主机路径。
-- 底部：外观类别显示自动保存状态及失败重试；其他类别显示未保存更改提示、还原、保存更改。
-- 配置生效说明：全局默认值用于新建成员；已有成员保持自己的配置快照，主动“恢复默认”后才更新；正在运行的会话保留启动时配置。保存不自动重启实例。
-- 禁用或移除注册项时，如果有关联实例，展示关联数量与影响；不静默停止当前任务。
+- Name: Codex.
+- Description: Agent execution environment available to task members.
+- Enabled: controls availability in the runtime list for new tasks.
+- Executable: example ~/bin/codex, with file selection and automatic detection entries.
+- Installation / version detection: show example detection status and recheck; do not invent a real version.
+- Authentication source: use the runtime's own login state and provide connection-status viewing. Show provider-credential binding only when custom providers are supported.
+- Connection checks: clearly distinguish executable detection from authentication / model-availability checks.
+- Default model: illustrative GPT-6-Astra, labeled as an example user-configured value.
+- Available models: choose models identified by the adapter or configured by the user. Allow management through "Models & providers" without implying that any model can be assigned to any runtime.
+- Capability summary: session resume, streaming events, tool events, and instructions added during execution. Attribute detection to the adapter; show unknown capabilities as awaiting detection. Do not promise Pause for every runtime.
+- Launch parameters: collapsible advanced settings, argument list, environment key-value pairs (masked secrets only), and default source for working directories. Examples must not contain real keys, accounts, or host paths.
+- Footer: Appearance shows automatic-save status and failure retry; other categories show unsaved-change feedback, Revert, and Save changes.
+- Configuration effect: global defaults apply to new members. Existing members retain their configuration snapshots and change only after explicitly choosing "Restore defaults". Running sessions retain launch-time configuration. Saving does not restart instances automatically.
+- When disabling or removing a registration that has associated instances, show the count and impact. Do not silently stop current tasks.
 
-## 模型与供应商
+## Models and providers
 
-同一个设置页面中的类别切换，不需要另建一套外观。
+Switch categories within the same settings page without introducing a separate visual system.
 
-### 模型目录
+### Model catalog
 
-表格列为：显示名称、Model ID、供应商连接、可用于哪些 Runtime、是否启用。不要将 model id 与用户自定义显示名混用。
+Table columns: Display name, Model ID, Provider connection, Available runtimes, and Enabled. Do not conflate a model ID with the user's custom display name.
 
-- 添加模型、编辑模型、禁用、设为指定 Runtime 的默认模型。
-- 支持筛选 Runtime、搜索 Model ID。
-- 未验证的模型清楚标注“待验证”，不显示为已就绪。
-- 只有与当前 Runtime 相容且已启用的模型出现在任务选择器。
+- Add, edit, disable, and set a model as a specific runtime's default.
+- Support runtime filtering and Model ID search.
+- Clearly label unverified models as "Unverified", rather than ready.
+- Only enabled models compatible with the current runtime appear in the task selector.
 
-### 供应商连接
+### Provider connections
 
-- 用于支持此接入方式的 Runtime；并非每个 Runtime 必须走统一 API Key。
-- 配置名称、供应商 / 协议类型、Base URL（如适用）、凭据来源、测试连接。
-- 凭据仅展示掩码，说明由系统凭据存储管理。设计预览不保存任何真实凭据。
-- 模型能力和运行时兼容关系由适配器 / 用户配置确认，不能由厂商名称猜测。
+- Apply to runtimes supporting this connection method; not every runtime must use a shared API Key.
+- Configuration name, provider / protocol type, Base URL (where applicable), credential source, and Test connection.
+- Display credentials only as masked values and explain their management by the system credential store. Design previews do not save real credentials.
+- Adapter detection / user configuration establishes model capabilities and runtime compatibility; do not infer them from vendor names.
 
-## 执行默认值
+## Execution defaults
 
-- 新任务默认模式：单 Agent / 协作。
-- 默认 Runtime 与模型，协调者默认配置。
-- 同时执行的成员数量上限。
-- 工作目录默认来源：继承任务工作目录；代码协作可使用独立工作副本。
-- 运行中修改默认值不会重写已有 Run 的配置。
+- Default mode for new tasks: Single Agent / Collaboration.
+- Default runtime and model, and coordinator defaults.
+- Maximum number of simultaneously executing members.
+- Default working-directory source: inherit the task directory; code collaboration may use independent working copies.
+- Changing defaults during execution does not rewrite existing Run configurations.
 
-## 外观
+## Appearance
 
-- 主题位于界面字体之前，使用共享 shadcn/ui Select，与设置页其他紧凑表单保持一致。
-- 四个选项为“跟随系统”“深色”“浅色”“Cobalt2”。默认选择“跟随系统”；旧配置没有主题字段时也使用此默认值。Cobalt2 参考 Wes Bos 的 Cobalt2 Theme Official，使用 design-system.md 中的深蓝背景和黄色强调色。
-- 主题、界面字体和语言均在选择后立即全局生效并自动保存，外观类别无需点击“保存更改”。自动保存期间保留可操作性；快速连续选择最终保留最后的选择，不让旧响应覆盖新选择。
-- 外观保存仅提交主题、字体和语言字段，基于最新已保存配置合并；其他分类中未提交的 Runtime、模型、供应商、执行和存储草稿继续保留，不随外观保存一起提交。
-- 外观显示保存中、已保存或保存失败状态；失败保留可恢复的选择并提供重试，不宣告已经持久化。其他设置继续使用原来的“还原”和“保存更改”，其保存或还原不能覆盖已经自动保存的外观值。
-- “跟随系统”在应用运行期间响应操作系统外观变化。已保存“深色”“浅色”或“Cobalt2”时，系统变化不覆盖用户选择。Cobalt2 的原生窗口与表单控件使用深色模式，界面保留独立配色。
-- 工作台、设置页、聊天、Trace、共享菜单 / 弹层、通知和产物预览外框使用同一组语义 token。HTML、图片和远程网页产物保留内容自身的设计，不能强制重写。
-- 所有主题保持相同的布局、字体、控件高度和交互语义；深色 / 浅色使用暖沙色强调，Cobalt2 使用黄色强调，配色统一遵循 design-system.md，不另建组件体系。
-- 字体提供本机可用字体搜索，选择后同步更新整个界面与预览；代码和执行日志保留等宽字体。
-- 语言支持“跟随系统”“简体中文”“English”。首次根据系统语言选择中文或英文，其他系统语言回退为英文；明确选择后立即更新界面标签并自动保存，不改写用户内容、Runtime 名称或路径。
-- 验收覆盖首次启动 / 旧配置默认值、自动保存后重启、跟随系统的实时切换、固定主题的隔离、连续快速修改和失败重试，以及工作台 / 设置 / 菜单 / 错误 / 焦点状态。额外检查：已有未保存 Runtime 草稿时改外观，磁盘只保存外观，草稿继续保留；随后手动保存、还原或放弃草稿不能覆盖最新外观。
+- Theme precedes UI font and uses the shared shadcn/ui Select, matching other compact settings forms.
+- Options are "System", "Dark", "Light", and "Cobalt2". Default to "System", including older configuration without a theme field. Cobalt2 follows Wes Bos's Cobalt2 Theme Official, using the deep blue backgrounds and yellow accent in design-system.md.
+- Theme, UI font, and language apply globally immediately on selection and save automatically; Appearance requires no "Save changes" click. Keep controls usable while saving. Rapid changes retain the latest selection without allowing older responses to overwrite it.
+- Appearance saves submit only theme, font, and language fields, merging with the latest saved configuration. Unsaved runtime, model, provider, execution, and storage drafts remain and are not submitted with appearance changes.
+- Show saving, saved, and failed states. A failed save retains a recoverable choice and offers retry, without claiming persistence succeeded. Other settings retain "Revert" and "Save changes"; saving or reverting them must not overwrite already saved appearance values.
+- "System" responds to operating-system appearance changes while the application runs. A saved "Dark", "Light", or "Cobalt2" choice is not overridden by system changes. Native windows and form controls use dark appearance for Cobalt2, while the interface retains its distinct palette.
+- The workbench, settings, chat, trace, shared menus / overlays, notifications, and artifact-preview chrome use the same semantic tokens. HTML, image, and remote web artifacts retain their own designs without forced rewriting.
+- All themes share layout, fonts, control heights, and interaction semantics. Dark and Light use warm sand accents; Cobalt2 uses a yellow accent. All palettes follow design-system.md without a separate component system.
+- Font selection provides search over locally available fonts, updating the whole UI and preview on selection. Code and execution logs retain monospace fonts.
+- Language supports "System", "Simplified Chinese", and "English". Initially choose Chinese or English from the system language; other system languages fall back to English. An explicit choice immediately updates labels and saves automatically, without rewriting user content, runtime names, or paths.
+- Acceptance covers first launch / older-configuration defaults, restart after automatic saving, live System-mode changes, fixed-theme isolation, rapid successive changes, failure retry, and workbench / settings / menu / error / focus states. Also verify changing Appearance with an unsaved runtime draft: persist only appearance values while retaining the draft. Subsequent manual save, revert, or discard must not overwrite the latest appearance preferences.
 
-## 记录与存储
+## History and storage
 
-- 聊天记录与 Runtime 公开事件的本地保存位置。
-- 记录保留策略、导出聊天 / trace、存储占用。
-- 大体积工具输出的截断与保留设置。
-- 不把模型私有思考当成必然可保存的数据。
+- Local storage location for chat history and public runtime events.
+- Retention policy, chat / trace export, and storage usage.
+- Truncation and retention settings for large tool output.
+- Do not treat private model reasoning as data that can necessarily be stored.
 
-## 应用更新
+## App updates
 
-- 桌面应用启动加载完成后和每六小时自动检查 GitHub 公开 Release，支持当前预发布发布方式；草稿和缺少更新清单的历史版本不作为更新候选。
-- 显示当前版本、可用版本与更新说明，提供手动检查、下载、安装和重启。下载进度和失败在原位置显示，失败可以重试对应步骤。
-- 自动检查发现新版本时提供可打开本类别的通知；同一版本不反复提醒，网络失败在更新页显示，不反复弹出通知。
-- 安装与重启需要 Agent 空闲且设置草稿已保存或还原，Rust 同时检查实际进程状态；不因更新停止任务，也不替用户丢弃草稿。成功下载和安装状态分别根据真实结果更新。
-- 复用共享按钮、Spinner 和主题 token。频繁进度更新即时展示；旋转加载在减少动态效果时改为静态图标，保留状态文字。
-- 浏览器预览说明只能在桌面应用更新；开发构建不允许安装。更新签名与 Apple 签名、公证是不同的验证层。
+- Check public GitHub Releases automatically after desktop startup finishes loading and every six hours, supporting the current prerelease distribution. Exclude drafts and historical versions without an update manifest.
+- Show current version, available version, and release notes, with manual Check, Download, Install, and Restart. Show progress and failures in place, allowing retry of the failed stage.
+- When automatic checking finds an update, provide a notification opening this category. Do not repeatedly notify for the same version. Show network failures on the update page without repeated notifications.
+- Installation and restart require idle Agents and settings drafts saved or reverted; Rust also checks actual process state. Do not stop tasks for updates or discard drafts on the user's behalf. Update download-success and installation-success states independently from actual results.
+- Reuse shared buttons, Spinner, and theme tokens. Frequent progress updates remain immediate; reduced motion replaces spinning feedback with a static icon and status text.
+- Browser previews explain that updates require the desktop application; development builds cannot install updates. Update signing and Apple signing / notarization are distinct verification layers.
 
-## 全局配置与任务配置的关系
+## Global and task configuration
 
-全局配置是默认模板；创建执行成员时复制成配置快照；任务可以覆盖支持的字段；每次 Run 固定记录实际使用的配置。修改设置不回写历史记录。
+Global configuration is a default template. Creating an execution member copies it into a configuration snapshot; tasks may override supported fields. Each Run records the actual configuration it used. Settings changes do not rewrite historical records.
 
-## 原型要求
+## Prototype requirements
 
-- 只生成一个设置页，默认展示运行时管理。
-- 尽量支持分类切换、五个 Runtime 的选择、表单编辑、默认模型下拉、保存 / 还原的本地演示。
-- 历史远端预览属于旧稿，不作为当前 Goalward 应用或品牌的验收依据；正式页面返回工作台应使用应用内导航。
-- 所有连接、模型、认证与执行结果均明确为示例数据。保存仅演示界面状态，不调用本机执行环境，不发送输入凭据。
-- 工作台设置入口指向新页面的实际返回 URL，不能猜测 draft ID。
+- Generate only one settings page, opening runtime management by default.
+- Where feasible, support local demonstrations of category switching, selection among five runtimes, form editing, default-model dropdowns, and save / revert.
+- Historical remote previews are older drafts, not acceptance evidence for the current Goalward application or brand. The formal page uses in-app navigation to return to the workbench.
+- Label all connections, models, authentication, and execution results as example data. Save only demonstrates UI state, without calling a local execution environment or sending entered credentials.
+- Point the workbench's settings entry to the new page's actual return URL; do not guess a draft ID.
 
-## 视觉约束
+## Visual constraints
 
-完整复用 design-system.md 中当前主题的分层背景、暖沙色强调、Inter / 系统中文字体、13 px 正文、细边框和小圆角。深色保留现有近黑配色，浅色使用同一套语义 token 的浅色映射。设置类别与所选 Runtime 的状态明确。禁止营销页结构、渐变、厂商假标识和大图。
+Reuse the current theme's layered backgrounds, accent, Inter / system Chinese fonts, 13 px body text, fine borders, and small radii from design-system.md. Dark mode retains the near-black palette, light mode uses the light mappings of the same semantic tokens, and Cobalt2 uses deep blue backgrounds with a yellow accent. Dark and Light retain their warm sand accents. Clearly identify the selected settings category and runtime. Prohibit marketing-page structures, gradients, fabricated vendor identities, and large images.
 
 Use ONLY the fonts, colors, spacing, and component styles defined in the design system. Do not introduce any fonts, colors, or visual styles not in the design system.
 
 
-## Kimi CLI 原型补充（2026-09-16）
+## Kimi CLI prototype addition (2026-09-16)
 
-Kimi CLI 是独立 Runtime，内部标识 `kimi`，并列于现有四种 Runtime。设置入口支持 `#runtime=kimi` 定位该项；默认展示待配置、未启用，不把本机曾检测到程序表述为预览用户已经完成认证。默认模型与思考强度继承 Kimi CLI 配置；未读取真实模型能力前不生成固定档位。权限说明为“由 Kimi CLI 配置决定；真实审批尚未接入”。本轮仅更新交互原型，保存和检测仍是演示。
+Kimi CLI is an independent runtime with internal identifier `kimi`, alongside the existing four runtimes. The settings entry supports `#runtime=kimi` to select it. Show it as unconfigured and disabled by default; detecting a program on the local machine does not mean the preview user has authenticated. Inherit the default model and reasoning effort from Kimi CLI configuration; do not invent fixed levels before discovering actual model capabilities. The permission explanation is "Determined by Kimi CLI configuration; real approvals are not integrated yet". This iteration changes only the interactive prototype; saving and detection remain demonstrations.
 
-当前官方 Kimi Code CLI 与旧 Python kimi-cli 的协议和配置路径不同，正式适配时应先识别版本。可考虑通过官方 ACP 对接权限回调、取消与公开工具事件，不能将非交互模式包装成已支持逐次审批。原型不启动或安装 CLI，不读取凭据。
+The current official Kimi Code CLI differs from the older Python kimi-cli in protocol and configuration paths, so identify the version before formal adaptation. Consider official ACP for permission callbacks, cancellation, and public tool events. Do not present noninteractive mode as supporting per-action approvals. The prototype does not launch or install the CLI or read credentials.

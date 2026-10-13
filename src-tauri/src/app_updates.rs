@@ -44,14 +44,14 @@ impl AppUpdates {
     fn begin(&self) -> Result<Operation<'_>, String> {
         self.busy
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .map_err(|_| "应用更新正在进行，请等待当前操作完成".to_string())?;
+            .map_err(|_| "An app update is in progress. Wait for the current operation to finish.".to_string())?;
         Ok(Operation(&self.busy))
     }
 
     fn session(&self) -> Result<std::sync::MutexGuard<'_, UpdateSession>, String> {
         self.session
             .lock()
-            .map_err(|_| "应用更新状态不可用，请重启后重试".into())
+            .map_err(|_| "The app update state is unavailable. Restart and try again.".into())
     }
 }
 
@@ -108,11 +108,11 @@ struct ReleaseCandidate {
 
 fn exact_github_url(value: &str, path: &str) -> Result<Url, String> {
     let expected = format!("https://github.com/{REPOSITORY}/{path}");
-    let url = Url::parse(value).map_err(|_| "GitHub 更新地址无效".to_string())?;
+    let url = Url::parse(value).map_err(|_| "The GitHub update URL is invalid.".to_string())?;
     // Exact canonical spelling excludes credentials, ports, query parameters,
     // fragments, path traversal, escaped separators and another repository.
     if url.as_str() != expected || value != expected {
-        return Err("GitHub 更新地址与 Goalward 仓库或版本不匹配".into());
+        return Err("The GitHub update URL does not match the Goalward repository or version.".into());
     }
     Ok(url)
 }
@@ -124,7 +124,7 @@ fn asset_url(asset: &ReleaseAsset, tag: &str) -> Result<Url, String> {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
     {
-        return Err("GitHub 更新产物名称无效".into());
+        return Err("The GitHub update asset name is invalid.".into());
     }
     exact_github_url(
         &asset.browser_download_url,
@@ -164,7 +164,7 @@ fn select_release(
             continue;
         }
         if manifests.len() != 1 {
-            return Err("GitHub Release 存在重复的更新清单，请检查发布产物".into());
+            return Err("The GitHub Release contains duplicate update manifests. Check the release assets.".into());
         }
         exact_github_url(
             &release.html_url,
@@ -211,17 +211,17 @@ fn api_error(status: StatusCode, remaining: Option<&str>, reset: Option<&str>) -
         || status == StatusCode::FORBIDDEN && remaining == Some("0")
     {
         return format!(
-            "GitHub 更新检查达到请求限制，请稍后重试{}",
+            "GitHub update checks reached the rate limit. Try again later{}",
             reset
-                .map(|v| format!("（额度重置时间 Unix {v}）"))
+                .map(|v| format!(" (rate limit resets at Unix {v})"))
                 .unwrap_or_default()
         );
     }
     if status == StatusCode::NOT_FOUND {
-        return "未找到 Goalward 的公开 GitHub Releases，请检查网络或仓库可用性".into();
+        return "No public Goalward GitHub Releases were found. Check the network and repository availability.".into();
     }
     format!(
-        "GitHub 更新检查失败（HTTP {}），请稍后重试",
+        "The GitHub update check failed (HTTP {}). Try again later.",
         status.as_u16()
     )
 }
@@ -235,7 +235,7 @@ async fn public_releases(client: &Client) -> Result<Vec<GitHubRelease>, String> 
             ))
             .send()
             .await
-            .map_err(|e| format!("无法连接 GitHub 检查更新：{e}"))?;
+            .map_err(|e| format!("Could not connect to GitHub to check for updates: {e}"))?;
         if !response.status().is_success() {
             return Err(api_error(
                 response.status(),
@@ -253,27 +253,27 @@ async fn public_releases(client: &Client) -> Result<Vec<GitHubRelease>, String> 
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|e| format!("无法读取 GitHub 更新信息：{e}"))?
+            .map_err(|e| format!("Could not read GitHub update information: {e}"))?
         {
             if body.len() + chunk.len() > MAX_API_PAGE_BYTES {
-                return Err("GitHub 更新信息超过安全大小限制，未完成更新检查".into());
+                return Err("GitHub update information exceeds the safe size limit. The update check did not complete.".into());
             }
             body.extend_from_slice(&chunk);
         }
         let items: Vec<GitHubRelease> = serde_json::from_slice(&body)
-            .map_err(|_| "GitHub 返回了无效的 Release 数据，未完成更新检查".to_string())?;
+            .map_err(|_| "GitHub returned invalid Release data. The update check did not complete.".to_string())?;
         let complete = items.len() < RELEASES_PER_PAGE;
         releases.extend(items);
         if complete {
             return Ok(releases);
         }
     }
-    Err("GitHub Release 数量超过更新检查范围，未确认最新版本".into())
+    Err("The GitHub Release count exceeds the update check range. The latest version could not be confirmed.".into())
 }
 
 fn validate_update(update: &Update, candidate: &ReleaseCandidate) -> Result<(), String> {
     if Version::parse(&update.version).ok().as_ref() != Some(&candidate.version) {
-        return Err("更新清单版本与 GitHub Release tag 不一致，未接受此更新".into());
+        return Err("The update manifest version does not match the GitHub Release tag. The update was rejected.".into());
     }
     let asset = candidate
         .release
@@ -284,10 +284,10 @@ fn validate_update(update: &Update, candidate: &ReleaseCandidate) -> Result<(), 
                 && asset.browser_download_url == update.download_url.as_str()
                 && asset.name.ends_with(".app.tar.gz")
         })
-        .ok_or("更新清单未指向同一 GitHub Release 的 macOS 更新包")?;
+        .ok_or("The update manifest does not reference the macOS update package from the same GitHub Release.")?;
     asset_url(asset, &candidate.release.tag_name)?;
     if update.signature.trim().is_empty() {
-        return Err("更新包缺少签名，未接受此更新".into());
+        return Err("The update package has no signature. The update was rejected.".into());
     }
     Ok(())
 }
@@ -299,11 +299,11 @@ pub async fn check_app_update(
 ) -> Result<AppUpdateInfo, String> {
     let _operation = updates.begin()?;
     if updates.session()?.installed {
-        return Err("更新已经安装，请重启 Goalward 后再检查更新".into());
+        return Err("The update is already installed. Restart Goalward before checking for updates again.".into());
     }
     let current_version = app.package_info().version.to_string();
     let current = Version::parse(&current_version)
-        .map_err(|_| "当前应用版本无效，无法安全比较更新".to_string())?;
+        .map_err(|_| "The current app version is invalid. Updates cannot be compared safely.".to_string())?;
     let client = Client::builder()
         .user_agent(format!("Goalward/{current_version}"))
         .timeout(Duration::from_secs(30))
@@ -323,7 +323,7 @@ pub async fn check_app_update(
             .collect(),
         )
         .build()
-        .map_err(|e| format!("无法初始化 GitHub 更新检查：{e}"))?;
+        .map_err(|e| format!("Could not initialize the GitHub update check: {e}"))?;
     let candidate = select_release(public_releases(&client).await?, &current)?;
     let Some(candidate) = candidate else {
         let mut session = updates.session()?;
@@ -340,15 +340,15 @@ pub async fn check_app_update(
     let mut update = app
         .updater_builder()
         .endpoints(vec![candidate.manifest_url.clone()])
-        .map_err(|e| format!("更新清单地址无效：{e}"))?
+        .map_err(|e| format!("The update manifest URL is invalid: {e}"))?
         .timeout(Duration::from_secs(30))
         .configure_client(|client| client.redirect(github_redirects()))
         .build()
-        .map_err(|e| format!("无法初始化更新组件：{e}"))?
+        .map_err(|e| format!("Could not initialize the updater: {e}"))?
         .check()
         .await
-        .map_err(|e| format!("无法读取或验证 GitHub 更新清单：{e}"))?
-        .ok_or("GitHub 更新清单未提供匹配的较新版本，未确认最新状态")?;
+        .map_err(|e| format!("Could not read or verify the GitHub update manifest: {e}"))?
+        .ok_or("The GitHub update manifest does not provide a matching newer version. Update status could not be confirmed.")?;
     validate_update(&update, &candidate)?;
     // Checking a small manifest and downloading a full app need different
     // time budgets; neither request has an unlimited network timeout.
@@ -376,7 +376,7 @@ pub async fn download_app_update(
         .session()?
         .update
         .clone()
-        .ok_or("请先检查并选择可用的更新")?;
+        .ok_or("Check for updates and select an available update first.")?;
     let mut started = false;
     let bytes = update
         .download(
@@ -390,7 +390,7 @@ pub async fn download_app_update(
             || {},
         )
         .await
-        .map_err(|e| format!("更新包下载或签名验证失败：{e}"))?;
+        .map_err(|e| format!("The update package download or signature verification failed: {e}"))?;
     if !started {
         let _ = on_event.send(DownloadEvent::Started {
             content_length: Some(bytes.len() as u64),
@@ -405,12 +405,12 @@ pub async fn download_app_update(
 
 fn installation_supported() -> Result<(), String> {
     if cfg!(debug_assertions) {
-        return Err("开发构建只支持检查和下载更新；请在已安装的 Goalward 应用中安装更新".into());
+        return Err("Development builds only support checking for and downloading updates. Install updates from the installed Goalward app.".into());
     }
     if !cfg!(target_os = "macos") {
-        return Err("当前版本仅支持 macOS 应用内更新".into());
+        return Err("This version only supports in-app updates on macOS.".into());
     }
-    let executable = std::env::current_exe().map_err(|_| "无法确认应用安装位置".to_string())?;
+    let executable = std::env::current_exe().map_err(|_| "Could not determine the app installation location.".to_string())?;
     if executable
         .parent()
         .is_none_or(|p| p.file_name().is_none_or(|n| n != "MacOS"))
@@ -424,7 +424,7 @@ fn installation_supported() -> Result<(), String> {
             .and_then(|p| p.parent())
             .is_none_or(|p| p.extension().is_none_or(|e| e != "app"))
     {
-        return Err("请从已安装的 Goalward.app 中安装更新".into());
+        return Err("Install updates from the installed Goalward.app.".into());
     }
     Ok(())
 }
@@ -439,11 +439,11 @@ pub async fn install_app_update(
     let (update, bytes) = {
         let session = updates.session()?;
         if session.installed {
-            return Err("更新已经安装，请重启 Goalward".into());
+            return Err("The update is already installed. Restart Goalward.".into());
         }
         (
-            session.update.clone().ok_or("请先检查更新")?,
-            session.downloaded.clone().ok_or("请先下载并验证更新包")?,
+            session.update.clone().ok_or("Check for updates first.")?,
+            session.downloaded.clone().ok_or("Download and verify the update package first.")?,
         )
     };
     let runtimes = services.runtimes.clone();
@@ -451,11 +451,11 @@ pub async fn install_app_update(
         runtimes.while_idle(|| {
             update
                 .install(&**bytes)
-                .map_err(|e| format!("更新安装失败，已下载的更新包可重试：{e}"))
+                .map_err(|e| format!("Update installation failed. The downloaded update package can be retried: {e}"))
         })
     })
     .await
-    .map_err(|_| "更新安装任务未完成，请重试".to_string())??;
+    .map_err(|_| "The update installation task did not complete. Try again.".to_string())??;
     let mut session = updates.session()?;
     session.installed = true;
     session.update = None;
@@ -471,7 +471,7 @@ pub fn restart_app_after_update(
 ) -> Result<(), String> {
     let _operation = updates.begin()?;
     if !updates.session()?.installed {
-        return Err("尚未安装更新，未重启应用".into());
+        return Err("No update is installed. The app was not restarted.".into());
     }
     // restart() never returns; holding the lifecycle gate excludes a new
     // Runtime start until exit. shutdown() uses the separate process mutex.
@@ -592,8 +592,8 @@ mod tests {
 
     #[test]
     fn rate_limit_errors_differ_from_no_update() {
-        assert!(api_error(StatusCode::FORBIDDEN, Some("0"), Some("123")).contains("请求限制"));
-        assert!(api_error(StatusCode::TOO_MANY_REQUESTS, None, None).contains("请求限制"));
-        assert!(api_error(StatusCode::NOT_FOUND, None, None).contains("未找到"));
+        assert!(api_error(StatusCode::FORBIDDEN, Some("0"), Some("123")).contains("rate limit"));
+        assert!(api_error(StatusCode::TOO_MANY_REQUESTS, None, None).contains("rate limit"));
+        assert!(api_error(StatusCode::NOT_FOUND, None, None).contains("No public"));
     }
 }

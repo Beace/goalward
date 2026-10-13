@@ -206,22 +206,22 @@ export function recoverInterruptedState(state: AppState, activeTurns: readonly {
 }
 
 export function buildPrompt(task: Task, prompt: string, member: Member, resumed = false): string {
-  const limit = (value: string, length: number) => value.length <= length ? value : `${value.slice(0, length)}\n[内容过长，已截断]`
+  const limit = (value: string, length: number) => value.length <= length ? value : `${value.slice(0, length)}\n[Content exceeded the limit and was truncated]`
   const history = resumed ? '' : task.messages.filter(message => message.kind !== 'reasoning').map(message => {
     const author = message.memberId ? task.members.find(candidate => candidate.id === message.memberId)?.role ?? message.memberId : message.role
     return `[${message.role} · ${author}]\n${message.text}`
   }).join('\n\n')
   return [
-    `任务：${limit(task.title, 300)}`,
-    `你的成员名称：${limit(member.name, 100)}；职责：${limit(member.role, 300)}`,
-    `职责指令：${limit(member.instructions || member.role, 6000)}`,
-    ...(task.delivery ? [`预期产物：${limit(task.delivery, 2000)}`] : []),
-    ...(task.deadline ? [`任务截止日期：${task.deadline}`] : []),
-    `验收要求：${limit(task.acceptance || '尚未约定；请在结果中列出验证与限制。', 2000)}`,
-    `执行方式：${task.mode === 'team' ? '多成员协作；只负责你的职责范围，不假定其他成员已完成工作。' : '单 Agent 执行。'}`,
-    resumed ? '继续当前 Runtime 原生会话，保留已有上下文。以下为当前任务配置和新的用户指令。' : '这是一次新的 Runtime 会话。下面是管理器保存的完整公开对话；这不代表恢复了旧会话内部状态。',
-    `工作目录：${limit(task.directory || '由本次执行配置确定', 500)}`,
-    ...(!resumed ? [`已有公开对话（完整保留）：\n${history || '无历史对话。'}`] : []),
-    `本次用户指令：\n${prompt.trim()}`,
+    `Task: ${limit(task.title, 300)}`,
+    `Your member name: ${limit(member.name, 100)}; role: ${limit(member.role, 300)}`,
+    `Role instructions: ${limit(member.instructions || member.role, 6000)}`,
+    ...(task.delivery ? [`Expected deliverables: ${limit(task.delivery, 2000)}`] : []),
+    ...(task.deadline ? [`Task deadline: ${task.deadline}`] : []),
+    `Acceptance requirements: ${limit(task.acceptance || 'Not yet agreed; report verification and limitations in the result.', 2000)}`,
+    `Execution mode: ${task.mode === 'team' ? 'Multi-member collaboration; work only within your assigned role and do not assume other members have completed their work.' : 'Single-agent execution.'}`,
+    resumed ? 'Continue the current native runtime session and retain its existing context. The current task configuration and new user instruction follow.' : 'This is a new runtime session. The complete public conversation saved by the manager follows; this does not restore the previous session\'s internal state.',
+    `Working directory: ${limit(task.directory || 'Determined by this run\'s configuration', 500)}`,
+    ...(!resumed ? [`Existing public conversation (retained in full):\n${history || 'No conversation history.'}`] : []),
+    `Current user instruction:\n${prompt.trim()}`,
   ].join('\n\n')
 }

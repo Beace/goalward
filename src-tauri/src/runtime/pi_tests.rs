@@ -116,7 +116,7 @@ while sys.stdin.readline(): pass
         let mut req = request(dir.path(), &executable);
         req.member_id = format!("pi-member-{index}");
         req.run_id = format!("turn-{index}");
-        req.prompt = "中文🙂 $(literal) @file --flag\n".repeat(10000);
+        req.prompt = "café🙂 $(literal) @file --flag\n".repeat(10000);
         let prompt = req.prompt.clone();
         let events = run(&manager, req, Duration::from_secs(5));
         assert_eq!(

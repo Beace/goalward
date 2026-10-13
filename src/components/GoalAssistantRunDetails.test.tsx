@@ -10,7 +10,7 @@ import type { Run, RuntimeEvent } from '@/lib/types'
 import { GoalAssistantRunDetails } from './GoalAssistantRunDetails'
 
 vi.mock('./MarkdownMessage', () => ({ MarkdownMessage: ({ text }: { text: string }) => <div className="markdown-body">{text}</div> }))
-vi.mock('./TracePanel', () => ({ TracePanel: ({ task, run }: { task: { id: string }; run: Run }) => <aside aria-label="执行检查器">{task.id}:{run.id}</aside> }))
+vi.mock('./TracePanel', () => ({ TracePanel: ({ task, run }: { task: { id: string }; run: Run }) => <aside aria-label="Execution inspector">{task.id}:{run.id}</aside> }))
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal('matchMedia', () => ({ matches: true, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }))
@@ -19,11 +19,11 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 function fixture() {
   const state = createInitialState()
-  const goal = createGoal({ title: '整理资料' })
+  const goal = createGoal({ title: 'Organize material' })
   goal.assistant = { requestPhase: 'plan' }
   const task = createGoalAssistantTask(state.settings, { goalId: goal.id, directory: '/app/assistant' })
   state.goals = [goal]
-  const run: Run = { id: 'plan-run', prompt: '应用记录的本轮指令', directory: task.directory, createdAt: '2026-10-12T01:00:00Z', context: captureRunContext(state, task), members: [{ ...task.members[0], runtime: state.settings.runtimes[0], model: 'saved-model', effectiveReasoningEffort: 'high', status: 'running', sessionId: 'thread-1' }] }
+  const run: Run = { id: 'plan-run', prompt: 'Application-recorded instructions for this turn', directory: task.directory, createdAt: '2026-10-12T01:00:00Z', context: captureRunContext(state, task), members: [{ ...task.members[0], runtime: state.settings.runtimes[0], model: 'saved-model', effectiveReasoningEffort: 'high', status: 'running', sessionId: 'thread-1' }] }
   task.runs = [run]
   const event = (payload: unknown, kind: RuntimeEvent['kind'] = 'stdout'): RuntimeEvent => ({ id: 'event', kind, taskId: task.id, runId: run.id, memberId: run.members[0].id, timestamp: run.createdAt, text: JSON.stringify(payload) + '\n' })
   return { state, task, run, event }
@@ -51,27 +51,27 @@ describe('Goal assistant invocation details', () => {
     expect(screen.getByText('thread-1')).toBeTruthy()
     expect(screen.getByText('最近一次 token 用量')).toBeTruthy()
     expect(screen.getByText('Runtime 未提供')).toBeTruthy()
-    expect(screen.queryByText('应用记录的本轮指令')).toBeNull()
+    expect(screen.queryByText('Application-recorded instructions for this turn')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '本轮指令（应用记录）' }))
-    expect(screen.getByText('应用记录的本轮指令')).toBeTruthy()
-    expect((await screen.findByLabelText('执行检查器')).textContent).toContain('plan-run')
+    expect(screen.getByText('Application-recorded instructions for this turn')).toBeTruthy()
+    expect((await screen.findByLabelText('Execution inspector')).textContent).toContain('plan-run')
     fireEvent.click(trigger)
     expect(screen.queryByText('执行 ID')).toBeNull()
     expect(document.activeElement).toBe(trigger)
   })
   it('keeps public streamed response in place, hides action JSON and preserves manual reading position', () => {
     const { task, run } = fixture()
-    task.messages = [{ id: 'reply', role: 'assistant', runId: run.id, text: '先检查', streaming: true, createdAt: '' }]
+    task.messages = [{ id: 'reply', role: 'assistant', runId: run.id, text: 'Check ', streaming: true, createdAt: '' }]
     const view = render(<GoalAssistantRunDetails task={task} run={run} />)
     fireEvent.click(screen.getByRole('button', { name: '调用详情' }))
     const area = screen.getByLabelText('本轮模型回复')
     const body = area.querySelector('.markdown-body')
     Object.defineProperties(area, { scrollHeight: { configurable: true, value: 1500 }, clientHeight: { configurable: true, value: 240 } })
     area.scrollTop = 250; fireEvent.scroll(area); area.focus()
-    const next = { ...task, messages: [{ ...task.messages[0], text: '先检查适用条件。\n\n```goalward\n{"proposals":[]}' }] }
+    const next = { ...task, messages: [{ ...task.messages[0], text: 'Check applicable conditions.\n\n```goalward\n{"proposals":[]}' }] }
     view.rerender(<GoalAssistantRunDetails task={next} run={run} />)
     expect(area.querySelector('.markdown-body')).toBe(body)
-    expect(area.textContent).toBe('先检查适用条件。')
+    expect(area.textContent).toBe('Check applicable conditions.')
     expect(area.scrollTop).toBe(250)
     expect(document.activeElement).toBe(area)
     fireEvent.click(screen.getByRole('button', { name: '回到最新' }))
@@ -80,7 +80,7 @@ describe('Goal assistant invocation details', () => {
   })
   it.each(['completed', 'failed', 'stopped'] as const)('removes active loading on %s and retains the partial reply and run record', status => {
     const { task, run, event } = fixture()
-    task.messages = [{ id: 'reply', role: 'assistant', runId: run.id, text: '保留已收到的内容', createdAt: '' }]
+    task.messages = [{ id: 'reply', role: 'assistant', runId: run.id, text: 'Keep content already received', createdAt: '' }]
     const onStop = vi.fn(async () => {})
     const view = render(<GoalAssistantRunDetails task={task} run={run} onStop={onStop} />)
     expect(view.container.querySelector('[data-slot=spinner]')).toBeTruthy()
@@ -90,7 +90,7 @@ describe('Goal assistant invocation details', () => {
     expect(view.container.querySelector('[data-slot=spinner]')).toBeNull()
     expect(screen.queryByRole('button', { name: '停止生成建议' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '调用详情' }))
-    expect(screen.getByText('保留已收到的内容')).toBeTruthy()
+    expect(screen.getByText('Keep content already received')).toBeTruthy()
     expect(screen.getByText('plan-run')).toBeTruthy()
   })
   it('calls stop immediately and exposes a failed stop while retaining current progress', async () => {
@@ -101,17 +101,17 @@ describe('Goal assistant invocation details', () => {
     fireEvent.click(screen.getByRole('button', { name: '停止生成建议' }))
     expect(onStop).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('status').textContent).toBe('正在停止…')
-    await act(async () => reject(new Error('停止请求失败')))
-    expect(screen.getByRole('alert').textContent).toContain('停止请求失败')
+    await act(async () => reject(new Error('Stop request failed')))
+    expect(screen.getByRole('alert').textContent).toContain('Stop request failed')
     expect((screen.getByRole('button', { name: '停止生成建议' }) as HTMLButtonElement).disabled).toBe(false)
   })
   it('restores only its validated assistant history and provides retry on restoration failure', async () => {
     const { task, run } = fixture()
-    const onPrepare = vi.fn().mockRejectedValueOnce(new Error('记录加载失败')).mockResolvedValueOnce(undefined)
+    const onPrepare = vi.fn().mockRejectedValueOnce(new Error('Record loading failed')).mockResolvedValueOnce(undefined)
     render(<GoalAssistantRunDetails task={{ ...task, historyPending: true }} run={run} onPrepare={onPrepare} />)
     expect(onPrepare).toHaveBeenCalledWith(task.id)
     expect(screen.getByRole('status').textContent).toBe('正在恢复调用记录…')
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('记录加载失败'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Record loading failed'))
     fireEvent.click(screen.getByRole('button', { name: '重试加载' }))
     await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(2))
   })
@@ -130,7 +130,7 @@ describe('Goal assistant invocation details', () => {
     fireEvent.click(screen.getByRole('button', { name: '停止生成建议' }))
     const nextRun = { ...run, id: 'next-run' }
     view.rerender(<GoalAssistantRunDetails task={{ ...task, runs: [...task.runs, nextRun] }} run={nextRun} onStop={onStop} />)
-    await act(async () => reject(new Error('旧调用停止失败')))
+    await act(async () => reject(new Error('Previous call stop failed')))
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('status').textContent).not.toBe('正在停止…')
   })
