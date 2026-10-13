@@ -43,6 +43,7 @@ export function AppearanceSettings({ value, onChange, themeValue = 'system', onT
               <SelectItem value="system">{t('跟随系统', 'Follow system')}</SelectItem>
               <SelectItem value="dark">{t('深色', 'Dark')}</SelectItem>
               <SelectItem value="light">{t('浅色', 'Light')}</SelectItem>
+              <SelectItem value="cobalt2">Cobalt2</SelectItem>
             </SelectContent>
           </Select>
           <p id="app-theme-help" className="text-[11px] leading-5 text-muted-foreground">{t('「跟随系统」会随操作系统的深浅色设置自动切换。主题选择立即生效并自动保存，下次启动继续使用。', 'Follow system switches with the operating system appearance. Theme changes apply immediately, save automatically, and persist across launches.')}</p>

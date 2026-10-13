@@ -18,17 +18,17 @@ The current workbench and settings designs are the visual baseline. Preserve the
 
 Historical inspiration: Superdesign library style `neural-noir-interface-style` (Neural Noir Interface Style).
 
-The user selected a professional IDE-like split view, now available in dark and light themes. Editorial typefaces, hero sections, decorative network diagrams, gradients, dot-grid decoration, floating marketing cards, glow effects, glass cards, large radii, and promotional page structures from the source do not apply. The complete allowed system is below; it overrides the source's unsuitable marketing components.
+The user selected a professional IDE-like split view, available in dark, light, and Cobalt2 themes. Editorial typefaces, hero sections, decorative network diagrams, gradients, dot-grid decoration, floating marketing cards, glow effects, glass cards, large radii, and promotional page structures from the source do not apply. The complete allowed system is below; it overrides the source's unsuitable marketing components.
 
 ## Theme behavior
 
-- **Settings → Appearance → Theme** offers System, Dark, and Light. System is the default, including older settings with no theme field.
+- **Settings → Appearance → Theme** offers System, Dark, Light, and Cobalt2. System is the default, including older settings with no theme field.
 - Theme, UI font, and language selections apply throughout the app immediately and save automatically. Appearance saves contain only these appearance preferences; they do not submit runtime, model, provider, execution, or storage edits from another settings category.
 - Runtime and other operational configuration retain the explicit Save Changes / Revert workflow. Revert and leaving with unsaved changes affect those configuration drafts, while persisted appearance preferences remain in effect.
 - Automatic saves use the latest appearance choices when changes arrive rapidly. Expose saving, saved, and failed states without claiming success before persistence completes; a failed save retains a recoverable choice and offers retry.
-- System follows operating-system appearance changes while the app is open. An explicit Dark or Light choice remains fixed until the user selects another choice. The selected mode persists across restarts after automatic saving succeeds.
+- System follows operating-system appearance changes while the app is open. An explicit Dark, Light, or Cobalt2 choice remains fixed until the user selects another choice. The selected mode persists across restarts after automatic saving succeeds. Cobalt2 resolves to a distinct palette while native window controls, form controls, and dark component variants use dark appearance.
 - Language offers System, Simplified Chinese, and English. The System choice follows the current system-language rule without rewriting goals, task content, messages, runtime names, or paths.
-- Apply the resolved palette through shared semantic tokens to the workbench, settings, chat and trace, menus, dialogs, focus and error states, toast notifications, and artifact-preview chrome. Preserve layout, fonts, spacing, radii, and interaction behavior across both themes.
+- Apply the resolved palette through shared semantic tokens to the workbench, settings, chat and trace, menus, dialogs, focus and error states, toast notifications, and artifact-preview chrome. Preserve layout, fonts, spacing, radii, and interaction behavior across all themes.
 - HTML, images, and remote web artifacts retain their own content design. Theme the enclosing application controls without modifying artifact content.
 - Theme selection updates colors without a staged entrance, positional movement, or business-operation delay. Preserve meaningful selected and pressed feedback through the shared controls.
 
@@ -91,6 +91,24 @@ Use neutral monochrome for most of the interface. Accent is sparse and purposefu
 - Window control colors remain the dark baseline values.
 
 The lighter surface hierarchy uses the same semantic roles as dark mode. Status text and file icons use darker values to retain contrast against the light backgrounds. All implementation values, including supporting surfaces, contrast fallbacks, overlays, and syntax colors, are centralized in `src/index.css`.
+
+## Colors — Cobalt2 palette
+
+This additional theme follows [Cobalt2 Theme Official by Wes Bos](https://marketplace.visualstudio.com/items?itemName=wesbos.theme-cobalt2), using the [official theme source at c4e9574](https://github.com/wesbos/cobalt2-vscode/blob/c4e9574372b85afad1682ed0fdd1ac0411c62512/theme/cobalt2.json) for the blue surface hierarchy and yellow accent. It is an explicitly selected palette; the neutral/sand defaults remain the System, Dark, and Light choices.
+
+- Window, menu, input, and code surfaces: #122738.
+- Title bar, sidebar, and inspector: #15232D.
+- Main workspace: #193549.
+- Hover surface: #1F4662; selected surface: #0D3A58; selected border: #234E6D.
+- Primary text: #FFFFFF; chat text: #E1EFFF.
+- Secondary text: #D5E3EE; muted text: #B7C9D8; faint metadata: #A5BED1.
+- Primary action, active accent, and focus ring: #FFC600; primary-action text: #122738.
+- Text selection: #0050A4.
+- Subtle divider: #0D3A58; interactive strong border and scrollbar: #51758C.
+- Running / success: #3AD900 on #173E35; waiting: #FFC600 on #3B3A27; failure: #FFA0BC on #492C43.
+- File and member indicators reuse the official orange, cyan, green, and pink family, with brighter blue/red variants where needed for compact labels.
+
+Supporting text, strong borders, and error colors are adapted for readability instead of copying low-contrast upstream values. Destructive buttons and badges use opaque pink with dark text to retain contrast; pointer hover uses a subtle shared-token tint. All values live in the `:root[data-theme="cobalt2"]` block in `src/index.css`; shadcn/ui primitives and authored CSS consume the same semantic roles. Cobalt2 keeps the existing spacing, fonts, density, control sizes, and motion. Theme changes use the shared interruptible color feedback; reduced motion updates statically.
 
 ## Spacing and components
 

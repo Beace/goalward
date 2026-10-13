@@ -307,6 +307,80 @@
   --shadow-toast: var(--palette-light-shadow-toast);
 }
 
+/* Cobalt2 Theme Official by Wes Bos: https://github.com/wesbos/cobalt2-vscode
+   Keep its blue surface hierarchy and yellow accent; lift supporting/error text
+   for the compact UI. Every surface still consumes the shared semantic tokens. */
+:root[data-theme="cobalt2"] {
+  color-scheme: dark;
+  --window-background: #122738;
+  --background: #193549;
+  --foreground: #ffffff;
+  --foreground-secondary: #d5e3ee;
+  --muted-foreground: #b7c9d8;
+  --foreground-faint: #a5bed1;
+  --foreground-chat: #e1efff;
+  --card: #122738;
+  --secondary: #1f4662;
+  --accent: #0d3a58;
+  --accent-foreground: #ffc600;
+  --accent-muted-foreground: #ffee80;
+  --accent-selected-border: #234e6d;
+  --primary: #ffc600;
+  --primary-foreground: #122738;
+  --primary-key-hint: #193549;
+  --sidebar: #15232d;
+  --surface-inset: #122738;
+  --surface-subtle: #193549;
+  --inspector-background: #15232d;
+  --code-background: #122738;
+  --notice-background: #0d3a58;
+  --notice-foreground: #ffee80;
+  --border: #0d3a58;
+  --border-strong: #51758c;
+  --border-soft: #234e6d;
+  --border-accent: #51758c;
+  --ring: #ffc600;
+  --ring-muted: #ffee80;
+  --selection-background: #0050a4;
+  --scrollbar-thumb: #51758c;
+  --status-success: #3ad900;
+  --status-success-surface: #173e35;
+  --status-warning: #ffc600;
+  --status-warning-surface: #3b3a27;
+  --destructive: #ffa0bc;
+  --destructive-foreground: #122738;
+  --destructive-surface: #492c43;
+  --member-secondary: #9effff;
+  --member-tertiary: #fb94ff;
+  --file-icon-orange: #ff9d00;
+  --file-icon-blue: #8dc8ff;
+  --file-icon-purple: #fb94ff;
+  --file-icon-cyan: #9effff;
+  --file-icon-yellow: #ffc600;
+  --file-icon-green: #3ad900;
+  --file-icon-red: #ffa0bc;
+  --foreground-contrast: #ffffff;
+  --foreground-secondary-contrast: #e1efff;
+  --muted-foreground-contrast: #d5e3ee;
+  --border-contrast: #b7c9d8;
+  --runtime-logo-surface: transparent;
+  --overlay-scrim: rgb(0 0 0 / .5);
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / .3);
+  --shadow-inspector: -12px 0 32px rgb(0 0 0 / .25);
+  --shadow-toast: 0 12px 32px rgb(0 0 0 / .3);
+}
+
+/* Dark variants normally tint destructive surfaces. Cobalt2 uses dark ink,
+   which needs an opaque background to stay legible on every blue surface. */
+:root[data-theme="cobalt2"] :is([data-slot=button], [data-slot=badge])[data-variant=destructive] {
+  background: var(--destructive);
+}
+@media (hover: hover) and (pointer: fine) {
+  :root[data-theme="cobalt2"] :is([data-slot=button], a[data-slot=badge])[data-variant=destructive]:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--destructive) 90%, var(--foreground));
+  }
+}
+
 /* Theme changes bridge brightness only. Layout and live stream updates stay immediate.
    Leave the root unanimated: color-scheme changes its UA color and can feed inherited transitions. */
 :root.theme-changing body, :root.theme-changing .app-shell, :root.theme-changing .app-shell * {

@@ -376,6 +376,8 @@ describe('SettingsPage appearance', () => {
     ['dark', '浅色', 'light'],
     ['light', '深色', 'dark'],
     ['light', '跟随系统', 'system'],
+    ['system', 'Cobalt2', 'cobalt2'],
+    ['cobalt2', '跟随系统', 'system'],
   ] as [ThemePreference, string, ThemePreference][])('applies and saves a theme change from %s to %s immediately', async (previous, option, theme) => {
     bridge.listSystemFonts.mockResolvedValue(['Menlo'])
     const callbacks = mountControlled({ ...settings(), theme: previous })
@@ -407,15 +409,17 @@ describe('SettingsPage appearance', () => {
     expect(callbacks.onSave).not.toHaveBeenCalled()
   })
 
-  it('keeps appearance controls responsive during saving and retains the latest rapid selection', async () => {
+  it.each([
+    ['深色', 'dark'], ['Cobalt2', 'cobalt2'],
+  ] as const)('keeps appearance controls responsive during saving and retains the latest rapid %s selection', async (option, theme) => {
     bridge.listSystemFonts.mockResolvedValue(['Menlo'])
     const callbacks = mountControlled({ ...settings(), theme: 'dark' }, { appearanceSaving: true })
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
     await selectOption('界面主题', '浅色')
-    await selectOption('界面主题', '深色')
-    expect(callbacks.onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ theme: 'dark' }]])
-    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('深色')
-    expect(callbacks.currentSettings().theme).toBe('dark')
+    await selectOption('界面主题', option)
+    expect(callbacks.onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ theme }]])
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe(option)
+    expect(callbacks.currentSettings().theme).toBe(theme)
     expect(callbacks.onSave).not.toHaveBeenCalled()
   })
 

@@ -3,7 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppearanceTheme } from './use-appearance-theme'
 import type { ThemePreference } from '@/lib/types'
-import { normalizeThemePreference, syncNativeTheme } from '@/lib/theme'
+import { normalizeThemePreference, syncNativeTheme, themeColorScheme } from '@/lib/theme'
 
 const native = vi.hoisted(() => ({ enabled: false, setTheme: vi.fn() }))
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => native.enabled }))
@@ -31,7 +31,8 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('saved global appearance', () => {
   it('defaults legacy and invalid preferences to system without rewriting settings', () => {
-    for (const value of [undefined, null, '', 'unknown']) expect(normalizeThemePreference(value)).toBe('system')
+    for (const value of [undefined, null, '', 'unknown', 'Cobalt2']) expect(normalizeThemePreference(value)).toBe('system')
+    for (const value of ['system', 'dark', 'light', 'cobalt2']) expect(normalizeThemePreference(value)).toBe(value)
     const { result, unmount } = renderHook(() => useAppearanceTheme())
     expect(result.current).toBe('light')
     expect(document.documentElement.dataset.themePreference).toBe('system')
@@ -44,34 +45,48 @@ describe('saved global appearance', () => {
     expect(listeners.size).toBe(0)
   })
 
-  it('pins both explicit modes and resumes system updates when changed back', () => {
-    const { result, rerender } = renderHook(({ preference }: { preference: ThemePreference }) => useAppearanceTheme(preference), { initialProps: { preference: 'dark' as ThemePreference } })
-    expect(result.current).toBe('dark')
+  it.each(['dark', 'light', 'cobalt2'] as const)('pins %s and resumes system updates when changed back', preference => {
+    const { result, rerender } = renderHook(({ preference }: { preference: ThemePreference }) => useAppearanceTheme(preference), { initialProps: { preference: preference as ThemePreference } })
+    expect(result.current).toBe(preference)
+    expect(document.documentElement.dataset.theme).toBe(preference)
+    expect(document.documentElement.dataset.themePreference).toBe(preference)
+    expect(document.documentElement.classList.contains('dark')).toBe(preference !== 'light')
+    expect(document.documentElement.style.colorScheme).toBe(themeColorScheme(preference))
     expect(listeners.size).toBe(0)
-    changeSystem(false)
-    expect(result.current).toBe('dark')
-    rerender({ preference: 'light' })
     changeSystem(true)
-    expect(result.current).toBe('light')
-    expect(document.documentElement.classList.contains('dark')).toBe(false)
-    rerender({ preference: 'system' })
-    expect(result.current).toBe('dark')
-    expect(listeners.size).toBe(1)
+    expect(result.current).toBe(preference)
     changeSystem(false)
+    expect(result.current).toBe(preference)
+    rerender({ preference: 'system' })
     expect(result.current).toBe('light')
+    expect(listeners.size).toBe(1)
+    changeSystem(true)
+    expect(result.current).toBe('dark')
+    expect(document.documentElement.dataset.themePreference).toBe('system')
   })
 
-  it.each(['200ms', '.2s'])('restores immediately and keeps interruptible feedback for a %s CSS duration', duration => {
+  it.each(['dark', 'light', 'cobalt2'] as const)('maps %s to a supported native and toast color scheme', theme => {
+    expect(themeColorScheme(theme)).toBe(theme === 'light' ? 'light' : 'dark')
+  })
+
+  it.each([
+    ['200ms', 'dark', 'light'],
+    ['.2s', 'dark', 'light'],
+    ['200ms', 'cobalt2', 'dark'],
+    ['.2s', 'cobalt2', 'dark'],
+  ] as const)('restores immediately and keeps interruptible feedback for a %s CSS duration with saved %s', (duration, savedTheme, alternateTheme) => {
     vi.useFakeTimers()
     document.documentElement.style.setProperty('--motion-theme-duration', duration)
     const { rerender, unmount } = renderHook(({ preference, loaded }: { preference?: ThemePreference; loaded: boolean }) => useAppearanceTheme(preference, loaded), { initialProps: { preference: undefined as ThemePreference | undefined, loaded: false } })
-    rerender({ preference: 'dark', loaded: true })
+    rerender({ preference: savedTheme, loaded: true })
+    expect(document.documentElement.dataset.theme).toBe(savedTheme)
     expect(document.documentElement.classList.contains('theme-changing')).toBe(false)
-    rerender({ preference: 'light', loaded: true })
+    rerender({ preference: alternateTheme, loaded: true })
     expect(document.documentElement.classList.contains('theme-changing')).toBe(true)
     act(() => vi.advanceTimersByTime(50))
-    rerender({ preference: 'dark', loaded: true })
-    expect(document.documentElement.dataset.theme).toBe('dark')
+    rerender({ preference: savedTheme, loaded: true })
+    expect(document.documentElement.dataset.theme).toBe(savedTheme)
+    expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(document.documentElement.classList.contains('theme-changing')).toBe(true)
     act(() => vi.advanceTimersByTime(199))
     expect(document.documentElement.classList.contains('theme-changing')).toBe(true)
@@ -81,27 +96,30 @@ describe('saved global appearance', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it.each(['0ms', '0s'])('updates statically when reduced motion supplies %s', duration => {
+  it.each([
+    ['0ms', 'light'], ['0s', 'light'], ['0ms', 'cobalt2'], ['0s', 'cobalt2'],
+  ] as const)('updates statically when reduced motion supplies %s and changes to %s', (duration, nextTheme) => {
     vi.useFakeTimers()
     document.documentElement.style.setProperty('--motion-theme-duration', duration)
     const { rerender } = renderHook(({ preference }: { preference: ThemePreference }) => useAppearanceTheme(preference), { initialProps: { preference: 'dark' as ThemePreference } })
-    rerender({ preference: 'light' })
-    expect(document.documentElement.dataset.theme).toBe('light')
+    rerender({ preference: nextTheme })
+    expect(document.documentElement.dataset.theme).toBe(nextTheme)
     expect(document.documentElement.classList.contains('theme-changing')).toBe(false)
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('serializes native overrides and resets native appearance with null for system', async () => {
+  it('serializes native overrides, maps Cobalt2 to dark, and resets native appearance with null for system', async () => {
     native.enabled = true
     let finish!: () => void
     native.setTheme.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
-    const dark = syncNativeTheme('dark')
+    const cobalt2 = syncNativeTheme('cobalt2')
+    const light = syncNativeTheme('light')
     const system = syncNativeTheme('system')
     await Promise.resolve()
     expect(native.setTheme.mock.calls).toEqual([['dark']])
     finish()
-    await Promise.all([dark, system])
-    expect(native.setTheme.mock.calls).toEqual([['dark'], [null]])
+    await Promise.all([cobalt2, light, system])
+    expect(native.setTheme.mock.calls).toEqual([['dark'], ['light'], [null]])
   })
 
   it('finishes color feedback when a rapid preference change resolves to the same theme', () => {
