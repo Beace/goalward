@@ -1,6 +1,6 @@
 # App background images
 
-Choose a local image in **Settings → Appearance → Background image**. It covers the full application window behind the workbench, navigation, settings, goals, agents, setup, and Trace panels. The image stays centered and uses `cover`, so resizing can crop its edges.
+Choose a local image in **Settings → Appearance → Theme**, directly below the theme selector. The image row and both opacity sliders belong to the same Theme section, without a separate background heading or divider. The image covers the full application window behind the workbench, navigation, settings, goals, agents, setup, and Trace panels. It stays centered and uses `cover`, so resizing can crop its edges.
 
 **Background image opacity** controls only the picture: 0% hides it, 100% shows it fully. **Interface background opacity** controls the main panel colors: 100% uses solid panels, 0% reveals the image fully. The defaults are 100% for the image and 85% for panel colors. Text, buttons, form controls, menus, dialogs, and artifact content keep their own appearance. There is no whole-window opacity setting.
 

@@ -52,8 +52,8 @@ export function AppearanceSettings({ value, onChange, themeValue = 'system', onT
   function select(family: string) { if (family !== selected) onChange(family); setOpen(false) }
   return <div className="space-y-7">
     <div><h1 className="text-xl font-semibold">{t('外观', 'Appearance')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('调整应用主题、背景图、语言与界面字体。选择后立即生效并自动保存。', 'Choose the app theme, background image, language, and interface font. Changes apply immediately and save automatically.')}</p></div>
-    <section className="space-y-4">
-      <h3 className="border-b border-border pb-2 text-[13px] font-semibold">{t('主题', 'Theme')}</h3>
+    <section className="space-y-4" aria-labelledby="app-theme-heading">
+      <h3 id="app-theme-heading" className="border-b border-border pb-2 text-[13px] font-semibold">{t('主题', 'Theme')}</h3>
       <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">
         <Label htmlFor="app-theme" className="pt-2 text-xs text-muted-foreground">{t('界面主题', 'Interface theme')}</Label>
         <div className="min-w-0 space-y-2">
@@ -69,8 +69,8 @@ export function AppearanceSettings({ value, onChange, themeValue = 'system', onT
           <p id="app-theme-help" className="text-[11px] leading-5 text-muted-foreground">{t('「跟随系统」会随操作系统的深浅色设置自动切换。主题选择立即生效并自动保存，下次启动继续使用。', 'Follow system switches with the operating system appearance. Theme changes apply immediately, save automatically, and persist across launches.')}</p>
         </div>
       </div>
+      {onBackgroundChange && <BackgroundSettings image={backgroundImage} imageOpacity={backgroundImageOpacity} surfaceOpacity={backgroundSurfaceOpacity} loading={backgroundLoading} error={backgroundError} onRetry={onBackgroundRetry} onChange={onBackgroundChange} disabled={disabled} />}
     </section>
-    {onBackgroundChange && <BackgroundSettings image={backgroundImage} imageOpacity={backgroundImageOpacity} surfaceOpacity={backgroundSurfaceOpacity} loading={backgroundLoading} error={backgroundError} onRetry={onBackgroundRetry} onChange={onBackgroundChange} disabled={disabled} />}
     <section className="space-y-4">
       <h3 className="border-b border-border pb-2 text-[13px] font-semibold">{t('语言', 'Language')}</h3>
       <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">

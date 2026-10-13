@@ -82,8 +82,7 @@ export function BackgroundSettings({ image, imageOpacity, surfaceOpacity, onChan
   const controlsDisabled = disabled || !image || busy
   const failure = importError || error
   const canRetry = Boolean(importError || onRetry)
-  return <section className="space-y-4" aria-labelledby="app-background-heading">
-    <h3 id="app-background-heading" className="border-b border-border pb-2 text-[13px] font-semibold">{t('背景图', 'Background image')}</h3>
+  return <div className="space-y-4" data-testid="background-settings">
     <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">
       <Label htmlFor="app-background-select" className="pt-2 text-xs text-muted-foreground">{t('App 全局背景图', 'App background image')}</Label>
       <div className="min-w-0 space-y-2">
@@ -101,5 +100,5 @@ export function BackgroundSettings({ image, imageOpacity, surfaceOpacity, onChan
     </div>
     <OpacityControl id="app-background-image-opacity" label={t('背景图不透明度', 'Background image opacity')} help={t('0% 隐藏图片，100% 显示原图。', '0% hides the image; 100% shows the original image.')} value={opacityValue(imageOpacity, 100)} disabled={controlsDisabled} onChange={value => onChange({ backgroundImageOpacity: value })} />
     <OpacityControl id="app-background-surface-opacity" label={t('界面背景不透明度', 'Interface background opacity')} help={t('100% 为实色背景，0% 为透明背景；文字和按钮不受影响。', '100% uses solid surfaces; 0% uses transparent surfaces. Text and buttons stay unchanged.')} value={opacityValue(surfaceOpacity, 85)} disabled={controlsDisabled} onChange={value => onChange({ backgroundSurfaceOpacity: value })} />
-  </section>
+  </div>
 }

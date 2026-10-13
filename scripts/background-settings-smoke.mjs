@@ -14,7 +14,15 @@ async function settings(page) { return page.evaluate(() => JSON.parse(localStora
 async function enterAppearance(page) {
   if (!await page.locator('.settings-page').isVisible()) await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '外观', exact: true }).click()
-  await expect(page.getByRole('region', { name: '背景图', exact: true })).toBeVisible()
+  await expect(page.getByTestId('background-settings')).toBeVisible()
+  const themeSection = page.locator('section[aria-labelledby=app-theme-heading]')
+  await expect(themeSection.getByRole('combobox', { name: '界面主题', exact: true })).toBeVisible()
+  await expect(themeSection.getByTestId('background-settings')).toBeVisible()
+  await expect(themeSection.getByRole('heading')).toHaveCount(1)
+  await expect(themeSection.getByRole('heading', { name: '主题', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '背景图', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('background-settings').locator('[data-slot=separator], hr')).toHaveCount(0)
+  expect(await themeSection.evaluate(section => Boolean(section.querySelector('#app-theme').compareDocumentPosition(section.querySelector('[data-testid=background-settings]')) & Node.DOCUMENT_POSITION_FOLLOWING)), 'Background controls follow the theme selector inside Theme').toBe(true)
 }
 async function assertSaved(page, patch, dirty = false) {
   await expect.poll(async () => { const current = await settings(page); return Object.fromEntries(Object.keys(patch).map(key => [key, current[key]])) }).toEqual(patch)
@@ -126,12 +134,13 @@ try {
       const file = { name: longName, mimeType: 'image/png', buffer }
       await page.reload()
       await enterAppearance(page)
+      run.backgroundControlsInTheme = true
       await expect(page.getByRole('slider', { name: '背景图不透明度', exact: true })).toHaveAttribute('aria-disabled', 'true')
       await expect(page.getByRole('slider', { name: '界面背景不透明度', exact: true })).toHaveAttribute('aria-disabled', 'true')
-      const backgroundRegion = page.getByRole('region', { name: '背景图', exact: true })
-      await expect(backgroundRegion.getByRole('spinbutton')).toHaveCount(0)
-      await expect(backgroundRegion.locator('input[type=number], output')).toHaveCount(0)
-      expect(await backgroundRegion.evaluate(element => [...element.querySelectorAll('span')].some(span => span.textContent.trim() === '%'))).toBe(false)
+      const backgroundControls = page.getByTestId('background-settings')
+      await expect(backgroundControls.getByRole('spinbutton')).toHaveCount(0)
+      await expect(backgroundControls.locator('input[type=number], output')).toHaveCount(0)
+      expect(await backgroundControls.evaluate(element => [...element.querySelectorAll('span')].some(span => span.textContent.trim() === '%'))).toBe(false)
       run.sliderOnlyControls = true
       await page.getByLabel('背景图片文件', { exact: true }).setInputFiles(file)
       await expect(page.locator('html')).toHaveAttribute('data-app-background', 'ready')
@@ -328,13 +337,13 @@ try {
       for (const operation of ['delete', 'corrupt']) {
         await mutateAsset(page, replaced.path, operation === 'delete' ? 'delete' : 'put', operation === 'corrupt' ? [...buffer.subarray(0, 8), 0, 0, 0, 0] : undefined)
         await page.reload(); await enterAppearance(page)
-        await expect(page.getByRole('region', { name: '背景图', exact: true }).getByRole('alert')).toBeVisible()
+        await expect(page.getByTestId('background-settings').getByRole('alert')).toBeVisible()
         await expect(page.locator('html')).not.toHaveAttribute('data-app-background', 'ready')
         expectAlpha(await snapshot(page, ['.settings-page', '.settings-page > header']), 1)
         await mutateAsset(page, replaced.path, 'put', [...buffer])
-        await page.getByRole('region', { name: '背景图', exact: true }).getByRole('button', { name: '重试', exact: true }).click()
+        await page.getByTestId('background-settings').getByRole('button', { name: '重试', exact: true }).click()
         await expect(page.locator('html')).toHaveAttribute('data-app-background', 'ready')
-        await expect(page.getByRole('region', { name: '背景图', exact: true }).getByRole('alert')).toHaveCount(0)
+        await expect(page.getByTestId('background-settings').getByRole('alert')).toHaveCount(0)
       }
       run.missingAndCorruptRecovery = true
       if (process.env.GOALWARD_BACKGROUND_SCREENSHOT_FIXTURE) {
