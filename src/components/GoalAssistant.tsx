@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowDown, ArrowUp, Check, ListChecks, Plus, RefreshCw, Square, X } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { ArrowDown, ArrowUp, Check, ListChecks, Plus, RefreshCw, Settings2, Square, X } from 'lucide-react'
 import type { AppState } from '@/lib/types'
 import type { Goal, GoalAssistantDraft, GoalTaskProposal } from '@/lib/goal-types'
 import { adoptGoalTaskProposal, adoptGoalTaskProposals, dismissGoalTaskProposal, goalAssistantMessageText, rollbackGoalAssistantAction } from '@/lib/goal-assistant'
@@ -22,6 +22,7 @@ import { RuntimeApprovalPanel } from './RuntimeApprovalPanel'
 import { RuntimeLogo } from './RuntimeLogo'
 import { GoalAssistantRunDetails } from './GoalAssistantRunDetails'
 import { WorkspaceMentionInput } from './WorkspaceMentionInput'
+import { useComposerTextarea } from '@/hooks/use-composer-textarea'
 import { canAppendRunInput, queuedRunInput } from '@/lib/runtime-capabilities'
 import { getGoalWorkingDirectories } from '@/lib/working-directories'
 import { useI18n } from '@/i18n'
@@ -76,6 +77,9 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
   currentGoal.current = goal?.id
   const stopping = Boolean(goal && stoppingGoal === goal.id)
   const transcript = useRef<HTMLDivElement>(null)
+  const instruction = useRef<HTMLTextAreaElement>(null)
+  const keyboardHint = useId()
+  useComposerTextarea(instruction, input, goal?.id ?? 'new')
   const follow = useRef(true)
   const draft = goal?.assistant?.draft ?? (goal ? draftFromGoal(goal) : undefined)
   const draftSource: GoalAssistantDraftSource | undefined = goal ? {
@@ -157,9 +161,27 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
       </div>
       {!following && <div className="goal-assistant-follow"><Button type="button" size="sm" variant="outline" onClick={() => { follow.current = true; setFollowing(true); if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight }}><ArrowDown size={12} />{t('回到最新', 'Jump to latest')}</Button></div>}
       {task && <RuntimeApprovalPanel task={task} />}
-      <form className="goal-assistant-composer" onSubmit={event => void send(event)}>
-        <WorkspaceMentionInput directories={running && latestRun ? latestRun.workingDirectories ?? [latestRun.directory] : goal ? getGoalWorkingDirectories(state, goal) : []} aria-label={t('给目标助手的消息', 'Message to goal assistant')} placeholder={canAppend ? queuedInput ? t('追加消息会排队处理；输入 @ 引用文件…', 'Queue a follow-up; type @ to reference files…') : t('向助手追加消息；输入 @ 引用文件…', 'Message the running assistant; type @ to reference files…') : goal ? t('补充想法或约束，输入 @ 引用文件或文件夹…', 'Add ideas or constraints; type @ to reference a file or folder…') : t('我想…', 'I want to…')} value={input} onValueChange={changeInput} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); void send() } }} rows={3} />
-        <div className="goal-assistant-composer-tools"><div className="goal-assistant-runtime"><Select value={selectedRuntime?.id ?? '__none__'} onValueChange={setRuntimeId} disabled={busy || running || !eligible.length}><SelectTrigger aria-label={t('目标助手 Runtime', 'Goal assistant runtime')}><SelectValue /></SelectTrigger><SelectContent>{!eligible.length && <SelectItem value="__none__">{t('待配置 Runtime', 'Configure runtime')}</SelectItem>}{eligible.map(runtime => <SelectItem key={runtime.id} value={runtime.id}><span className="inline-flex items-center gap-2"><RuntimeLogo runtime={runtime} size={14} />{runtime.name}</span></SelectItem>)}</SelectContent></Select><span className="goal-meta">{selectedRuntime?.defaultModel || t('Runtime 默认模型', 'Runtime default model')}</span></div>{onSettings && <Button type="button" size="sm" variant="ghost" onClick={onSettings}>{t('配置', 'Settings')}</Button>}{running && onStop && <Button type="button" size="icon-sm" aria-label={t('停止目标助手', 'Stop goal assistant')} disabled={stopping} onClick={() => void stop()}><Square size={13} /></Button>}<Button type="submit" size="icon-sm" aria-label={!goal ? t('开始整理目标', 'Start clarifying goal') : canAppend ? queuedInput ? t('排队追加消息', 'Queue follow-up message') : t('追加消息', 'Append message') : t('发送给目标助手', 'Send to goal assistant')} disabled={busy || stopping || (running && !canAppend) || historyPending || !input.trim() || !canSend}><ArrowUp size={15} /></Button></div>
+      <form className="composer-wrap goal-assistant-composer" onSubmit={event => void send(event)}>
+        <div className="composer">
+          <div className="composer-recipient">
+            <Select motion value={selectedRuntime?.id ?? '__none__'} onValueChange={setRuntimeId} disabled={busy || running || !eligible.length}>
+              <SelectTrigger className="composer-recipient-trigger" aria-label={t('目标助手 Runtime', 'Goal assistant runtime')} title={`${t('目标助手', 'Goal assistant')} · ${selectedRuntime?.name ?? t('待配置 Runtime', 'Configure runtime')} / ${selectedRuntime?.defaultModel || t('Runtime 默认模型', 'Runtime default model')}`}>
+                <span>{t('发给：', 'To:')}</span><SelectValue><span className="composer-recipient-label">{t('目标助手', 'Goal assistant')} · {selectedRuntime?.name ?? t('待配置 Runtime', 'Configure runtime')}</span></SelectValue>
+              </SelectTrigger>
+              <SelectContent position="popper" side="top" align="start">
+                {!eligible.length && <SelectItem value="__none__">{t('待配置 Runtime', 'Configure runtime')}</SelectItem>}
+                {eligible.map(runtime => <SelectItem key={runtime.id} value={runtime.id} textValue={runtime.name}><span className="inline-flex items-center gap-2"><RuntimeLogo runtime={runtime} size={14} />{runtime.name}</span></SelectItem>)}
+              </SelectContent>
+            </Select>
+            {onSettings && <Button className="composer-settings" type="button" size="icon-sm" variant="ghost" aria-label={t('配置', 'Settings')} title={t('配置', 'Settings')} onClick={onSettings}><Settings2 size={14} /></Button>}
+          </div>
+          <WorkspaceMentionInput ref={instruction} directories={running && latestRun ? latestRun.workingDirectories ?? [latestRun.directory] : goal ? getGoalWorkingDirectories(state, goal) : []} aria-label={t('给目标助手的消息', 'Message to goal assistant')} aria-describedby={keyboardHint} placeholder={canAppend ? queuedInput ? t('追加消息会排队处理；输入 @ 引用文件…', 'Queue a follow-up; type @ to reference files…') : t('向助手追加消息；输入 @ 引用文件…', 'Message the running assistant; type @ to reference files…') : goal ? t('补充想法或约束，输入 @ 引用文件或文件夹…', 'Add ideas or constraints; type @ to reference a file or folder…') : t('我想…', 'I want to…')} value={input} onValueChange={changeInput} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); void send() } }} />
+          <div className="composer-send-row">
+            <span id={keyboardHint} className={canAppend ? 'text-xs text-muted-foreground' : 'sr-only'}>{canAppend ? queuedInput ? t('排队追加消息 · 当前执行继续', 'Queue a follow-up · Current work continues') : t('追加消息到当前执行', 'Append to current run') : t('⌘ Enter 或 Ctrl Enter 发送，Enter 换行', 'Press Command+Enter or Control+Enter to send; Enter adds a line')}</span>
+            {running && onStop && <Button className="composer-send" type="button" variant="outline" size="icon" aria-label={t('停止目标助手', 'Stop goal assistant')} title={t('停止目标助手', 'Stop goal assistant')} disabled={stopping} onClick={() => void stop()}><Square size={16} /></Button>}
+            <Button className="composer-send" type="submit" size="icon" title={t('⌘ / Ctrl + Enter 发送', '⌘ / Ctrl + Enter to send')} aria-label={!goal ? t('开始整理目标', 'Start clarifying goal') : canAppend ? queuedInput ? t('排队追加消息', 'Queue follow-up message') : t('追加消息', 'Append message') : t('发送给目标助手', 'Send to goal assistant')} disabled={busy || stopping || (running && !canAppend) || historyPending || !input.trim() || !canSend}>{busy ? <Spinner className="size-4" aria-hidden="true" role="presentation" aria-label={undefined} /> : <ArrowUp size={16} />}</Button>
+          </div>
+        </div>
         {!isDesktop && <p className="goal-meta">{t('浏览器预览可手动整理；真实对话请在桌面应用运行。', 'Organize manually in browser preview. Real conversations run in the desktop app.')}</p>}
         {latestStatus && !running && <div className="goal-assistant-error" role="status"><span>{latestStatus === 'failed' ? t('上次运行失败，输入与已有目标已保留。', 'The last run failed. Your input and goal are preserved.') : t('上次运行已停止，可以继续对话。', 'The last run stopped. You can continue the conversation.')}</span>{isDesktop && onSend && selectedRuntime && <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => goal && void request(() => onSend(goal.id, [...(task?.messages ?? [])].reverse().find(message => message.role === 'user')?.text || input, goal.assistant?.requestPhase ?? 'clarify', selectedRuntime.id))}><RefreshCw size={12} />{t('重试', 'Retry')}</Button>}</div>}
         {(error || goal?.assistant?.error) && <p className="goal-form-error" role="alert">{error || goal?.assistant?.error}</p>}{error && historyPending && onPrepare && task && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => onPrepare(task.id))}>{t('重试恢复历史', 'Retry restoring history')}</Button>}

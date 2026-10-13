@@ -526,12 +526,17 @@ kbd { font-family: var(--font-sans); font-size: 10px; color: var(--muted-foregro
 .composer-wrap .run-feedback { min-height: 36px; padding: 4px 0; }
 .composer { border-color: var(--color-border-strong); background: var(--color-surface-inset); transition: border-color var(--motion-feedback-duration) var(--motion-feedback-ease); }
 .composer:focus-within { border-color: var(--color-ring); }
-.composer-recipient { padding: 4px 8px 0; }
+.composer-recipient { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 4px 8px 0; }
 .composer-recipient-trigger { max-width: 100%; height: 28px; padding: 0 8px; gap: 6px; border: 1px solid transparent; color: var(--color-muted-foreground); font-weight: 400; }
+.composer-recipient-trigger[data-slot=select-trigger] { width: fit-content; min-width: 0; min-height: 28px; height: 28px; padding: 0 8px; border-radius: var(--radius-md); background: transparent; font-size: inherit; line-height: inherit; }
+.composer-recipient-trigger[data-slot=select-trigger] > svg { opacity: 1; }
+.composer-recipient-trigger [data-slot=select-value] { min-width: 0; }
+.composer-recipient-trigger > span:first-child { flex-shrink: 0; }
+.composer-settings { margin-left: auto; }
 .composer-recipient-label { color: var(--color-accent-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-recipient-trigger[data-state=open] { background: var(--color-secondary); border-color: var(--color-border-strong); }
 .composer textarea[data-slot=textarea] { min-height: 40px; max-height: 160px; padding: 8px 12px; font-size: 13px; line-height: 21px; overflow-y: auto; field-sizing: fixed; }
-.composer-send-row { display: flex; justify-content: flex-end; padding: 4px 8px; }
+.composer-send-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 4px 8px; }
 .composer-send[data-slot=button] { width: 32px; height: 32px; border-radius: 6px; padding: 0; }
 .composer-recipient-menu { width: min(480px, calc(100vw - 24px)); max-height: var(--radix-popover-content-available-height); padding: 0; overflow-y: auto; border-color: var(--color-border-strong); box-shadow: var(--shadow-overlay); }
 .recipient-columns { display: grid; grid-template-columns: 150px minmax(0, 1fr); padding: 6px 0; }

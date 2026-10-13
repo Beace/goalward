@@ -2,9 +2,11 @@ import { chromium, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { mkdir, writeFile, copyFile } from 'node:fs/promises'
 
-const output = 'test-results/native-workspaces'
+const output = process.env.NATIVE_WORKSPACE_SMOKE_RESULTS ?? 'test-results/native-workspaces'
 const delivery = process.env.NATIVE_WORKSPACE_SMOKE_OUTPUT ?? '/Users/bytedance/.codex/visualizations/2026/10/13/01a13326-b799-7a91-80e8-8b02f310e7d7/native-workspaces'
 const base = process.env.NATIVE_WORKSPACE_SMOKE_URL ?? 'http://127.0.0.1:1421'
+const composerValidation = process.env.GOAL_COMPOSER_SMOKE === '1'
+const longRuntimeName = 'Codex · 原生会话与目标助手输入框长名称验证 / Native sessions with a long runtime name'
 const version = Date.now()
 await mkdir(output, { recursive: true }); await mkdir(delivery, { recursive: true })
 await writeFile(`${output}/harness.html`, '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script src="./synthetic-ipc.js"></script><script type="module" src="./harness.tsx"></script></body></html>')
@@ -17,6 +19,7 @@ import '/src/index.css'
 const state=createInitialState()
 state.settings.language='zh'; state.settings.theme=window.__fixtureTheme
 state.settings.runtimes=state.settings.runtimes.map(runtime=>({...runtime,enabled:runtime.adapter==='codex'}))
+if (${composerValidation}) state.settings.runtimes.find(runtime=>runtime.id==='codex').name=${JSON.stringify(longRuntimeName)}
 state.onboarding={version:1,completedAt:new Date().toISOString(),outcome:'configured'}
 const goal={...createGoal({title:'固定目录与原生会话浏览器验证',expected:'按实际协议能力持续交互',currentSummary:'这里的文件元数据与 Runtime 事件均为 synthetic，未启动本机 Agent。'}),workingDirectories:['/synthetic/workspaces/很长的中文项目目录/包含空格的项目文件夹/with-a-long-project-name','/synthetic/data']}
 const task=createWorkspaceTask(state.settings,{title:'初始任务',goalId:goal.id,workingDirectories:goal.workingDirectories})
@@ -73,6 +76,112 @@ const installSyntheticIpc=theme=>{
 await writeFile(`${output}/synthetic-ipc.js`, `(${installSyntheticIpc.toString()})(new URLSearchParams(location.search).get('theme') || window.__fixtureTheme || 'dark')`)
 
 const report = { status: 'running', interactiveUrl: `${base}/${output}/harness.html?theme=dark`, scope: 'Actual App, GoalsPage, GoalWorkspaceDirectories, Workbench, GoalAssistant, WorkspaceMentionInput and RuntimeApprovalPanel with actual shared controls. Tauri IPC, metadata search, native capabilities, approvals and Runtime frames are explicitly synthetic. No local Agent process or model inference is started.', scenarios: [], errors: [] }
+if (composerValidation) report.scope += ' Task and Goal composer computed styles, automatic textarea growth, the initial Goal page, long Runtime names, focus and keyboard behavior are compared using the real rendered DOM.'
+
+async function composerGeometry(input) {
+  // Border feedback is a shared CSS transition. Compare its settled focused
+  // value, rather than accidentally comparing different transition frames.
+  const ring = await input.evaluate(node => {
+    const probe = document.createElement('span')
+    probe.style.backgroundColor = 'var(--color-ring)'
+    node.parentElement.append(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  })
+  await expect.poll(() => input.evaluate(node => getComputedStyle(node.closest('.composer')).borderTopColor)).toBe(ring)
+  return input.evaluate(node => {
+    const composer = node.closest('.composer')
+    if (!composer) throw new Error('The real input is not inside the shared composer surface')
+    const readStyle = (element, properties) => {
+      const style = getComputedStyle(element)
+      return Object.fromEntries(properties.map(property => [property, style[property]]))
+    }
+    const bounds = element => {
+      const box = element.getBoundingClientRect()
+      return { width: box.width, height: box.height, top: box.top, bottom: box.bottom, left: box.left, right: box.right }
+    }
+    const send = composer.querySelector('.composer-send')
+    const recipient = composer.querySelector('.composer-recipient')
+    if (!send || !recipient) throw new Error('Shared recipient or send region is missing')
+    const trigger = recipient.querySelector('.composer-recipient-trigger')
+    if (!trigger) throw new Error('Shared recipient trigger is missing')
+    return {
+      surface: readStyle(composer, ['backgroundColor', 'borderTopColor', 'borderTopWidth', 'borderTopStyle', 'borderRadius']),
+      input: readStyle(node, ['backgroundColor', 'borderTopWidth', 'borderRadius', 'boxShadow', 'fontFamily', 'fontSize', 'lineHeight', 'letterSpacing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'minHeight', 'maxHeight', 'resize', 'fieldSizing', 'overflowY', 'transitionProperty']),
+      send: readStyle(send, ['width', 'height', 'borderRadius', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']),
+      trigger: readStyle(trigger, ['fontSize', 'lineHeight', 'fontWeight', 'height', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderRadius']),
+      chevrons: [...trigger.querySelectorAll(':scope > svg')].map(svg => readStyle(svg, ['width', 'height', 'opacity'])),
+      bounds: { surface: bounds(composer), input: bounds(node), send: bounds(send), recipient: bounds(recipient) },
+      settings: composer.querySelector('.composer-settings') ? bounds(composer.querySelector('.composer-settings')) : undefined,
+      inputScrollHeight: node.scrollHeight,
+      overflowing: composer.scrollWidth > composer.clientWidth,
+      recipientOverflowing: recipient.scrollWidth > recipient.clientWidth,
+      focused: document.activeElement === node,
+      animations: node.getAnimations().map(animation => animation.effect?.getKeyframes()),
+    }
+  })
+}
+
+async function measureComposerGrowth(input) {
+  const cases = [
+    { name: 'singleLine', text: '单行短消息' },
+    { name: 'threeLines', text: '第一行\n第二行\n第三行' },
+    { name: 'capped', text: Array.from({ length: 20 }, (_, index) => `第 ${index + 1} 行`).join('\n') },
+    { name: 'shrunk', text: '删回一行' },
+  ]
+  const measured = {}
+  for (const item of cases) {
+    await input.fill(item.text)
+    await expect(input).toBeFocused()
+    await expect.poll(() => input.evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(40)
+    measured[item.name] = await input.evaluate(node => ({ height: node.getBoundingClientRect().height, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight }))
+  }
+  assert(measured.threeLines.height > measured.singleLine.height, 'Explicit newlines must grow the composer immediately')
+  assert.equal(measured.capped.height, 160, 'Long input must cap at 160 px')
+  assert(measured.capped.scrollHeight > measured.capped.clientHeight, 'Long input must scroll within the capped textarea')
+  assert.equal(measured.shrunk.height, measured.singleLine.height, 'Deleting content must shrink the composer back')
+  await input.fill('')
+  return measured
+}
+
+function assertMatchingComposer(task, goal, label) {
+  assert.deepEqual(goal.surface, task.surface, `${label}: composer background, border and radius must match the Task composer`)
+  assert.deepEqual(goal.input, task.input, `${label}: textarea computed styles must match the Task composer`)
+  assert.deepEqual(goal.send, task.send, `${label}: send button computed styles must match the Task composer`)
+  assert.deepEqual(goal.trigger, task.trigger, `${label}: recipient trigger typography, height and spacing must match the Task composer`)
+  assert.deepEqual(goal.chevrons, task.chevrons, `${label}: recipient chevrons must match the Task composer`)
+  assert.equal(goal.bounds.send.width, 32)
+  assert.equal(goal.bounds.send.height, 32)
+  assert.equal(goal.overflowing, false, `${label}: composer must not overflow horizontally`)
+  assert.equal(goal.recipientOverflowing, false, `${label}: long Runtime names must fit the recipient row`)
+  if (goal.settings) {
+    assert(goal.settings.width >= 28 && goal.settings.height >= 28, `${label}: the settings button must keep its pointer target`)
+    assert(goal.settings.left >= goal.bounds.surface.left && goal.settings.right <= goal.bounds.surface.right, `${label}: long Runtime names must preserve the settings button boundary`)
+  }
+  assert(goal.bounds.send.right <= goal.bounds.surface.right && goal.bounds.send.bottom <= goal.bounds.surface.bottom, `${label}: the send button must remain inside the composer`)
+}
+
+async function assertReferenceMenuVisible(menu, input) {
+  const menuBox = await menu.boundingBox()
+  const inputBox = await input.boundingBox()
+  assert(menuBox.y + menuBox.height <= inputBox.y, 'Reference suggestions must appear above the textarea')
+  assert(await menu.getByRole('option').first().evaluate(node => {
+    const box = node.getBoundingClientRect()
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+    return Boolean(hit && node.contains(hit))
+  }), 'Reference menu options above the composer must remain visible and clickable')
+}
+
+async function expectReferenceCaretRestored(input) {
+  // Choosing a reference restores focus/caret on the next animation frame.
+  // Complete that interaction before the browser fixture selects replacement
+  // text; otherwise the pending caret restoration can overwrite fill's select.
+  await input.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)))
+  await expect(input).toBeFocused()
+  await expect.poll(() => input.evaluate(node => node.selectionStart === node.value.length && node.selectionEnd === node.value.length)).toBe(true)
+}
+
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 try {
 for (const [width,height] of [[1536,960],[1280,720]]) for (const theme of ['light','dark']) for (const reducedMotion of ['no-preference','reduce']) {
@@ -116,17 +225,27 @@ for (const [width,height] of [[1536,960],[1280,720]]) for (const theme of ['ligh
   assert.deepEqual(taskSnapshot.workingDirectories,[primary]);assert.equal(taskSnapshot.directory,primary)
   const input=page.getByRole('textbox',{name:'任务指令',exact:true})
   const menu=page.getByLabel('引用文件或文件夹',{exact:true})
+  let taskComposer, taskGrowth, goalComposer, goalGrowth, startComposer, startGrowth
+  if (composerValidation) {
+    taskGrowth = await measureComposerGrowth(input)
+    await input.fill('任务输入框样式基准')
+    taskComposer = await composerGeometry(input)
+    assert.equal(taskComposer.focused, true)
+    await page.screenshot({path:`${output}/${prefix}-task-composer.png`});await copyFile(`${output}/${prefix}-task-composer.png`,`${delivery}/${prefix}-task-composer.png`)
+    await input.fill('')
+  }
   await input.fill('@');await expect(menu.getByRole('option')).toHaveCount(2)
+  if (composerValidation) await assertReferenceMenuVisible(menu,input)
   await page.screenshot({path:`${output}/${prefix}-references.png`});await copyFile(`${output}/${prefix}-references.png`,`${delivery}/${prefix}-references.png`)
   await input.press('ArrowDown');await input.press('Enter')
-  await expect(input).toHaveValue(`@${JSON.stringify(primary+'/资料 文件夹')} `);await expect(input).toBeFocused();await expect.poll(()=>input.evaluate(node=>node.selectionStart===node.value.length)).toBe(true);await expect(menu).toHaveCount(0)
+  await expect(input).toHaveValue(`@${JSON.stringify(primary+'/资料 文件夹')} `);await expectReferenceCaretRestored(input);await expect(menu).toHaveCount(0)
   await input.fill('@说明');await expect(menu.getByRole('option')).toHaveCount(1);await menu.getByRole('option').click()
-  await expect(input).toHaveValue(`@${JSON.stringify(primary+'/说明 文档.md')} `);await expect(input).toBeFocused();await expect.poll(()=>input.evaluate(node=>node.selectionStart===node.value.length)).toBe(true)
+  await expect(input).toHaveValue(`@${JSON.stringify(primary+'/说明 文档.md')} `);await expectReferenceCaretRestored(input)
   await input.fill('@');await expect(menu).toBeVisible();await input.press('Escape');await expect(menu).toHaveCount(0);await expect(input).toHaveValue('@')
   await input.fill('@说明');await expect(menu).toBeVisible()
   await input.evaluate(node=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true,bubbles:true,cancelable:true})))
   assert.equal(await page.evaluate(()=>window.__requests.length),0);await expect(input).toHaveValue('@说明');await expect(menu).toBeVisible()
-  await menu.getByRole('option').click();await input.press('Control+Enter')
+  await menu.getByRole('option').click();await expectReferenceCaretRestored(input);await input.press('Control+Enter')
   await expect.poll(()=>page.evaluate(()=>window.__requests.length)).toBe(1)
   await expect(page.getByRole('button',{name:'追加消息',exact:true})).toBeVisible()
   await input.fill('运行中追加一句');await input.press('Control+Enter');await expect.poll(()=>page.evaluate(()=>window.__steers.length)).toBe(1)
@@ -166,7 +285,23 @@ for (const [width,height] of [[1536,960],[1280,720]]) for (const theme of ['ligh
   const navigation=page.getByRole('navigation',{name:'工作空间导航',exact:true});await navigation.getByRole('button',{name:/^目标\s*\d/}).click()
   await page.getByRole('tab',{name:'目标助手',exact:true}).click()
   const goalInput=page.getByRole('textbox',{name:'给目标助手的消息',exact:true})
-  await goalInput.fill('@资料');await expect(menu.getByRole('option')).toHaveCount(1);await menu.getByRole('option').click();await expect(goalInput).toHaveValue(`@${JSON.stringify(primary+'/资料 文件夹')} `)
+  if (composerValidation) {
+    goalGrowth = await measureComposerGrowth(goalInput)
+    assert.deepEqual(goalGrowth, taskGrowth, 'Task and Goal inputs must grow and shrink to the same heights')
+    await goalInput.fill('目标助手输入框样式对比')
+    goalComposer = await composerGeometry(goalInput)
+    assertMatchingComposer(taskComposer, goalComposer, 'Existing Goal')
+    await page.screenshot({path:`${output}/${prefix}-goal-composer.png`});await copyFile(`${output}/${prefix}-goal-composer.png`,`${delivery}/${prefix}-goal-composer.png`)
+    await goalInput.fill('@')
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('option')).toHaveCount(2)
+    await assertReferenceMenuVisible(menu,goalInput)
+    await goalInput.evaluate(node=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true,bubbles:true,cancelable:true})))
+    assert.equal(await page.evaluate(()=>window.__requests.length),1)
+    await expect(goalInput).toHaveValue('@');await expect(menu).toBeVisible()
+    await goalInput.press('Escape');await expect(menu).toHaveCount(0);await expect(goalInput).toBeFocused()
+  }
+  await goalInput.fill('@资料');await expect(menu.getByRole('option')).toHaveCount(1);await menu.getByRole('option').click();await expect(goalInput).toHaveValue(`@${JSON.stringify(primary+'/资料 文件夹')} `);await expectReferenceCaretRestored(goalInput)
   await goalInput.press('Control+Enter');await expect.poll(()=>page.evaluate(()=>window.__requests.length)).toBe(2)
   await expect(page.getByRole('button',{name:'追加消息',exact:true})).toBeVisible()
   const assistantRequest=await page.evaluate(()=>window.__requests.at(-1));assert.equal(assistantRequest.directory,primary);assert.equal(assistantRequest.runtime.permissions.codex.sandbox,'read-only')
@@ -225,7 +360,28 @@ for (const [width,height] of [[1536,960],[1280,720]]) for (const theme of ['ligh
   await page.getByRole('button',{name:'停止目标助手',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__stops.length)).toBe(2)
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth&&document.documentElement.scrollHeight<=innerHeight))
   assert(await page.locator('.goal-assistant-composer').evaluate(node=>node.getBoundingClientRect().bottom<=innerHeight))
-  report.scenarios.push({width,height,theme,reducedMotion,directoryRows,newTaskNoDirectoryInput:true,goalRootsInherited:true,dialogExitFullyRemoved:true,keyboardFileFolderWithSpacesAndChinese:true,mouseReference:true,escapeDismissal:true,imeDoesNotSend:true,controlEnterSend:true,steerQueueUnsupported:true,approvalFailureRetry:true,turnStop:true,goalAssistantReadOnly:true,clarificationToolProgress:true,clarificationModelThreadTurnDetails:true,clarificationNestedScrollPreserved:true,clarificationStableDOM:true,clarificationDisclosureReversal:goalReversal,goalComposerStopBounds:composerBounds,goalSpinner,toolProgressInTrace:true,spinnerAnimation,actualStreamingStableDOM:true,userScrollPreserved:true,sharedDisclosureReversal:reversal,noOverflow:true})
+  if (composerValidation) {
+    await navigation.getByRole('button',{name:'开始一件事',exact:true}).click()
+    await expect(page.locator('.goal-assistant-start')).toBeVisible()
+    const startInput = page.getByRole('textbox',{name:'给目标助手的消息',exact:true})
+    startGrowth = await measureComposerGrowth(startInput)
+    assert.deepEqual(startGrowth, taskGrowth, 'The initial Goal input must share the same automatic height limits')
+    await startInput.fill('开始页保持同样的输入框样式')
+    startComposer = await composerGeometry(startInput)
+    assertMatchingComposer(taskComposer, startComposer, 'Initial Goal page')
+    assert(startComposer.bounds.surface.bottom <= height)
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth&&document.documentElement.scrollHeight<=innerHeight))
+    await page.screenshot({path:`${output}/${prefix}-start-composer.png`});await copyFile(`${output}/${prefix}-start-composer.png`,`${delivery}/${prefix}-start-composer.png`)
+    const runtimeTrigger = page.getByRole('combobox',{name:'目标助手 Runtime',exact:true})
+    await runtimeTrigger.focus();await runtimeTrigger.press('Enter')
+    await expect(page.getByRole('option',{name:longRuntimeName,exact:true})).toBeVisible()
+    await page.keyboard.press('Escape');await expect(runtimeTrigger).toBeFocused()
+    await startInput.fill('开始页中文输入中')
+    await startInput.evaluate(node=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true,bubbles:true,cancelable:true})))
+    assert.equal(await page.evaluate(()=>window.__requests.length),2)
+    await expect(startInput).toHaveValue('开始页中文输入中');await expect(startInput).toBeFocused()
+  }
+  report.scenarios.push({width,height,theme,reducedMotion,directoryRows,newTaskNoDirectoryInput:true,goalRootsInherited:true,dialogExitFullyRemoved:true,keyboardFileFolderWithSpacesAndChinese:true,mouseReference:true,escapeDismissal:true,imeDoesNotSend:true,controlEnterSend:true,steerQueueUnsupported:true,approvalFailureRetry:true,turnStop:true,goalAssistantReadOnly:true,clarificationToolProgress:true,clarificationModelThreadTurnDetails:true,clarificationNestedScrollPreserved:true,clarificationStableDOM:true,clarificationDisclosureReversal:goalReversal,goalComposerStopBounds:composerBounds,goalSpinner,toolProgressInTrace:true,spinnerAnimation,actualStreamingStableDOM:true,userScrollPreserved:true,sharedDisclosureReversal:reversal,noOverflow:true,...(composerValidation ? {taskComposer,goalComposer,startComposer,taskGrowth,goalGrowth,startGrowth,longRuntimeNames:true,initialGoalPage:true,matchingComputedStyles:true} : {})})
   console.log('Passed '+prefix);await context.close()
 }
 assert.deepEqual(report.errors,[]);report.status='passed'

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { WorkspaceMentionInput } from './WorkspaceMentionInput'
+import { useComposerTextarea } from '@/hooks/use-composer-textarea'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -121,18 +122,7 @@ export function Workbench({ task, settings, selectedRunId, onSelectRun, onChange
     if (!members.some(m => m.id === configMemberId)) setConfigMemberId(members[0]?.id ?? '')
   }, [task.members, recipient, memberId, configMemberId, historic, selectedRun])
 
-  useLayoutEffect(() => {
-    const node = instruction.current
-    if (!node) return
-    const resize = () => { node.style.height = '0px'; node.style.height = `${Math.min(160, Math.max(40, node.scrollHeight))}px` }
-    resize()
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(() => {
-      if (node.clientWidth !== width) { width = node.clientWidth; resize() }
-    })
-    let width = node.clientWidth
-    observer?.observe(node)
-    return () => observer?.disconnect()
-  }, [prompt, historic, task.demo, tab])
+  useComposerTextarea(instruction, prompt, `${historic}:${task.demo}:${tab}`)
 
   function patchMember(id: string, patch: Partial<Member>) { onChange({ ...task, members: task.members.map(m => m.id === id ? { ...m, ...patch } : m) }) }
   function changeMode(mode: 'solo' | 'team') {
