@@ -352,6 +352,20 @@ svg { stroke-width: 1.5; flex-shrink: 0; }
 [data-slot=button][data-size=sm] { height: 28px; padding: 0 10px; }
 [data-slot=button][data-size=icon-sm] { width: 28px; height: 28px; }
 [data-slot=input], [data-slot=select-trigger] { min-height: 32px; height: 32px; font-size: 12px; border-radius: 4px; background: var(--surface-inset); box-shadow: none; }
+.date-picker-trigger[data-slot=button] { background: var(--surface-inset); box-shadow: none; }
+.date-picker-trigger[data-state=open] { border-color: var(--border-strong); }
+@media (hover: hover) and (pointer: fine) {
+  .date-picker-trigger[data-slot=button]:hover { background: var(--accent); color: var(--accent-foreground); }
+}
+.date-picker-content { max-height: var(--radix-popover-content-available-height); overflow-y: auto; box-shadow: var(--shadow-overlay); }
+.date-picker-footer { display: flex; justify-content: flex-end; padding: 4px; border-top: 1px solid var(--border); }
+.date-picker-content [data-slot=calendar] { font-size: 12px; }
+.date-picker-content button { transition: var(--motion-feedback-transition); }
+.date-picker-content[data-hover-input=keyboard] button,
+.date-picker-content button:is(:active, :focus-visible, :disabled) { transition-duration: 0s; }
+@media (prefers-reduced-motion: reduce) {
+  .date-picker-content button { transition: none; }
+}
 [data-slot=select-trigger] { width: 100%; }
 [data-slot=textarea] { font-size: 13px; border-radius: 6px; box-shadow: none; }
 [data-slot=label] { font-size: 12px; }
