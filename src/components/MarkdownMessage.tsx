@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { normalizeExternalHttpUrl, openExternalUrl } from '@/lib/bridge'
 import { artifactHref, remarkArtifactLinks } from '@/lib/markdown-links'
+import { remarkGithubAlerts } from '@/lib/markdown-alerts'
 import './markdown-message.css'
 import { useI18n } from '@/i18n'
 
@@ -68,7 +69,7 @@ const components: Components = {
   th: ({ node: _node, ...props }) => <TableHead {...props} />,
   td: ({ node: _node, ...props }) => <TableCell {...props} />,
 }
-const plugins = [remarkGfm, remarkArtifactLinks]
+const plugins = [remarkGfm, remarkArtifactLinks, remarkGithubAlerts]
 
 /** Stable component identity keeps streamed text in the existing message. */
 export const MarkdownMessage = memo(function MarkdownMessage({ text, onOpenLink }: { text: string; onOpenLink?: (href: string) => void }) {
