@@ -83,11 +83,12 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
     stateVersion: goal.assistant?.draft ? goal.assistant.draftStateVersion ?? goal.currentState.version : goal.currentState.version,
   } : undefined
   const historyPending = Boolean(task?.historyPending)
+  const detailedRun = Boolean(goal && task && latestRun?.context?.goal?.id === goal.id)
   const latestStatus = latestRun?.members.find(member => member.status === 'failed' || member.status === 'interrupted' || member.status === 'stopped')?.status
 
   useEffect(() => { setInput(goal?.assistant?.input ?? state.goalExplorationInput ?? ''); setError(''); follow.current = true; setFollowing(true) }, [goal?.id]) // Drafts are scoped to the Goal.
   useEffect(() => { if (task?.historyPending && onPrepare) void onPrepare(task.id).catch(cause => setError(String(cause instanceof Error ? cause.message : cause))) }, [task?.id, task?.historyPending, onPrepare])
-  useEffect(() => { if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight }, [task?.messages, running, requestPending])
+  useEffect(() => { if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight }, [task?.messages, task?.events, running, requestPending])
   const commitDraft = async (next: GoalAssistantDraft) => {
     if (!goal || !draftSource) return
     const source = draftSource
@@ -150,7 +151,8 @@ export function GoalAssistant({ state, goal, onChange, onStart, onSend, onStop, 
     <div className="goal-assistant-conversation">
       <div className="goal-assistant-transcript" ref={transcript} onScroll={event => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 56; setFollowing(follow.current) }}>
         {!goal ? <div className="goal-assistant-intro"><h1>{t('开始一件事', 'Start something')}</h1><p>{t('先说说你想推进的事情。目标助手会和你一起明确结果、成功条件与下一步。', 'Describe what you want to move forward. The goal assistant will help clarify the outcome, success criteria, and next steps.')}</p></div> : !visibleMessages.length && !pending ? <div className="goal-assistant-intro"><h2>{t('目标助手', 'Goal assistant')}</h2><p>{t('哪里还不明确？可以描述现状、补充材料，或告诉助手你的约束。', 'What is still unclear? Describe the context, add references, or explain your constraints.')}</p></div> : visibleMessages.map(message => <article className={`goal-assistant-message goal-assistant-message-${message.role}`} key={message.id}><div className="goal-assistant-message-label">{message.role === 'user' ? t('你', 'You') : t('目标助手', 'Goal assistant')}</div><MarkdownMessage text={message.text} /></article>)}
-        {pending && <div className="goal-assistant-pending">{!responding && <div className="goal-assistant-message-label">{t('目标助手', 'Goal assistant')}</div>}<div className="goal-assistant-pending-status" role="status"><Spinner aria-hidden="true" role="presentation" aria-label={undefined} /><span>{pendingLabel}</span></div></div>}
+        {detailedRun && task && latestRun && <GoalAssistantRunDetails key={`${task.id}:${latestRun.id}`} task={task} run={latestRun} />}
+        {pending && !detailedRun && <div className="goal-assistant-pending">{!responding && <div className="goal-assistant-message-label">{t('目标助手', 'Goal assistant')}</div>}<div className="goal-assistant-pending-status" role="status"><Spinner aria-hidden="true" role="presentation" aria-label={undefined} /><span>{pendingLabel}</span></div></div>}
         {historyPending && <p role="status" className="goal-meta">{t('正在恢复目标助手的历史…', 'Restoring assistant history…')}</p>}
       </div>
       {!following && <div className="goal-assistant-follow"><Button type="button" size="sm" variant="outline" onClick={() => { follow.current = true; setFollowing(true); if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight }}><ArrowDown size={12} />{t('回到最新', 'Jump to latest')}</Button></div>}

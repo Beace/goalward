@@ -54,6 +54,20 @@ describe('Goal assistant live conversation', () => {
     return state
   }
   const props = { onStart: vi.fn(), onConfirm: vi.fn(), onChange: vi.fn(), onSend: vi.fn(), onStop: vi.fn() }
+  it('shows native tool activity and expandable model details in the goal conversation', async () => {
+    const state = runningState(), task = state.tasks[0], run = task.runs[0]
+    run.context = captureRunContext(state, task)
+    run.members[0].sessionId = 'goal-thread'
+    task.events = [{ id: 'native-tool', taskId: task.id, runId: run.id, memberId: run.members[0].id, timestamp: '2026-10-13T00:00:00Z', kind: 'stdout', text: JSON.stringify({ type: 'codex.app_server.item', threadId: 'goal-thread', turnId: 'goal-turn', eventType: 'item.started', item: { id: 'read-reference', type: 'mcpToolCall', server: 'workspace', tool: 'read', status: 'inProgress', arguments: { path: '/app/assistant/引用.md' } } }) + '\n' }]
+    render(<GoalAssistant {...props} state={state} goal={state.goals[0]} />)
+    const details = screen.getByLabelText('目标助手模型调用')
+    expect(within(details).getByRole('status').textContent).toBe('正在执行工具')
+    fireEvent.click(within(details).getByRole('button', { name: '调用详情' }))
+    await waitFor(() => expect(within(details).getByText('会话 ID')).toBeTruthy())
+    expect(within(details).getByText('goal-thread')).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: '给目标助手的消息' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '停止目标助手' })).toBeTruthy()
+  })
   it.each(['completed', 'failed', 'stopped'] as const)('updates one message in place before completion and clears loading on %s', status => {
     let state = runningState()
     const view = render(<GoalAssistant {...props} state={state} goal={state.goals[0]} />)
