@@ -370,6 +370,9 @@ svg { stroke-width: 1.5; flex-shrink: 0; }
 [data-slot=textarea] { font-size: 13px; border-radius: 6px; box-shadow: none; }
 [data-slot=label] { font-size: 12px; }
 [data-slot=badge] { font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 400; }
+/* Restore tab borders above the global reset without overriding each tab bar. */
+[data-slot=tabs-trigger] { border-color: transparent; }
+[data-slot=tabs-trigger]:focus-visible { border-color: var(--ring); }
 [data-slot=dialog-overlay] { background: var(--overlay-scrim); }
 [data-slot=dialog-content] { background: var(--card); border-radius: 8px; font-size: 13px; box-shadow: var(--shadow-overlay); }
 [data-slot=dialog-title] { font-size: 17px; }
