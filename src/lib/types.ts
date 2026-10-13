@@ -37,6 +37,8 @@ export interface ProviderConfig {
   id: string; name: string; baseUrl: string; credentialEnv: string
 }
 export type ThemePreference = 'system' | 'dark' | 'light' | 'cobalt2'
+/** Managed local image reference; image bytes stay outside workspace settings. */
+export interface AppBackgroundImage { name: string; path: string }
 export interface Settings {
   runtimes: RuntimeConfig[]; models: ModelConfig[]; providers: ProviderConfig[]
   defaultRuntime: string; defaultMode: 'solo' | 'team'; maxParallel: number
@@ -47,6 +49,10 @@ export interface Settings {
   language?: 'zh' | 'en'
   /** Empty/legacy settings follow the operating system appearance. */
   theme?: ThemePreference
+  backgroundImage?: AppBackgroundImage
+  /** Image and surface opacity percentages, each from 0 to 100. */
+  backgroundImageOpacity?: number
+  backgroundSurfaceOpacity?: number
   /** Legacy persisted setting; ignored. Runtime output is retained without a quota. */
   outputLimit?: number
 }

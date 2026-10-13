@@ -1,6 +1,7 @@
 mod app_updates;
 mod artifacts;
 mod attachments;
+mod backgrounds;
 mod discovery;
 mod fonts;
 mod goal_assistant;
@@ -330,6 +331,8 @@ pub fn run() {
             attachments::read_clipboard_attachments,
             attachments::save_clipboard_file,
             attachments::read_attachment_image,
+            backgrounds::import_background_image,
+            backgrounds::read_background_image,
             artifacts::read_artifact,
             artifacts::read_artifact_pdf_chunk,
             artifacts::open_artifact,

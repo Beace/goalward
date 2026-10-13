@@ -1,5 +1,5 @@
 .agents-page { display:flex; width:100%; height:100%; min-width:0; min-height:0; background:var(--background); }
-.agents-master { width:280px; flex-shrink:0; display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--color-border); background:var(--color-sidebar); }
+.agents-master { width:280px; flex-shrink:0; display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--color-border); background:var(--app-sidebar); }
 .agents-master-heading { padding:18px 16px 12px; display:flex; align-items:center; justify-content:space-between; }
 .agents-master-heading h1 { font-size:16px; font-weight:600; margin:0; line-height:24px; }
 .agents-master-heading span { font-size:10px; color:var(--color-muted-foreground); }
