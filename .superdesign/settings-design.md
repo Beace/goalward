@@ -2,7 +2,7 @@
 
 ## Requirements for this iteration
 
-The user requested a settings page to configure and manage runtimes, models, and related options. Add an independent desktop settings page using the existing workbench's dense design and shared theme. The formal application supports System, Dark, and Light themes, defaulting to System; historical prototypes retain their dark examples. A "Settings" text entry remains visible at the workbench's bottom left. A fixed "Back to workbench" entry sits at the bottom of the settings navigation, below the instance-status explanation and close to the position used to enter settings. Keep automatic detection at the top right.
+The user requested a settings page to configure and manage runtimes, models, and related options. Add an independent desktop settings page using the existing workbench's dense design and shared theme. The formal application supports System, Dark, Light, and Cobalt2 themes, defaulting to System; historical prototypes retain their dark examples. A "Settings" text entry remains visible at the workbench's bottom left. A fixed "Back to workbench" entry sits at the bottom of the settings navigation, below the instance-status explanation and close to the position used to enter settings. Keep automatic detection at the top right.
 
 ## Information structure
 
@@ -71,13 +71,13 @@ Table columns: Display name, Model ID, Provider connection, Available runtimes, 
 ## Appearance
 
 - Theme precedes UI font and uses the shared shadcn/ui Select, matching other compact settings forms.
-- Options are "System", "Dark", and "Light". Default to "System", including older configuration without a theme field.
+- Options are "System", "Dark", "Light", and "Cobalt2". Default to "System", including older configuration without a theme field. Cobalt2 follows Wes Bos's Cobalt2 Theme Official, using the deep blue backgrounds and yellow accent in design-system.md.
 - Theme, UI font, and language apply globally immediately on selection and save automatically; Appearance requires no "Save changes" click. Keep controls usable while saving. Rapid changes retain the latest selection without allowing older responses to overwrite it.
 - Appearance saves submit only theme, font, and language fields, merging with the latest saved configuration. Unsaved runtime, model, provider, execution, and storage drafts remain and are not submitted with appearance changes.
 - Show saving, saved, and failed states. A failed save retains a recoverable choice and offers retry, without claiming persistence succeeded. Other settings retain "Revert" and "Save changes"; saving or reverting them must not overwrite already saved appearance values.
-- "System" responds to operating-system appearance changes while the application runs. A saved "Dark" or "Light" choice is not overridden by system changes.
+- "System" responds to operating-system appearance changes while the application runs. A saved "Dark", "Light", or "Cobalt2" choice is not overridden by system changes. Native windows and form controls use dark appearance for Cobalt2, while the interface retains its distinct palette.
 - The workbench, settings, chat, trace, shared menus / overlays, notifications, and artifact-preview chrome use the same semantic tokens. HTML, image, and remote web artifacts retain their own designs without forced rewriting.
-- Both themes share layout, fonts, control heights, warm sand accents, and interaction semantics. Light mode uses design-system.md's light values without a separate component system.
+- All themes share layout, fonts, control heights, and interaction semantics. Dark and Light use warm sand accents; Cobalt2 uses a yellow accent. All palettes follow design-system.md without a separate component system.
 - Font selection provides search over locally available fonts, updating the whole UI and preview on selection. Code and execution logs retain monospace fonts.
 - Language supports "System", "Simplified Chinese", and "English". Initially choose Chinese or English from the system language; other system languages fall back to English. An explicit choice immediately updates labels and saves automatically, without rewriting user content, runtime names, or paths.
 - Acceptance covers first launch / older-configuration defaults, restart after automatic saving, live System-mode changes, fixed-theme isolation, rapid successive changes, failure retry, and workbench / settings / menu / error / focus states. Also verify changing Appearance with an unsaved runtime draft: persist only appearance values while retaining the draft. Subsequent manual save, revert, or discard must not overwrite the latest appearance preferences.
@@ -112,7 +112,7 @@ Global configuration is a default template. Creating an execution member copies 
 
 ## Visual constraints
 
-Reuse the current theme's layered backgrounds, warm sand accent, Inter / system Chinese fonts, 13 px body text, fine borders, and small radii from design-system.md. Dark mode retains the near-black palette; light mode uses the light mappings of the same semantic tokens. Clearly identify the selected settings category and runtime. Prohibit marketing-page structures, gradients, fabricated vendor identities, and large images.
+Reuse the current theme's layered backgrounds, accent, Inter / system Chinese fonts, 13 px body text, fine borders, and small radii from design-system.md. Dark mode retains the near-black palette, light mode uses the light mappings of the same semantic tokens, and Cobalt2 uses deep blue backgrounds with a yellow accent. Dark and Light retain their warm sand accents. Clearly identify the selected settings category and runtime. Prohibit marketing-page structures, gradients, fabricated vendor identities, and large images.
 
 Use ONLY the fonts, colors, spacing, and component styles defined in the design system. Do not introduce any fonts, colors, or visual styles not in the design system.
 

@@ -36,7 +36,7 @@ export interface ModelConfig {
 export interface ProviderConfig {
   id: string; name: string; baseUrl: string; credentialEnv: string
 }
-export type ThemePreference = 'system' | 'dark' | 'light'
+export type ThemePreference = 'system' | 'dark' | 'light' | 'cobalt2'
 export interface Settings {
   runtimes: RuntimeConfig[]; models: ModelConfig[]; providers: ProviderConfig[]
   defaultRuntime: string; defaultMode: 'solo' | 'team'; maxParallel: number

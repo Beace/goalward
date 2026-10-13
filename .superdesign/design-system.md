@@ -2,7 +2,7 @@
 
 ## Mandatory project constraints
 
-Read and follow [AGENTS.md](../AGENTS.md). The project uses **shadcn/ui** as its common UI component foundation. Preserve the current compact desktop visual direction through shared theme tokens and component variants in both dark and light themes. New or changed motion must use the actual **apple-design** skill from its installed `SKILL.md`. Apply its motion and accessibility guidance within the existing visual system.
+Read and follow [AGENTS.md](../AGENTS.md). The project uses **shadcn/ui** as its common UI component foundation. Preserve the current compact desktop visual direction through shared theme tokens and component variants in all themes. New or changed motion must use the actual **apple-design** skill from its installed `SKILL.md`. Apply its motion and accessibility guidance within the existing visual system.
 
 The exported HTML drafts remain design references. This requirement governs subsequent implementation; it does not mean the existing HTML is already a shadcn/ui application.
 
@@ -14,21 +14,21 @@ The first draft is the main workbench during a three-agent collaboration. It mus
 
 ## Primary visual source
 
-The current workbench and settings designs are the visual baseline. Preserve their layered neutral surfaces, restrained warm sand/bronze accent, precise UI typography, compact controls, and fine borders. The dark palette keeps the existing near-black values; the light palette translates the same hierarchy to warm off-white surfaces. shadcn/ui supplies the component foundation; its default theme does not replace these project visuals.
+The current workbench and settings designs are the visual baseline. Preserve their layered neutral surfaces, restrained warm sand/bronze accent, precise UI typography, compact controls, and fine borders. The dark palette keeps the existing near-black values; the light palette translates the same hierarchy to warm off-white surfaces. The explicitly selected Cobalt2 palette uses the blue surfaces and yellow accent documented below. shadcn/ui supplies the component foundation; its default theme does not replace these project visuals.
 
 Historical inspiration: Superdesign library style `neural-noir-interface-style` (Neural Noir Interface Style).
 
-The user selected a professional IDE-like split view, now available in dark and light themes. Editorial typefaces, hero sections, decorative network diagrams, gradients, dot-grid decoration, floating marketing cards, glow effects, glass cards, large radii, and promotional page structures from the source do not apply. The complete allowed system is below; it overrides the source's unsuitable marketing components.
+The user selected a professional IDE-like split view, available in dark, light, and Cobalt2 themes. Editorial typefaces, hero sections, decorative network diagrams, gradients, dot-grid decoration, floating marketing cards, glow effects, glass cards, large radii, and promotional page structures from the source do not apply. The complete allowed system is below; it overrides the source's unsuitable marketing components.
 
 ## Theme behavior
 
-- **Settings → Appearance → Theme** offers System, Dark, and Light. System is the default, including older settings with no theme field.
+- **Settings → Appearance → Theme** offers System, Dark, Light, and Cobalt2. System is the default, including older settings with no theme field.
 - Theme, UI font, and language selections apply throughout the app immediately and save automatically. Appearance saves contain only these appearance preferences; they do not submit runtime, model, provider, execution, or storage edits from another settings category.
 - Runtime and other operational configuration retain the explicit Save Changes / Revert workflow. Revert and leaving with unsaved changes affect those configuration drafts, while persisted appearance preferences remain in effect.
 - Automatic saves use the latest appearance choices when changes arrive rapidly. Expose saving, saved, and failed states without claiming success before persistence completes; a failed save retains a recoverable choice and offers retry.
-- System follows operating-system appearance changes while the app is open. An explicit Dark or Light choice remains fixed until the user selects another choice. The selected mode persists across restarts after automatic saving succeeds.
+- System follows operating-system appearance changes while the app is open. An explicit Dark, Light, or Cobalt2 choice remains fixed until the user selects another choice. The selected mode persists across restarts after automatic saving succeeds. Cobalt2 resolves to a distinct palette while native window controls, form controls, and dark component variants use dark appearance.
 - Language offers System, Simplified Chinese, and English. The System choice follows the current system-language rule without rewriting goals, task content, messages, runtime names, or paths.
-- Apply the resolved palette through shared semantic tokens to the workbench, settings, chat and trace, menus, dialogs, focus and error states, toast notifications, and artifact-preview chrome. Preserve layout, fonts, spacing, radii, and interaction behavior across both themes.
+- Apply the resolved palette through shared semantic tokens to the workbench, settings, chat and trace, menus, dialogs, focus and error states, toast notifications, and artifact-preview chrome. Preserve layout, fonts, spacing, radii, and interaction behavior across all themes.
 - HTML, images, and remote web artifacts retain their own content design. Theme the enclosing application controls without modifying artifact content.
 - Theme selection updates colors without a staged entrance, positional movement, or business-operation delay. Preserve meaningful selected and pressed feedback through the shared controls.
 
@@ -91,6 +91,24 @@ Use neutral monochrome for most of the interface. Accent is sparse and purposefu
 - Window control colors remain the dark baseline values.
 
 The lighter surface hierarchy uses the same semantic roles as dark mode. Status text and file icons use darker values to retain contrast against the light backgrounds. All implementation values, including supporting surfaces, contrast fallbacks, overlays, and syntax colors, are centralized in `src/index.css`.
+
+## Colors — Cobalt2 palette
+
+This additional theme follows [Cobalt2 Theme Official by Wes Bos](https://marketplace.visualstudio.com/items?itemName=wesbos.theme-cobalt2), using the [official theme source at c4e9574](https://github.com/wesbos/cobalt2-vscode/blob/c4e9574372b85afad1682ed0fdd1ac0411c62512/theme/cobalt2.json) for the blue surface hierarchy and yellow accent. It is an explicitly selected palette; the neutral/sand defaults remain the System, Dark, and Light choices.
+
+- Window, menu, input, and code surfaces: #122738.
+- Title bar, sidebar, and inspector: #15232D.
+- Main workspace: #193549.
+- Hover surface: #1F4662; selected surface: #0D3A58; selected border: #234E6D.
+- Primary text: #FFFFFF; chat text: #E1EFFF.
+- Secondary text: #D5E3EE; muted text: #B7C9D8; faint metadata: #A5BED1.
+- Primary action, active accent, and focus ring: #FFC600; primary-action text: #122738.
+- Text selection: #0050A4.
+- Subtle divider: #0D3A58; interactive strong border and scrollbar: #51758C.
+- Running / success: #3AD900 on #173E35; waiting: #FFC600 on #3B3A27; failure: #FFA0BC on #492C43.
+- File and member indicators reuse the official orange, cyan, green, and pink family, with brighter blue/red variants where needed for compact labels.
+
+Supporting text, strong borders, and error colors are adapted for readability instead of copying low-contrast upstream values. Destructive buttons and badges use opaque pink with dark text to retain contrast; pointer hover uses a subtle shared-token tint. All values live in the `:root[data-theme="cobalt2"]` block in `src/index.css`; shadcn/ui primitives and authored CSS consume the same semantic roles. Cobalt2 keeps the existing spacing, fonts, density, control sizes, and motion. Theme changes use the shared interruptible color feedback; reduced motion updates statically.
 
 ## Spacing and components
 
@@ -180,6 +198,10 @@ Runtime/model controls changed during a run show Applies to the next run. Runtim
 
 ## Motion and accessibility
 
+- Numeric data uses `src/components/ui/animated-number.tsx`: on its first visible appearance, count from zero to the actual value using the shared critically damped `numericSpring` in `src/lib/motion.ts`. Reserve the final text width, keep units and surrounding content stable, and expose the actual target to assistive technology throughout. Unknown data stays unknown. IDs, versions, ordinals, timestamps, editable inputs and user-authored content retain their literal values.
+- Progress bars and segmented goal charts fill from zero when first visible through the shared `Progress` and `AnimatedFill` components. Animate only the contained fill transform; controls keep their full hit area and are immediately usable. Subsequent numeric changes retarget from the current presentation and velocity without replaying the entrance. Clocks, streaming counters and download text use `animateUpdates={false}` to follow frequent source updates immediately after entry.
+- Offscreen data starts when it enters the viewport. A rerender does not replay a completed entrance. Live `prefers-reduced-motion` changes immediately settle the current presentation at the real value and remove counting/fill movement; turning motion back on does not replay a visible entrance. Data animation never delays requests, changes stored values or announces fabricated completion.
+
 - **Motion authority: `apple-design`.** Read the current installed skill before designing or implementing motion. The following rules derive from its response, interruptibility, spring, gesture, spatial-consistency, and accessibility guidance. Resolve the installation path again on another machine.
 - **Default development workflow:** Every interactive UI change follows the [default motion workflow in AGENTS.md](../AGENTS.md#default-development-workflow-for-frontend-interaction-motion). Proactively implement purposeful feedback with `apple-design` and `animate`; use `find-animation-opportunities` for a read-only discovery pass when filling gaps in existing pages, then implement within the authorized scope. Reuse the shared shadcn/ui components, `src/lib/motion.ts`, and centralized CSS motion parameters. Verify generated animation styles, entry/exit behavior, and the applicable interaction checks below; audit-only requests remain read-only. The project rules and `apple-design` take precedence over supplemental skill examples.
 - **Immediate response:** show pressed feedback on pointer-down; commit actions through the normal click / keyboard activation behavior. No artificial delay or waiting for a transition before processing input.
@@ -208,7 +230,7 @@ These are project-specific applications of the skill, rather than additional cla
 
 - Avoid continuous decorative animations and entry sequences. Functional running feedback remains compact and must have a reduced-motion equivalent.
 - Verify with interactive examples: normal and reduced motion, mid-animation reversal, repeated switching, pointer cancellation, keyboard navigation, and streaming content. Review in slow motion when needed to catch position or velocity jumps.
-- Clear keyboard focus rings in warm sand; readable contrast; semantic button labels and titles for icon-only actions.
+- Clear keyboard focus rings in the current theme's accent; readable contrast; semantic button labels and titles for icon-only actions.
 - Suggested shortcuts: Cmd+K global command, Cmd+N new task, Cmd+Enter send, Esc close overlay. These are product design proposals.
 
 ## Strict fidelity

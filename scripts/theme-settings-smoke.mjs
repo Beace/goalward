@@ -6,6 +6,24 @@ const output = 'test-results/theme-settings'
 await mkdir(output, { recursive: true })
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const results = []
+function contrast(foreground, background) {
+  function luminance(color) {
+    const channels = color.startsWith('#')
+      ? color.slice(1).match(/.{2}/g).map(channel => Number.parseInt(channel, 16))
+      : color.startsWith('color(srgb ')
+        ? color.match(/[\d.]+/g).slice(0, 3).map(channel => Number(channel) * 255)
+        : color.match(/[\d.]+/g).slice(0, 3).map(Number)
+    expect(channels).toHaveLength(3)
+    const [red, green, blue] = channels.map(channel => {
+      const value = channel / 255
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+  }
+  const a = luminance(foreground)
+  const b = luminance(background)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
 try {
   for (const [width, height] of [[1536, 960], [1280, 720]]) {
     for (const reducedMotion of ['no-preference', 'reduce']) {
@@ -92,14 +110,23 @@ try {
         await expect(picker).toContainText('跟随系统')
 
         const surfaces = []
-        for (const [preference, label] of [['light', '浅色'], ['dark', '深色']]) {
+        for (const { preference, label, colorScheme, surfaceColor, logoBrightness } of [
+          { preference: 'light', label: '浅色', colorScheme: 'light', surfaceColor: 'rgb(255, 255, 255)', logoBrightness: 17 },
+          { preference: 'dark', label: '深色', colorScheme: 'dark', surfaceColor: 'rgb(32, 34, 34)', logoBrightness: 246 },
+          { preference: 'cobalt2', label: 'Cobalt2', colorScheme: 'dark', surfaceColor: 'rgb(18, 39, 56)', logoBrightness: 246 },
+        ]) {
           await pick(label)
           await saved(preference, preference)
-          await expect(root).toHaveCSS('color-scheme', preference)
+          await expect(root).toHaveCSS('color-scheme', colorScheme)
+          if (colorScheme === 'dark') await expect(root).toHaveClass(/(^|\s)dark(\s|$)/)
+          else await expect(root).not.toHaveClass(/(^|\s)dark(\s|$)/)
           const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.theme)
           expect(persisted).toBe(preference)
-          await page.emulateMedia({ colorScheme: preference === 'dark' ? 'light' : 'dark' })
-          await expect(root).toHaveAttribute('data-theme', preference)
+          for (const systemScheme of ['light', 'dark']) {
+            await page.emulateMedia({ colorScheme: systemScheme })
+            await expect(root).toHaveAttribute('data-theme', preference)
+            await expect(root).toHaveCSS('color-scheme', colorScheme)
+          }
           // Portaled font picker, theme menu and notifications share the palette.
           await picker.press('Space')
           await expect(page.getByRole('listbox')).toBeVisible()
@@ -112,9 +139,22 @@ try {
           await expect(page.getByRole('combobox', { name: '界面字体', exact: true })).toBeFocused()
           const colors = await page.evaluate(() => {
             const root = getComputedStyle(document.documentElement)
-            return Object.fromEntries(['background', 'foreground', 'muted-foreground', 'sidebar', 'card', 'status-success', 'destructive'].map(name => [name, root.getPropertyValue('--' + name).trim()]))
+            return Object.fromEntries(['background', 'foreground', 'muted-foreground', 'sidebar', 'card', 'primary', 'primary-foreground', 'ring', 'secondary', 'accent', 'status-success', 'status-success-surface', 'destructive', 'destructive-surface'].map(name => [name, root.getPropertyValue('--' + name).trim()]))
           })
-          expect(menuColor).toBe(preference === 'light' ? 'rgb(255, 255, 255)' : 'rgb(32, 34, 34)')
+          const contrastRatios = preference === 'cobalt2' ? {
+            foreground: contrast(colors.foreground, colors.background),
+            mutedForeground: contrast(colors['muted-foreground'], colors.background),
+            primaryButton: contrast(colors['primary-foreground'], colors.primary),
+            success: contrast(colors['status-success'], colors.background),
+            successSurface: contrast(colors['status-success'], colors['status-success-surface']),
+            error: contrast(colors.destructive, colors.background),
+            errorSurface: contrast(colors.destructive, colors['destructive-surface']),
+          } : null
+          if (preference === 'cobalt2') {
+            expect(colors).toMatchObject({ background: '#193549', foreground: '#ffffff', sidebar: '#15232d', card: '#122738', primary: '#ffc600', ring: '#ffc600', secondary: '#1f4662', accent: '#0d3a58' })
+            for (const [name, ratio] of Object.entries(contrastRatios)) expect(ratio, `Cobalt2 ${name} contrast`).toBeGreaterThanOrEqual(4.5)
+          }
+          expect(menuColor).toBe(surfaceColor)
           expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
           await expect(page.getByText('外观已自动保存', { exact: true })).toBeInViewport()
           await expect(page.locator('[data-dialog-exit]')).toHaveCount(0)
@@ -137,19 +177,56 @@ try {
             for (let i = 0; i < pixels.length; i += 4) if (pixels[i + 3] > 200) visible.push(pixels[i])
             return Math.round(visible.reduce((sum, value) => sum + value, 0) / visible.length)
           })
-          expect(piPixels).toBe(preference === 'light' ? 17 : 246)
+          expect(piPixels).toBe(logoBrightness)
           await page.getByRole('button', { name: '返回工作台', exact: true }).click()
           await page.getByRole('button', { name: /为工作台增加全局命令面板/ }).click()
           await expect(page.locator('.task-heading')).toBeVisible()
           await page.screenshot({ path: `${output}/workbench-${name}.png` })
-          await page.getByRole('button', { name: '新建任务', exact: true }).click()
+          let inspectorColors = null
+          if (preference === 'cobalt2') {
+            await page.getByRole('button', { name: '打开执行检查器', exact: true }).click()
+            await expect(page.locator('.inspector-surface')).toBeVisible()
+            await expect(page.locator('.trace-panel')).toBeVisible()
+            await expect(page.locator('.inspector-tabs')).toHaveCSS('background-color', 'rgb(25, 53, 73)')
+            await expect(page.locator('.trace-panel')).toHaveCSS('background-color', 'rgb(21, 35, 45)')
+            inspectorColors = await page.evaluate(() => Object.fromEntries(['inspector-tabs', 'trace-panel'].map(name => [name, getComputedStyle(document.querySelector('.' + name)).backgroundColor])))
+            await page.screenshot({ path: `${output}/workbench-inspector-${name}.png` })
+            await page.getByRole('button', { name: '收起检查器', exact: true }).click()
+            await expect(page.locator('.inspector-surface')).toBeHidden()
+          }
+          await page.getByRole('button', { name: '创建任务', exact: true }).click()
           await expect(page.getByRole('dialog')).toBeVisible()
           const dialogColor = await page.locator('[data-slot=dialog-content]').evaluate(el => getComputedStyle(el).backgroundColor)
           expect(dialogColor).toBe(menuColor)
+          const primaryButtonColors = await page.getByRole('dialog').locator('[data-slot=button][data-variant=default]').first().evaluate(el => ({ color: getComputedStyle(el).color, background: getComputedStyle(el).backgroundColor }))
+          if (preference === 'cobalt2') {
+            expect(primaryButtonColors.background).toBe('rgb(255, 198, 0)')
+            expect(contrast(primaryButtonColors.color, primaryButtonColors.background), 'Rendered Cobalt2 primary button contrast').toBeGreaterThanOrEqual(4.5)
+          }
           await page.keyboard.press('Escape')
           await expect(page.getByRole('dialog')).toBeHidden()
+          let destructiveButtonColors = null
+          if (preference === 'cobalt2') {
+            await page.locator('.task-heading').getByRole('button', { name: /^删除任务：/ }).click()
+            const deleteDialog = page.getByRole('dialog', { name: '删除任务？', exact: true })
+            await expect(deleteDialog).toBeVisible()
+            const destructiveButton = deleteDialog.getByRole('button', { name: '删除任务', exact: true })
+            await expect(destructiveButton).toBeEnabled()
+            const normal = await destructiveButton.evaluate(el => ({ color: getComputedStyle(el).color, background: getComputedStyle(el).backgroundColor }))
+            expect(normal.background).toBe('rgb(255, 160, 188)')
+            expect(contrast(normal.color, normal.background), 'Rendered Cobalt2 destructive button contrast').toBeGreaterThanOrEqual(4.5)
+            await destructiveButton.hover()
+            await expect.poll(() => destructiveButton.evaluate(el => el.getAnimations().length)).toBe(0)
+            const hover = await destructiveButton.evaluate(el => ({ color: getComputedStyle(el).color, background: getComputedStyle(el).backgroundColor }))
+            expect(hover.background).not.toBe(normal.background)
+            expect(contrast(hover.color, hover.background), 'Hovered Cobalt2 destructive button contrast').toBeGreaterThanOrEqual(4.5)
+            destructiveButtonColors = { normal, hover }
+            await deleteDialog.getByRole('button', { name: '取消', exact: true }).click()
+            await expect(deleteDialog).toBeHidden()
+            await expect(page.locator('.task-heading').getByRole('button', { name: /^删除任务：/ })).toBeFocused()
+          }
           await appearance()
-          surfaces.push({ preference, colors, menuColor, dialogColor, piPixels })
+          surfaces.push({ preference, colorScheme, colors, menuColor, dialogColor, primaryButtonColors, destructiveButtonColors, inspectorColors, contrastRatios, piPixels })
         }
 
         await pick('跟随系统')
@@ -181,9 +258,65 @@ try {
         await expect(page.getByRole('listbox')).toBeVisible()
         await expect(page.getByRole('option', { name: '跟随系统', exact: true })).toBeFocused()
         await page.keyboard.press('End')
-        await expect(page.getByRole('option', { name: '浅色', exact: true })).toBeFocused()
+        await expect(page.getByRole('option', { name: 'Cobalt2', exact: true })).toBeFocused()
         await page.keyboard.press('Enter')
         await expect(picker).toBeFocused()
+        await expect(picker).toContainText('Cobalt2')
+        await saved('cobalt2', 'cobalt2')
+
+        // Keyboard selections can reverse an active palette transition without
+        // waiting for its feedback or storage confirmation to finish.
+        async function paletteSample() {
+          return page.locator('.titlebar').evaluate(el => {
+            const style = getComputedStyle(el)
+            const picker = document.querySelector('#app-theme')
+            return {
+              theme: document.documentElement.dataset.theme,
+              background: style.backgroundColor,
+              transform: style.transform,
+              titlebarRect: el.getBoundingClientRect().toJSON(),
+              pickerRect: picker.getBoundingClientRect().toJSON(),
+              animations: el.getAnimations().map(animation => ({
+                property: animation.transitionProperty,
+                currentTime: animation.currentTime,
+                playState: animation.playState,
+                keyframes: animation.effect.getKeyframes(),
+              })),
+            }
+          })
+        }
+        const initialPaletteSample = await paletteSample()
+        const paletteReversalSamples = []
+        let currentPaletteLabel = 'Cobalt2'
+        for (const [preference, label] of [['dark', '深色'], ['cobalt2', 'Cobalt2'], ['dark', '深色'], ['cobalt2', 'Cobalt2']]) {
+          await picker.press('Space')
+          await expect(page.getByRole('option', { name: currentPaletteLabel, exact: true })).toBeFocused()
+          await page.keyboard.press(preference === 'cobalt2' ? 'End' : 'Home')
+          if (preference === 'dark') {
+            await expect(page.getByRole('option', { name: '跟随系统', exact: true })).toBeFocused()
+            await page.keyboard.press('ArrowDown')
+          }
+          await expect(page.getByRole('option', { name: label, exact: true })).toBeFocused()
+          const before = await paletteSample()
+          await page.keyboard.press('Enter')
+          await expect(root).toHaveAttribute('data-theme', preference)
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)))
+          const after = await paletteSample()
+          expect(after.transform).toBe('none')
+          expect(after.titlebarRect).toEqual(initialPaletteSample.titlebarRect)
+          expect(after.pickerRect).toEqual(initialPaletteSample.pickerRect)
+          paletteReversalSamples.push({ preference, before, after })
+          currentPaletteLabel = label
+        }
+        if (reducedMotion === 'no-preference') {
+          expect(paletteReversalSamples.some(sample => sample.before.animations.some(animation => animation.property === 'background-color' && animation.playState === 'running')), 'A Cobalt2/Dark choice interrupts a live background transition').toBe(true)
+          expect(paletteReversalSamples.some(sample => sample.after.animations.some(animation => animation.property === 'background-color' && animation.currentTime !== null)), 'Palette colors animate while layout stays fixed').toBe(true)
+        } else {
+          for (const sample of paletteReversalSamples) expect(sample.after.animations).toEqual([])
+        }
+        await saved('cobalt2', 'cobalt2')
+        await expect(picker).toContainText('Cobalt2')
+        await pick('浅色')
         await expect(picker).toContainText('浅色')
         await saved('light', 'light')
         const storedName = await page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.runtimes[0].name)
@@ -198,27 +331,27 @@ try {
             return original.call(this, key, value)
           }
         })
-        await pick('深色')
+        await pick('Cobalt2')
         await expect(page.getByRole('alert').filter({ hasText: '自动保存失败' }).first()).toBeVisible()
         await expect(root).toHaveAttribute('data-theme', 'light')
         await expect(picker).toContainText('浅色')
         await page.evaluate(() => { window.restoreThemeStorage(); delete window.restoreThemeStorage })
         await page.getByRole('button', { name: '重试', exact: true }).click()
-        await expect(root).toHaveAttribute('data-theme', 'dark')
-        await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.theme)).toBe('dark')
+        await expect(root).toHaveAttribute('data-theme', 'cobalt2')
+        await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.theme)).toBe('cobalt2')
         await expect(page.getByText('外观已自动保存 · 其他设置有未保存的更改', { exact: true })).toBeVisible()
         expect(await page.evaluate(() => JSON.parse(localStorage.getItem('goalward.preview.v1')).settings.runtimes[0].name)).toBe(storedName)
         await page.getByRole('button', { name: '运行时', exact: true }).click()
         await expect(page.getByLabel('名称', { exact: true })).toHaveValue('Unsaved runtime name')
         await page.getByRole('button', { name: '还原', exact: true }).click()
         await page.getByRole('button', { name: '外观', exact: true }).click()
-        await expect(picker).toContainText('深色')
+        await expect(picker).toContainText('Cobalt2')
         await page.getByRole('button', { name: '返回工作台', exact: true }).click()
         await expect(page.getByRole('dialog')).toHaveCount(0)
         await page.reload()
-        await expect(root).toHaveAttribute('data-theme', 'dark')
+        await expect(root).toHaveAttribute('data-theme', 'cobalt2')
         expect(errors).toEqual([])
-        results.push({ width, height, reducedMotion, initialSystem, savedAndReloaded: true, followsSystemLive: true, explicitOverride: true, immediateApply: true, automaticSave: true, runtimeDraftIsolated: true, saveFailureRetry: true, saveFailureRollback: true, keyboardFocus: true, menuEntrance, menuExit, menuReopen, surfaces, reversalSamples: samples, errors })
+        results.push({ width, height, reducedMotion, initialSystem, savedAndReloaded: true, followsSystemLive: true, explicitOverride: true, immediateApply: true, automaticSave: true, runtimeDraftIsolated: true, saveFailureRetry: true, saveFailureRollback: true, keyboardFocus: true, menuEntrance, menuExit, menuReopen, surfaces, reversalSamples: samples, paletteReversalSamples, errors })
         console.log(`PASS theme ${width}x${height} ${reducedMotion} OS ${initialSystem}`)
         await context.close()
       }

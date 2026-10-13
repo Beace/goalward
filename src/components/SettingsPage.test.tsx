@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { hasSemanticText } from '@/test/semantic-text'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -355,7 +356,7 @@ describe('SettingsPage appearance', () => {
     const callbacks = mount({ settings: { ...settings(), theme: 'unknown' as ThemePreference } })
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
     expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('跟随系统')
-    await screen.findByText('本机可用字体 · 1 款')
+    await screen.findByText(hasSemanticText('本机可用字体 · 1 款'))
     expect(screen.queryByRole('button', { name: '保存更改' })).toBeNull()
     expect(screen.queryByRole('button', { name: '还原' })).toBeNull()
     expect(callbacks.onAppearanceChange).not.toHaveBeenCalled()
@@ -367,7 +368,7 @@ describe('SettingsPage appearance', () => {
     const callbacks = mount()
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
     expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('跟随系统')
-    await screen.findByText('本机可用字体 · 1 款')
+    await screen.findByText(hasSemanticText('本机可用字体 · 1 款'))
     expect(callbacks.onAppearanceChange).not.toHaveBeenCalled()
     expect(callbacks.onSave).not.toHaveBeenCalled()
   })
@@ -376,6 +377,8 @@ describe('SettingsPage appearance', () => {
     ['dark', '浅色', 'light'],
     ['light', '深色', 'dark'],
     ['light', '跟随系统', 'system'],
+    ['system', 'Cobalt2', 'cobalt2'],
+    ['cobalt2', '跟随系统', 'system'],
   ] as [ThemePreference, string, ThemePreference][])('applies and saves a theme change from %s to %s immediately', async (previous, option, theme) => {
     bridge.listSystemFonts.mockResolvedValue(['Menlo'])
     const callbacks = mountControlled({ ...settings(), theme: previous })
@@ -393,7 +396,7 @@ describe('SettingsPage appearance', () => {
     bridge.listSystemFonts.mockResolvedValue(['Menlo', 'PingFang SC'])
     const callbacks = mountControlled()
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
-    await screen.findByText('本机可用字体 · 2 款')
+    await screen.findByText(hasSemanticText('本机可用字体 · 2 款'))
     fireEvent.click(screen.getByRole('combobox', { name: '界面字体' }))
     fireEvent.click(await screen.findByRole('option', { name: 'Menlo' }))
     expect(callbacks.onAppearanceChange.mock.calls).toEqual([[{ fontFamily: 'Menlo' }]])
@@ -407,15 +410,17 @@ describe('SettingsPage appearance', () => {
     expect(callbacks.onSave).not.toHaveBeenCalled()
   })
 
-  it('keeps appearance controls responsive during saving and retains the latest rapid selection', async () => {
+  it.each([
+    ['深色', 'dark'], ['Cobalt2', 'cobalt2'],
+  ] as const)('keeps appearance controls responsive during saving and retains the latest rapid %s selection', async (option, theme) => {
     bridge.listSystemFonts.mockResolvedValue(['Menlo'])
     const callbacks = mountControlled({ ...settings(), theme: 'dark' }, { appearanceSaving: true })
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
     await selectOption('界面主题', '浅色')
-    await selectOption('界面主题', '深色')
-    expect(callbacks.onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ theme: 'dark' }]])
-    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe('深色')
-    expect(callbacks.currentSettings().theme).toBe('dark')
+    await selectOption('界面主题', option)
+    expect(callbacks.onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ theme }]])
+    expect(screen.getByRole('combobox', { name: '界面主题' }).textContent).toBe(option)
+    expect(callbacks.currentSettings().theme).toBe(theme)
     expect(callbacks.onSave).not.toHaveBeenCalled()
   })
 
@@ -492,7 +497,7 @@ describe('SettingsPage appearance', () => {
     mount({ settings: { ...settings(), theme: 'dark' }, onAppearanceChange })
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
     await selectOption('界面主题', '浅色')
-    await screen.findByText('本机可用字体 · 1 款')
+    await screen.findByText(hasSemanticText('本机可用字体 · 1 款'))
     fireEvent.click(screen.getByRole('combobox', { name: '界面字体' }))
     fireEvent.click(await screen.findByRole('option', { name: 'Menlo' }))
     await waitFor(() => expect(onAppearanceChange.mock.calls).toEqual([[{ theme: 'light' }], [{ fontFamily: 'Menlo' }]]))
@@ -531,7 +536,7 @@ describe('SettingsPage appearance', () => {
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
     await selectOption('界面主题', '浅色')
     expect((await screen.findByRole('alert')).textContent).toContain('主题：Theme unavailable')
-    await screen.findByText('本机可用字体 · 1 款')
+    await screen.findByText(hasSemanticText('本机可用字体 · 1 款'))
     fireEvent.click(screen.getByRole('combobox', { name: '界面字体' }))
     fireEvent.click(await screen.findByRole('option', { name: 'Menlo' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('字体：Font unavailable'))
@@ -559,7 +564,7 @@ describe('SettingsPage appearance', () => {
     fireEvent.click(screen.getByRole('button', { name: '外观' }))
     expect((await screen.findByRole('alert')).textContent).toContain('Font service unavailable')
     fireEvent.click(screen.getByRole('button', { name: '刷新' }))
-    await screen.findByText('本机可用字体 · 1 款')
+    await screen.findByText(hasSemanticText('本机可用字体 · 1 款'))
     expect(screen.queryByRole('alert')).toBeNull()
     expect(callbacks.onAppearanceChange).not.toHaveBeenCalled()
     expect(callbacks.onSave).not.toHaveBeenCalled()

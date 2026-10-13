@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { semanticText } from '@/test/semantic-text'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
@@ -295,7 +296,7 @@ describe('composer configuration and live conversation', () => {
     fireEvent.keyDown(screen.getByRole('dialog', { name: '成员与 Runtime' }), { key: 'Escape' })
     fireEvent.keyDown(screen.getByRole('tab', { name: '成员会话' }), { key: 'Enter' })
     fireEvent.click(screen.getByRole('button', { name: 'Codex · Review' }))
-    expect(screen.getByRole('button', { name: /^消息接收者：/ }).textContent).toContain('所有成员 · 2 人')
+    expect(semanticText(screen.getByRole('button', { name: /^消息接收者：/ }))).toContain('所有成员 · 2 人')
     fireEvent.change(screen.getByRole('textbox', { name: '任务指令' }), { target: { value: 'Complete the task together' } })
     fireEvent.click(screen.getByRole('button', { name: '发送指令' }))
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('Complete the task together', 'all'))

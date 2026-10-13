@@ -30,7 +30,7 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy()
     expect(screen.getByRole('progressbar', { name: '进行中目标标准平均验收率 50%' })).toBeTruthy()
     expect(screen.getByRole('progressbar', { name: '目标完成率 50%' })).toBeTruthy()
-    expect(within(screen.getByRole('region', { name: '目标标准验收进度' })).getByText('1 / 2')).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: '目标标准验收进度' })).getByLabelText('1 / 2')).toBeTruthy()
     expect(screen.queryByText('为工作台增加全局命令面板')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /继续执行/ }))
@@ -79,7 +79,7 @@ describe('DashboardPage', () => {
     render(<DashboardPage state={state} onGoal={vi.fn()} onTask={vi.fn()} onGoals={vi.fn()} onTasks={vi.fn()} onNewTask={vi.fn()} now={now} />)
 
     expect(screen.getByRole('progressbar', { name: '本周任务完成率 50%' })).toBeTruthy()
-    expect(screen.getByText('50% 完成 · 今日完成 0 · 未开始 0')).toBeTruthy()
+    expect(screen.getByLabelText('50% 完成 · 今日完成 0 · 未开始 0')).toBeTruthy()
     expect(screen.getByRole('progressbar', { name: '进行中目标标准平均验收率 0%' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Meets requirements：待验证' })).toBeTruthy()
     expect(within(screen.getByRole('row', { name: /New result not accepted yet/ })).getByText('待验收')).toBeTruthy()

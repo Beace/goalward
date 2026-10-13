@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { useState, type ReactNode, type RefObject } from 'react'
 import { ListTodo, Plus, Search, SlidersHorizontal, Target, X } from 'lucide-react'
 import { Button } from './ui/button'
@@ -56,7 +57,7 @@ export function TasksPage({ state, selectedTaskId, onTask, onCreate, rememberedW
         })}
         {!tasks.length && <div className="task-picker-empty"><h2>{workTasks.length ? t('没有匹配的任务', 'No matching tasks') : t('还没有任务', 'No tasks yet')}</h2>{filtered ? <Button variant="ghost" size="sm" onClick={clear}>{t('清除筛选', 'Clear filters')}</Button> : <p>{t('点击上方 + 创建任务', 'Click + above to create a task')}</p>}</div>}
       </div>
-      <footer className="task-picker-footer"><span>{tasks.length} / {workTasks.length} {t('个任务', 'tasks')}</span>{filtered && <Button variant="ghost" size="sm" onClick={clear}>{t('清除筛选', 'Clear filters')}</Button>}</footer>
+      <footer className="task-picker-footer"><span><AnimatedNumber value={tasks.length} /> / <AnimatedNumber value={workTasks.length} /> {t('个任务', 'tasks')}</span>{filtered && <Button variant="ghost" size="sm" onClick={clear}>{t('清除筛选', 'Clear filters')}</Button>}</footer>
     </aside>}>
       {children}
     </GoalListLayout>
