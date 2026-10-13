@@ -39,7 +39,9 @@ docs/composer-v13.md
 docs/kimi-runtime-prototype.md
 docs/task-actions-implementation.md
 screenshots/*
+!screenshots/goalward-goals-en.png
 !screenshots/goalward-workbench-en.png
+!screenshots/goalward-appearance-en.png
 assets/branding/super-agents-icon.png
 assets/branding/legacy-terminal/
 src-tauri/icons/app.svg
