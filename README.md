@@ -8,7 +8,9 @@ Goalward is also a desktop proxy for coding agents: run them individually or tog
 
 **Supported agents:** Codex · Claude Code · Kimi CLI · Pi · DeepSeek Harness · Custom CLI runtimes
 
-![Goalward English workbench preview](screenshots/goalward-workbench-en.png)
+![Goalward goal overview with task delivery progress, success criteria, and working directories](screenshots/goalward-goals-en.png)
+
+*Goal overview in the current English interface. Screenshots use illustrative data in the browser preview; conversation and execution records are examples.*
 
 ## Download
 
@@ -46,6 +48,18 @@ Choose **System**, **Dark**, **Light**, or **Cobalt2** in **Settings → Appeara
 In **Settings → Appearance → Theme**, choose a local background picture below the theme selector, then adjust **Background image opacity** and **Interface background opacity** from 0–100%. Image opacity controls the picture's visibility; interface opacity controls how opaque the main panel colors are, while text and controls retain their own appearance. Changes apply immediately and save automatically. The desktop app keeps a private copy of the image in its data directory, so moving the original file does not break the background. Browser previews keep the image separately in browser storage. Images are limited to 32 MB; unsupported or damaged files show a recoverable error. Reduced transparency or increased contrast uses solid surfaces. See [background behavior and verification](docs/appearance-background.md).
 
 Goalward starts in Chinese or English based on your Mac's language; other system languages use English. To choose manually or return to the system default, use **Settings → Appearance → Language**. Runtime, model, execution, and storage configuration changes still use **Save Changes**. Changing appearance saves only appearance preferences and leaves other unsaved configuration edits in your draft.
+
+## Screenshots
+
+The Tasks workspace keeps the task list, goal link, conversation, message composer, and execution inspector together.
+
+![Goalward Tasks workspace with a goal-linked conversation and execution inspector](screenshots/goalward-workbench-en.png)
+
+Appearance settings include Cobalt2 alongside System, Dark, and Light themes, plus background image, opacity, language, and font controls.
+
+![Goalward Appearance settings with Cobalt2 selected and background, language, and font controls](screenshots/goalward-appearance-en.png)
+
+These screenshots show the current frontend at 1536 × 960 with sample workspace data. They do not show a live native agent execution. To refresh them with Google Chrome installed, start `npm run dev` and run `node scripts/readme-screenshots.mjs`; set `GOALWARD_SCREENSHOT_URL` if the development server uses a different address. The capture script also checks the three views at 1280 × 720.
 
 ## Data
 
