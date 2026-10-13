@@ -1,9 +1,17 @@
 /** Read actual accessible values while ignoring animated presentation overlays. */
 export function semanticText(element: Element | null): string {
   if (!element || element.getAttribute('aria-hidden') === 'true') return ''
-  const copy = element.cloneNode(true) as Element
-  copy.querySelectorAll('[aria-hidden="true"]').forEach(node => node.remove())
-  return (copy.textContent ?? '').replace(/\s+/g, ' ').trim()
+  const read = (node: Element): string => {
+    if (node.getAttribute('aria-hidden') === 'true') return ''
+    let text = ''
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) text += child.textContent ?? ''
+      else if (child.nodeType === 1) text += read(child as Element)
+    }
+    return text
+  }
+  // Read without cloning the entire trace subtree for every candidate element.
+  return read(element).replace(/\s+/g, ' ').trim()
 }
 
 export function hasSemanticText(expected: string | RegExp) {
