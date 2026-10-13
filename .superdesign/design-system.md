@@ -23,7 +23,7 @@ The user selected a professional IDE-like split view, available in dark, light, 
 ## Theme behavior
 
 - **Settings → Appearance → Theme** offers System, Dark, Light, and Cobalt2. System is the default, including older settings with no theme field.
-- Theme, UI font, and language selections apply throughout the app immediately and save automatically. Appearance saves contain only these appearance preferences; they do not submit runtime, model, provider, execution, or storage edits from another settings category.
+- Theme, UI font, language, background image, and background opacity selections apply throughout the app immediately and save automatically. Appearance saves contain only these appearance preferences; they do not submit runtime, model, provider, execution, or storage edits from another settings category.
 - Runtime and other operational configuration retain the explicit Save Changes / Revert workflow. Revert and leaving with unsaved changes affect those configuration drafts, while persisted appearance preferences remain in effect.
 - Automatic saves use the latest appearance choices when changes arrive rapidly. Expose saving, saved, and failed states without claiming success before persistence completes; a failed save retains a recoverable choice and offers retry.
 - System follows operating-system appearance changes while the app is open. An explicit Dark, Light, or Cobalt2 choice remains fixed until the user selects another choice. The selected mode persists across restarts after automatic saving succeeds. Cobalt2 resolves to a distinct palette while native window controls, form controls, and dark component variants use dark appearance.
@@ -31,6 +31,15 @@ The user selected a professional IDE-like split view, available in dark, light, 
 - Apply the resolved palette through shared semantic tokens to the workbench, settings, chat and trace, menus, dialogs, focus and error states, toast notifications, and artifact-preview chrome. Preserve layout, fonts, spacing, radii, and interaction behavior across all themes.
 - HTML, images, and remote web artifacts retain their own content design. Theme the enclosing application controls without modifying artifact content.
 - Theme selection updates colors without a staged entrance, positional movement, or business-operation delay. Preserve meaningful selected and pressed feedback through the shared controls.
+
+### Global background image
+
+- Settings → Appearance offers one local image for the entire app, Choose / Replace / Remove actions, and separate Background image opacity / Interface background opacity controls. Both use a shared shadcn/ui Slider plus percentage Input, with 0–100% bounds and keyboard support. Image opacity defaults to 100%, surface opacity to 85%; no selected image preserves the original opaque interface.
+- Use one fixed, center/cover image behind the whole application. Main workbench, navigation, settings, goal, agent, setup, and Trace surfaces reveal this same image through centralized `--app-*` aliases. Split wrappers remain transparent so they do not compound several tint layers. Layout, typography, borders and sizes remain unchanged.
+- Image opacity affects only image pixels. Surface opacity affects only main region background colors. Never apply opacity to the full app, a text container, buttons, or icons. Shared controls, menus, dialogs, and artifact content retain their authored colors and opacity; embedded HTML, remote pages, and images keep their own design.
+- While the image is enabled, supporting text uses the current palette's existing contrast variants. Reduced transparency and increased contrast hide the decorative image and restore solid app surfaces without discarding the saved preference.
+- Sliders follow pointer and keyboard input immediately, including during theme switching, with no interpolation that lags behind the pointer. Loading/import feedback and failure/retry states remain visible and use shared control feedback. Background images have no entrance movement or decorative animation.
+- Store only a managed `{name, path}` image reference in appearance settings. Native image bytes live separately in private app storage; browser preview bytes live separately in IndexedDB. Keep prior assets so a failed settings save can restore the earlier image. The latest read/selection owns the visible result; replacement, removal and unmount ignore stale completions and release obsolete Blob URLs.
 
 ## Typography
 

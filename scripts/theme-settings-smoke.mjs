@@ -264,6 +264,10 @@ try {
         await expect(picker).toContainText('Cobalt2')
         await saved('cobalt2', 'cobalt2')
 
+        // Inspect reversal at 5x the normal feedback duration. Browser scheduling
+        // under concurrent smoke load must not consume the entire 200 ms probe.
+        // The normal-duration entrance/exit checks above still use production CSS.
+        if (reducedMotion === 'no-preference') await page.evaluate(() => document.documentElement.style.setProperty('--motion-theme-duration', '1s'))
         // Keyboard selections can reverse an active palette transition without
         // waiting for its feedback or storage confirmation to finish.
         async function paletteSample() {
@@ -315,6 +319,7 @@ try {
           for (const sample of paletteReversalSamples) expect(sample.after.animations).toEqual([])
         }
         await saved('cobalt2', 'cobalt2')
+        if (reducedMotion === 'no-preference') await page.evaluate(() => document.documentElement.style.removeProperty('--motion-theme-duration'))
         await expect(picker).toContainText('Cobalt2')
         await pick('浅色')
         await expect(picker).toContainText('浅色')

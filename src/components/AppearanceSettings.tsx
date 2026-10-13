@@ -9,9 +9,28 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@
 import { isDesktop, listSystemFonts } from '@/lib/bridge'
 import { normalizeFontFamily, uiFontStack } from '@/lib/fonts'
 import { useI18n } from '@/i18n'
-import type { ThemePreference } from '@/lib/types'
+import type { AppBackgroundImage, ThemePreference } from '@/lib/types'
+import type { AppearancePatch } from '@/lib/appearance'
+import { BackgroundSettings } from '@/components/BackgroundSettings'
 
-export function AppearanceSettings({ value, onChange, themeValue = 'system', onThemeChange, languagePreference, onLanguageChange, disabled }: { value?: string; onChange: (family: string) => void; themeValue?: ThemePreference; onThemeChange: (theme: ThemePreference) => void; languagePreference?: 'zh' | 'en'; onLanguageChange: (language?: 'zh' | 'en') => void; disabled: boolean }) {
+interface AppearanceSettingsProps {
+  value?: string
+  onChange: (family: string) => void
+  themeValue?: ThemePreference
+  onThemeChange: (theme: ThemePreference) => void
+  languagePreference?: 'zh' | 'en'
+  onLanguageChange: (language?: 'zh' | 'en') => void
+  backgroundImage?: AppBackgroundImage
+  backgroundImageOpacity?: number
+  backgroundSurfaceOpacity?: number
+  backgroundLoading?: boolean
+  backgroundError?: string
+  onBackgroundRetry?: () => void
+  onBackgroundChange?: (patch: AppearancePatch) => void
+  disabled: boolean
+}
+
+export function AppearanceSettings({ value, onChange, themeValue = 'system', onThemeChange, languagePreference, onLanguageChange, backgroundImage, backgroundImageOpacity, backgroundSurfaceOpacity, backgroundLoading, backgroundError, onBackgroundRetry, onBackgroundChange, disabled }: AppearanceSettingsProps) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [families, setFamilies] = useState<string[]>([])
@@ -32,7 +51,7 @@ export function AppearanceSettings({ value, onChange, themeValue = 'system', onT
   const options = selected && !families.includes(selected) ? [selected, ...families] : families
   function select(family: string) { if (family !== selected) onChange(family); setOpen(false) }
   return <div className="space-y-7">
-    <div><h1 className="text-xl font-semibold">{t('外观', 'Appearance')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('调整应用主题、语言与界面字体。选择后立即生效并自动保存。', 'Choose the app theme, language, and interface font. Changes apply immediately and save automatically.')}</p></div>
+    <div><h1 className="text-xl font-semibold">{t('外观', 'Appearance')}</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">{t('调整应用主题、背景图、语言与界面字体。选择后立即生效并自动保存。', 'Choose the app theme, background image, language, and interface font. Changes apply immediately and save automatically.')}</p></div>
     <section className="space-y-4">
       <h3 className="border-b border-border pb-2 text-[13px] font-semibold">{t('主题', 'Theme')}</h3>
       <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">
@@ -51,6 +70,7 @@ export function AppearanceSettings({ value, onChange, themeValue = 'system', onT
         </div>
       </div>
     </section>
+    {onBackgroundChange && <BackgroundSettings image={backgroundImage} imageOpacity={backgroundImageOpacity} surfaceOpacity={backgroundSurfaceOpacity} loading={backgroundLoading} error={backgroundError} onRetry={onBackgroundRetry} onChange={onBackgroundChange} disabled={disabled} />}
     <section className="space-y-4">
       <h3 className="border-b border-border pb-2 text-[13px] font-semibold">{t('语言', 'Language')}</h3>
       <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-4">

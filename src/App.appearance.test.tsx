@@ -13,6 +13,8 @@ const bridge = vi.hoisted(() => ({
   startRun: vi.fn(), stopRun: vi.fn(), probeRuntime: vi.fn(), storageInfo: vi.fn(),
 }))
 vi.mock('@/lib/bridge', () => bridge)
+// This suite exercises settings persistence, independently of image decoding.
+vi.mock('@/lib/background-image', () => ({ loadBackgroundImage: vi.fn(() => new Promise(() => {})) }))
 vi.mock('@/components/Workbench', () => ({ Workbench: () => null }))
 vi.mock('@/components/TracePanel', () => ({ TracePanel: () => null }))
 vi.mock('@/components/ui/resizable', () => ({
@@ -34,6 +36,7 @@ vi.mock('@/components/SettingsPage', () => ({
       <output data-testid="current-theme">{settings.theme}</output>
       <output data-testid="current-font">{settings.fontFamily}</output>
       <output data-testid="current-runtime">{settings.runtimes[0].name}</output>
+      <output data-testid="current-background">{settings.backgroundImage?.path}</output>
       <output data-testid="runtime-result">{runtimeResult}</output>
       <output data-testid="appearance-result">{appearanceResult}</output>
       <output data-testid="font-result">{fontResult}</output>
@@ -47,9 +50,19 @@ vi.mock('@/components/SettingsPage', () => ({
         void onAppearanceChange({ fontFamily: 'Menlo' }).then(() => setFontResult('saved'), () => setFontResult('failed'))
       }}>Choose Menlo font</button>
       <button onClick={() => {
+        setAppearanceResult('pending')
+        void onAppearanceChange({
+          backgroundImage: { name: 'wallpaper.png', path: '/managed/appearance/backgrounds/wallpaper.png' },
+          backgroundImageOpacity: 65, backgroundSurfaceOpacity: 85,
+        }).then(() => setAppearanceResult('saved'), () => setAppearanceResult('failed'))
+      }}>Set background image</button>
+      <button onClick={() => {
         // A manual Runtime draft may predate the appearance selection.
         const stale = structuredClone(settings)
         stale.theme = 'dark'
+        delete stale.backgroundImage
+        delete stale.backgroundImageOpacity
+        delete stale.backgroundSurfaceOpacity
         stale.runtimes[0].name = 'Edited Runtime'
         setRuntimeResult('pending')
         void onSave(stale).then(() => setRuntimeResult('saved'), () => setRuntimeResult('failed'))
@@ -113,6 +126,30 @@ function expectLightTheme() {
 }
 
 describe('App appearance persistence', () => {
+  it('automatically saves image references and opacity without losing them to an older Runtime draft', async () => {
+    await openSettings()
+    const writes = holdWrites()
+    fireEvent.click(screen.getByRole('button', { name: 'Set background image' }))
+    const appearance = {
+      backgroundImage: { name: 'wallpaper.png', path: '/managed/appearance/backgrounds/wallpaper.png' },
+      backgroundImageOpacity: 65, backgroundSurfaceOpacity: 85,
+    }
+    expect(screen.getByTestId('current-background').textContent).toBe(appearance.backgroundImage.path)
+    expect(screen.getByTestId('appearance-saving').textContent).toBe('true')
+    expect(writes).toHaveLength(1)
+    expect(writes[0].state.settings).toMatchObject(appearance)
+    expect(writes[0].state.settings.runtimes).toEqual(stored.settings.runtimes)
+    expect(stored.settings.backgroundImage).toBeUndefined()
+    await act(async () => writes[0].resolve())
+    expect(stored.settings).toMatchObject(appearance)
+    fireEvent.click(screen.getByRole('button', { name: 'Save older Runtime draft' }))
+    expect(writes).toHaveLength(2)
+    expect(writes[1].state.settings).toMatchObject(appearance)
+    await act(async () => writes[1].resolve())
+    expect(stored.settings).toMatchObject(appearance)
+    expect(stored.settings.runtimes[0].name).toBe('Edited Runtime')
+  })
+
   it('applies appearance immediately and keeps it when a later Runtime save submits an old theme', async () => {
     await openSettings()
     const writes = holdWrites()
