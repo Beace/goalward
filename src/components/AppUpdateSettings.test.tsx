@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { hasSemanticText } from '@/test/semantic-text'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppUpdateSettings } from './AppUpdateSettings'
@@ -48,7 +49,7 @@ describe('app update settings', () => {
     const update = controller({ phase: 'downloaded' })
     const view = render(<AppUpdateSettings update={update} activeCount={2} unsaved={false} />)
     expect((screen.getByRole('button', { name: '安装更新' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText(/2 个执行实例/)).toBeTruthy()
+    expect(screen.getByText(hasSemanticText(/2 个执行实例/))).toBeTruthy()
     view.rerender(<AppUpdateSettings update={update} activeCount={0} tasksBusy unsaved={false} />)
     expect((screen.getByRole('button', { name: '安装更新' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText(/等待任务编排结束/)).toBeTruthy()

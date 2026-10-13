@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { hasSemanticText } from '@/test/semantic-text'
 import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -116,7 +117,7 @@ describe('task editing and deletion through the application', () => {
     const dialog = await openDelete()
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '取消' }))
     expect(within(dialog).getByText('整理任务文档')).toBeTruthy()
-    expect(within(dialog).getByText('0 条对话 · 0 次执行 · 0 项结果')).toBeTruthy()
+    expect(within(dialog).getByText(hasSemanticText('0 条对话 · 0 次执行 · 0 项结果'))).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
     await closed()
     await waitFor(() => expect(document.activeElement).toBe(trigger))
@@ -182,8 +183,8 @@ describe('task editing and deletion through the application', () => {
     stored.tasks.push(createWorkspaceTask(stored.settings, { title: '子任务校验', parentTaskId: parent.id }))
     await mountTasks()
     const dialog = await openDelete()
-    expect(within(dialog).getByText('请先处理 1 个子任务')).toBeTruthy()
-    expect(within(dialog).getByText('1 个任务仍依赖此任务')).toBeTruthy()
+    expect(within(dialog).getByText(hasSemanticText('请先处理 1 个子任务'))).toBeTruthy()
+    expect(within(dialog).getByText(hasSemanticText('1 个任务仍依赖此任务'))).toBeTruthy()
     expect((within(dialog).getByRole('button', { name: '删除任务' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(within(dialog).getByRole('button', { name: '验证实现' }))
     await closed()

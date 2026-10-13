@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { Check, CircleAlert, Download, ExternalLink, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -7,8 +8,8 @@ import { openExternalUrl } from '@/lib/bridge'
 import { notify } from '@/components/ui/sonner'
 import type { AppUpdateController } from '@/hooks/use-app-update'
 
-function bytes(value: number) {
-  return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MiB` : `${(value / 1024).toFixed(1)} KiB`
+function bytes(value: number, target = value) {
+  return target >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MiB` : `${(value / 1024).toFixed(1)} KiB`
 }
 
 export function AppUpdateSettings({ update, activeCount, unsaved, tasksBusy = false }: { update: AppUpdateController; activeCount: number; unsaved: boolean; tasksBusy?: boolean }) {
@@ -43,7 +44,7 @@ export function AppUpdateSettings({ update, activeCount, unsaved, tasksBusy = fa
         <p role="status" aria-live="polite" className="flex items-center gap-2 text-xs">{update.error ? <CircleAlert className="size-3.5 text-destructive" /> : busy ? <Spinner className="size-3.5" /> : ['current', 'downloaded', 'installed'].includes(update.phase) ? <Check className="size-3.5 text-status-success" /> : null}{update.error ? t('操作未完成，请重试', 'The operation did not complete. Retry to continue.') : status}</p>
         {update.phase === 'downloading' && <div className="space-y-2">
           {progress !== undefined && <Progress value={progress} aria-label={t('更新下载进度', 'Update download progress')} />}
-          <p className="text-[11px] text-muted-foreground">{bytes(update.downloadedBytes)}{update.totalBytes ? ` / ${bytes(update.totalBytes)} · ${Math.floor(progress ?? 0)}%` : t(' 已下载 · 总大小未知', ' downloaded · Total size unknown')}</p>
+          <p className="text-[11px] text-muted-foreground"><AnimatedNumber value={update.downloadedBytes} format={value => bytes(value, update.downloadedBytes)} animateUpdates={false} />{update.totalBytes ? <> / <AnimatedNumber value={update.totalBytes} format={value => bytes(value, update.totalBytes)} /> · <AnimatedNumber value={Math.floor(progress ?? 0)} animateUpdates={false} />%</> : t(' 已下载 · 总大小未知', ' downloaded · Total size unknown')}</p>
         </div>}
         {update.error && <p role="alert" className="break-words text-xs leading-5 text-destructive">{update.error.message}</p>}
         <div className="flex flex-wrap gap-2">
@@ -52,7 +53,7 @@ export function AppUpdateSettings({ update, activeCount, unsaved, tasksBusy = fa
           {(update.phase === 'installed' || update.phase === 'restarting') && <Button size="sm" disabled={busy || blocked} onClick={() => void update.restart()}>{update.phase === 'restarting' ? <Spinner className="size-3.5" /> : <RotateCcw className="size-3.5" />}{update.error?.stage === 'restart' ? t('重试重启', 'Retry restart') : t('重启并使用新版本', 'Restart and use update')}</Button>}
           {update.info.releaseUrl && <Button variant="ghost" size="sm" onClick={() => void openExternalUrl(update.info.releaseUrl!).catch(error => notify.error(t('无法打开版本页面：', 'Could not open release page: ') + String(error).replace(/^Error: /, '')))}><ExternalLink className="size-3.5" />{t('查看 GitHub Release', 'View GitHub Release')}</Button>}
         </div>
-        {(['downloaded', 'installed', 'installing', 'restarting'].includes(update.phase)) && <p className="text-[11px] leading-5 text-muted-foreground">{activeCount > 0 ? t(`请等待 ${activeCount} 个执行实例结束后再安装或重启。`, `Wait for ${activeCount} active instances to finish before installing or restarting.`) : tasksBusy ? t('请等待任务编排结束后再安装或重启。', 'Wait for task orchestration to finish before installing or restarting.') : unsaved ? t('请先保存或还原设置更改，并等待本地数据保存完成。', 'Save or restore settings changes and wait for local data to finish saving.') : t('安装后需要手动重启，更新不会自动重启应用。', 'Restart manually after installation. Updates do not restart the app automatically.')}</p>}
+        {(['downloaded', 'installed', 'installing', 'restarting'].includes(update.phase)) && <p className="text-[11px] leading-5 text-muted-foreground">{activeCount > 0 ? <>{t('请等待 ', 'Wait for ')}<AnimatedNumber value={activeCount} />{t(' 个执行实例结束后再安装或重启。', ' active instances to finish before installing or restarting.')}</> : tasksBusy ? t('请等待任务编排结束后再安装或重启。', 'Wait for task orchestration to finish before installing or restarting.') : unsaved ? t('请先保存或还原设置更改，并等待本地数据保存完成。', 'Save or restore settings changes and wait for local data to finish saving.') : t('安装后需要手动重启，更新不会自动重启应用。', 'Restart manually after installation. Updates do not restart the app automatically.')}</p>}
       </div>
       {update.info.notes && <div className="space-y-2"><h2 className="text-xs font-medium">{t('版本说明', 'Release notes')}</h2><p className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">{update.info.notes}</p></div>}
       <p className="text-[11px] leading-5 text-muted-foreground">{t('更新来自 Goalward 的 GitHub Release，下载后验证发布签名。当前 macOS 包仍为临时签名，未经 Apple 公证。', 'Updates come from Goalward GitHub Releases; the release signature is verified after download. macOS packages currently use ad hoc signing and are not notarized by Apple.')}</p>

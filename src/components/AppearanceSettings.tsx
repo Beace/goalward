@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { useEffect, useState } from 'react'
 import { Check, ChevronsUpDown, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -82,7 +83,7 @@ export function AppearanceSettings({ value, onChange, themeValue = 'system', onT
             </PopoverContent>
           </Popover>
           <p className="text-[11px] leading-5 text-muted-foreground">{t('选择后立即应用于工作台、聊天和设置页，并自动保存，下次启动继续使用。代码与执行日志保留等宽字体；缺失的字形自动使用系统字体。', 'Font changes apply immediately throughout the app, save automatically, and persist across launches. Code and execution logs stay monospaced; missing glyphs use a system fallback.')}</p>
-          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><span role="status">{loading ? t('正在读取字体…', 'Loading fonts…') : isDesktop ? t(`本机可用字体 · ${families.length} 款`, `Available system fonts · ${families.length}`) : t('浏览器预览提供常用字体；桌面应用显示本机字体。', 'Browser preview shows common fonts; the desktop app shows installed fonts.')}</span><Button variant="ghost" size="sm" disabled={loading || disabled} onClick={() => setRevision(current => current + 1)}><RefreshCw className="size-3.5" />{t('刷新', 'Refresh')}</Button></div>
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><span role="status">{loading ? t('正在读取字体…', 'Loading fonts…') : isDesktop ? <>{t('本机可用字体 ·', 'Available system fonts ·')} <AnimatedNumber value={families.length} />{t(' 款', '')}</> : t('浏览器预览提供常用字体；桌面应用显示本机字体。', 'Browser preview shows common fonts; the desktop app shows installed fonts.')}</span><Button variant="ghost" size="sm" disabled={loading || disabled} onClick={() => setRevision(current => current + 1)}><RefreshCw className="size-3.5" />{t('刷新', 'Refresh')}</Button></div>
           {error && <p role="alert" className="text-xs text-destructive">{t('无法读取本机字体：', 'Could not load system fonts: ')}{error}{t('。可点击刷新重试，或选择应用默认。', '. Refresh to retry, or choose the app default.')}</p>}
           {!loading && !error && isDesktop && selected && !families.includes(selected) && <p role="status" className="text-xs text-muted-foreground">{t('本机未找到已选字体，将使用默认字体回退。', 'The selected font was not found; the app will use its default font.')}</p>}
         </div>

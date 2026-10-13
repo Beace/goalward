@@ -54,7 +54,7 @@
 .goal-entry-fact .goal-entry-kind, .goal-entry-artifact .goal-entry-kind { color: var(--status-success); }
 .goal-metric { margin: 5px 0; font-size: 12px; color: var(--sidebar-foreground); }
 .goal-metric strong { font-variant-numeric: tabular-nums; font-size: 16px; color: var(--foreground); }
-.goal-metric span { display: block; font-size: 11px; color: var(--muted-foreground); }
+.goal-metric > span { display: block; font-size: 11px; color: var(--muted-foreground); }
 .goal-proposal { padding: 10px 12px; border: 1px solid var(--border-strong); border-left: 2px solid var(--status-warning); background: var(--card); border-radius: 4px; margin-bottom: 8px; }
 .goal-proposal > p:first-child { margin: 0 0 4px; font-size: 13px; overflow-wrap: anywhere; }
 .goal-row-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }

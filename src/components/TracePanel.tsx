@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { memo, useEffect, useId, useMemo, useState } from 'react'
 import { Activity, ArrowDownLeft, ArrowUpRight, Brain, Check, CircleAlert, Clock3, Copy, Download, FileDiff, Globe, ListFilter, LoaderCircle, MessageSquare, Play, Radio, Terminal, Wrench, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -46,13 +47,13 @@ function CallDuration({ call }: { call: TraceToolCall }) {
   const elapsed = ((call.endedAt ? Date.parse(call.endedAt) : now) - Date.parse(call.startedAt)) / 1000
   if (!Number.isFinite(elapsed) || elapsed < 0) return null
   const label = elapsed < 60 ? `${elapsed < 10 ? elapsed.toFixed(1) : Math.floor(elapsed)} s` : `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s`
-  return <span className="trace-duration" aria-label={`${t('耗时', 'Duration')} ${label}`}>{label}</span>
+  return <span className="trace-duration" aria-label={`${t('耗时', 'Duration')} ${label}`}><AnimatedNumber value={elapsed} animateUpdates={false} format={value => elapsed < 60 ? `${elapsed < 10 ? value.toFixed(1) : Math.floor(value)} s` : `${Math.floor(value / 60)}m ${Math.floor(value % 60)}s`} /></span>
 }
 function RawRecord({ event }: { event: TraceEntry }) {
   const { t } = useI18n()
   return <div className="trace-raw-record">
     <div className="trace-section-heading"><span className="trace-protocol" title={event.eventType ?? event.kind}>{event.eventType ?? event.kind}</span><CopyValue text={event.text} label={t('复制事件输出', 'Copy event output')} /></div>
-    <div className="trace-source-id" title={event.sourceIds.join('\n')}>{formatTime(event.timestamp)} · {t('记录', 'Record')} {event.sourceIds[0]?.slice(0, 12)}{event.sourceIds.length > 1 && t(` · ${event.sourceIds.length} 个输出片段`, ` · ${event.sourceIds.length} output segments`)}</div>
+    <div className="trace-source-id" title={event.sourceIds.join('\n')}>{formatTime(event.timestamp)} · {t('记录', 'Record')} {event.sourceIds[0]?.slice(0, 12)}{event.sourceIds.length > 1 && <> · <AnimatedNumber value={event.sourceIds.length} animateUpdates={false} /> {t('个输出片段', 'output segments')}</>}</div>
     <MemoTracePayload value={event.text || t('无输出', 'No output')} />
     {event.exitCode != null && <div className="trace-exit-code">{t('退出码', 'Exit code')} {event.exitCode}</div>}
   </div>
@@ -76,11 +77,11 @@ function RawRecords({ records, callId, view, update }: { records: TraceEntry[]; 
   const page = Math.min(view.page, Math.max(0, Math.ceil(records.length / pageSize) - 1))
   const start = page * pageSize
   return <Collapsible className="trace-raw-records" open={view.rawOpen} onOpenChange={rawOpen => update({ rawOpen })}>
-    <CollapsibleTrigger className="trace-raw-trigger"><CollapsibleIndicator size={12} /><span>{t('原始记录', 'Raw records')}</span><span>{records.length}</span></CollapsibleTrigger>
+    <CollapsibleTrigger className="trace-raw-trigger"><CollapsibleIndicator size={12} /><span>{t('原始记录', 'Raw records')}</span><span><AnimatedNumber value={records.length} animateUpdates={false} /></span></CollapsibleTrigger>
     <CollapsibleContent unmountOnExit>
       {callId && <div className="trace-call-id" title={callId}>{t('调用', 'Call')} {callId}</div>}
       {records.length > pageSize && <div className="trace-record-pages" aria-label={t('原始记录分页', 'Raw record pages')}>
-        <span>{start + 1}–{Math.min(start + pageSize, records.length)} / {records.length}</span>
+        <span>{start + 1}–{Math.min(start + pageSize, records.length)} / <AnimatedNumber value={records.length} animateUpdates={false} /></span>
         <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => update({ page: page - 1 })}>{t('上一页', 'Previous')}</Button>
         <Button variant="ghost" size="sm" disabled={start + pageSize >= records.length} onClick={() => update({ page: page + 1 })}>{t('下一页', 'Next')}</Button>
       </div>}
@@ -103,7 +104,7 @@ function StreamDetail({ stream, reasoning = false, view, update }: { stream: Tra
   const tokens = reasoning ? (stream as TraceReasoningStream).estimatedTokens : undefined
   return <div className="trace-detail trace-call-detail">
     <section className="trace-call-payload" aria-labelledby={headingId} aria-busy={stream.status === 'running'}>
-      <div className="trace-section-heading"><h4 id={headingId}>{label}<span>{t(`${stream.records.length} 个原始记录`, `${stream.records.length} raw records`)}{tokens !== undefined && ` · ${tokens} tokens`}</span></h4><CopyValue text={stream.text} label={t(`复制完整${reasoning ? '思考内容' : '回复内容'}`, `Copy full ${label}`)} /></div>
+      <div className="trace-section-heading"><h4 id={headingId}>{label}<span><AnimatedNumber value={stream.records.length} animateUpdates={false} /> {t('个原始记录', 'raw records')}{tokens !== undefined && <> · <AnimatedNumber value={tokens} animateUpdates={false} /> tokens</>}</span></h4><CopyValue text={stream.text} label={t(`复制完整${reasoning ? '思考内容' : '回复内容'}`, `Copy full ${label}`)} /></div>
       <pre className="trace-payload trace-payload-text" tabIndex={0} aria-label={label}><code>{stream.text}</code></pre>
     </section>
     <RawRecords records={stream.records} view={view} update={update} />
@@ -160,7 +161,7 @@ export function TracePanel({ task, run, onClose, onExport, initialMemberId, embe
   return <aside className="trace-panel" aria-label={t('执行检查器', 'Run inspector')}>
     {!embedded && <div className="pane-heading"><span><Activity size={15} />{t('执行过程', 'Run activity')}</span><div className="flex gap-1"><Button variant="ghost" size="icon-sm" title={t('导出聊天与执行过程', 'Export chat and run activity')} aria-label={t('导出聊天与执行过程', 'Export chat and run activity')} onClick={onExport}><Download /></Button><Button variant="ghost" size="icon-sm" title={t('收起检查器', 'Collapse inspector')} aria-label={t('收起检查器', 'Collapse inspector')} onClick={onClose}><X /></Button></div></div>}
     <div className="trace-controls"><Select value={selectedMember} onValueChange={setFilter}><SelectTrigger aria-label={t('按成员筛选执行过程', 'Filter run activity by member')}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t('全部成员', 'All members')}</SelectItem>{members.map(m => <SelectItem key={m.id} value={m.id}><span className="inline-flex items-center gap-2"><RuntimeLogo runtime={run?.members.find(member => member.id === m.id)?.runtime} runtimeId={m.runtimeId} />{m.name} · {m.role}</span></SelectItem>)}</SelectContent></Select><Button variant={errorsOnly ? 'secondary' : 'ghost'} size="icon-sm" title={t('仅显示错误', 'Show errors only')} aria-label={t('仅显示错误', 'Show errors only')} aria-pressed={errorsOnly} onClick={() => setErrorsOnly(!errorsOnly)}><ListFilter /></Button></div>
-    <div className="trace-meta"><span><Clock3 size={12} /> {t(`${events.length} 条记录`, `${events.length} records`)}</span><span>{runningCount ? t(`${runningCount} 项执行中`, `${runningCount} running`) : t('实时记录', 'Live records')}</span></div>
+    <div className="trace-meta"><span><Clock3 size={12} /> <AnimatedNumber value={events.length} animateUpdates={false} /> {t('条记录', 'records')}</span><span>{runningCount ? <><AnimatedNumber value={runningCount} animateUpdates={false} /> {t('项执行中', 'running')}</> : t('实时记录', 'Live records')}</span></div>
     <VirtualList key={`${task.id}:${run?.id ?? 'all'}:${selectedMember}:${errorsOnly}`} items={events} getKey={eventKey} label={t('执行记录（方向键切换，Home / End 跳到首尾）', 'Run records (use arrow keys to navigate; Home / End jumps to start or end)')}
       empty={<div className="empty-trace"><Terminal size={24} /><p>{errorsOnly ? t('没有错误事件', 'No error events') : t('等待执行事件', 'Waiting for run events')}</p><span>{errorsOnly ? t('当前筛选范围内没有已识别的错误。', 'No recognized errors in the current filter.') : t('启动 Agent 后，搜索、工具调用、回复与进程输出会出现在这里。', 'After an Agent starts, searches, tool calls, replies, and process output appear here.')}</span></div>}
       renderItem={event => <TraceRow event={event} member={memberByRoute.get(JSON.stringify([event.runId, event.memberId])) ?? members.find(member => member.id === event.memberId)} views={views} />}

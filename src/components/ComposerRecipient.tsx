@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { useState } from 'react'
 import { ArrowRight, Check, ChevronDown, ChevronRight, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -35,7 +36,7 @@ export function ComposerRecipient({ task, settings, selectedRun, historic, runni
   if (member?.modelId && !models.some(item => item.modelId === member.modelId)) choices.push({ id: member.modelId, name: historic ? snapshot?.model || member.modelId : `${member.modelId} · ${t('已有配置', 'Existing configuration')}`, model: undefined })
   return <>
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild><Button variant="ghost" size="sm" className="composer-recipient-trigger" aria-label={t(`消息接收者：${label}`, `Message recipient: ${label}`)}><span>{t('发给：', 'To:')}</span><span className="composer-recipient-label">{label}</span><ChevronDown size={12} /></Button></PopoverTrigger>
+      <PopoverTrigger asChild><Button variant="ghost" size="sm" className="composer-recipient-trigger" aria-label={t(`消息接收者：${label}`, `Message recipient: ${label}`)}><span>{t('发给：', 'To:')}</span><span className="composer-recipient-label">{all ? <>{t('所有成员 · ', 'All members · ')}<AnimatedNumber value={members.length} />{t(' 人', '')}</> : label}</span><ChevronDown size={12} /></Button></PopoverTrigger>
       <PopoverContent side="top" align="start" sideOffset={6} collisionPadding={12} className="composer-recipient-menu" aria-label={t('接收者与模型配置', 'Recipient and model configuration')}>
         <div className="recipient-columns">
           <div className="recipient-members" aria-label={t('发送目标', 'Send to')}>

@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Maximize2, Minus, Plus } from 'lucide-react'
 import { getDocument, GlobalWorkerOptions, PDFDataRangeTransport } from 'pdfjs-dist/legacy/build/pdf.mjs'
@@ -200,7 +201,7 @@ export function ArtifactPdf({ directory, path, bytes, allowLarge, revision }: Ar
         if (event.key === 'Enter') { event.preventDefault(); commitPage() }
         if (event.key === 'Escape') { event.preventDefault(); setPageDraft(String(page)) }
       }}/>
-      <span className="artifact-pdf-page-count">/ {pdf.numPages}</span>
+      <span className="artifact-pdf-page-count">/ <AnimatedNumber value={pdf.numPages} /></span>
       <Button variant="ghost" size="icon-sm" aria-label={t('下一页', 'Next page')} title={t('下一页', 'Next page')} disabled={page >= pdf.numPages} onClick={() => goToPage(page + 1)}><ChevronRight/></Button>
       <span className="artifact-pdf-toolbar-spacer"/>
       <Button variant="ghost" size="icon-sm" aria-label={t('缩小', 'Zoom out')} title={t('缩小', 'Zoom out')} disabled={zoom !== 'fit' && zoom <= minZoom} onClick={() => changeZoom(-0.25)}><Minus/></Button>

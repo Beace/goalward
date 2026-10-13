@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Check, Code2, Copy, ExternalLink, Eye, FolderOpen, Globe, RefreshCw, Save } from 'lucide-react'
 import { Button } from './ui/button'
@@ -95,7 +96,7 @@ export function ArtifactPreview({ artifact, onSaved, onOpenLink, onOpenUrl }: { 
       </div>
       {actionError && <p className="artifact-error" role="alert">{actionError}</p>}
       {error && <div className="artifact-load-state" role="alert"><p>{content !== undefined || imageDataUrl || pdfBytes !== undefined ? t(`刷新失败，仍显示上次读取的内容：${error}`, `Refresh failed; showing the previously loaded content: ${error}`) : error}</p><Button variant="outline" size="sm" disabled={reading} onClick={() => setRefresh(n => n + 1)}>{t('重新读取', 'Reload')}</Button></div>}
-      {oversizedBytes !== undefined && <div className="artifact-load-state" role="alert"><p>{t(`文件大小为 ${(oversizedBytes / (1024 * 1024)).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} MB，超过 500 MB 默认预览上限。`, `This file is ${(oversizedBytes / (1024 * 1024)).toLocaleString('en-US', { maximumFractionDigits: 1 })} MB, above the 500 MB automatic preview limit.`)}</p><Button variant="outline" size="sm" disabled={reading} onClick={() => { setOversizedBytes(undefined); setApprovedSource(identity) }}>{t('仍要打开', 'Open anyway')}</Button></div>}
+      {oversizedBytes !== undefined && <div className="artifact-load-state" role="alert"><p>{t('文件大小为 ', 'This file is ')}<AnimatedNumber value={oversizedBytes / (1024 * 1024)} format={value => value.toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 1 })} />{t(' MB，超过 500 MB 默认预览上限。', ' MB, above the 500 MB automatic preview limit.')}</p><Button variant="outline" size="sm" disabled={reading} onClick={() => { setOversizedBytes(undefined); setApprovedSource(identity) }}>{t('仍要打开', 'Open anyway')}</Button></div>}
       {reading && content === undefined && !imageDataUrl && pdfBytes === undefined && <div className="artifact-load-state" role="status">{imageFile ? t('正在读取图片…', 'Reading image…') : t('正在读取文件…', 'Reading file…')}</div>}
       {!remoteUrl && imageDataUrl && <ArtifactImage key={`${artifact.id}:${revision}`} src={imageDataUrl} name={artifact.name} onRetry={() => setRefresh(n => n + 1)} reading={reading}/>}
       {!remoteUrl && pdfBytes !== undefined && artifact.path && <Suspense fallback={<div className="artifact-load-state" role="status">{t('正在加载 PDF 阅读器…', 'Loading PDF viewer…')}</div>}><ArtifactPdf key={`${identity}:${revision}`} directory={artifact.directory} path={artifact.path} bytes={pdfBytes} allowLarge={allowLarge} revision={revision}/></Suspense>}

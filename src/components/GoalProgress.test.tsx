@@ -31,7 +31,7 @@ describe('GoalProgress', () => {
     const updated = { ...goal, criteria: [goal.criteria[0], { ...goal.criteria[1], status: 'unsatisfied' as const, evidence: '现场核查未满足' }] }
     rerender(<GoalProgress goal={updated} tasks={[task]} onTasks={onTasks} onCriterion={onCriterion} />)
     expect(document.activeElement).toBe(screen.getByRole('button', { name: '目标结果符合要求：未满足' }))
-    expect(within(screen.getByRole('region', { name: '目标标准验收进度' })).getByText('1 / 2')).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: '目标标准验收进度' })).getByLabelText('1 / 2')).toBeTruthy()
     expect(screen.queryByText('100%')).toBeNull()
   })
 
@@ -44,6 +44,6 @@ describe('GoalProgress', () => {
     const criterion = { id: 'unproven', text: '无法确认已满足', status: 'satisfied' as const, evidence: ' ' }
     rerender(<GoalProgress goal={{ ...goal, criteria: [criterion] }} tasks={[]} onTasks={vi.fn()} onCriterion={vi.fn()} />)
     expect(screen.getByRole('button', { name: '无法确认已满足：待验证' }).dataset.status).toBe('pending')
-    expect(within(screen.getByRole('region', { name: '目标标准验收进度' })).getByText('0 / 1')).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: '目标标准验收进度' })).getByLabelText('0 / 1')).toBeTruthy()
   })
 })

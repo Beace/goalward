@@ -341,7 +341,11 @@ button, input, textarea { font: inherit; }
 :is(button, input, textarea).font-mono { font-family: var(--font-mono); }
 button { cursor: pointer; }
 button:disabled { cursor: default; }
-.progress-motion { transition: transform var(--motion-state-duration) var(--motion-state-ease); }
+.animated-number { display: inline-grid; vertical-align: baseline; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.animated-number > span { grid-area: 1 / 1; }
+/* Transparent target text reserves width and remains the accessible value. */
+.animated-number-target { opacity: 0; pointer-events: none; user-select: none; }
+.animated-fill-container, .animated-fill { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--accent-foreground); outline-offset: 2px; }
 button:active:not(:disabled) { filter: brightness(.92); }
 svg { stroke-width: 1.5; flex-shrink: 0; }

@@ -2,6 +2,7 @@ import { ArrowRight, CalendarDays, Check, CheckCircle2, Circle, CircleDot, ListC
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
 import { Progress } from './ui/progress'
+import { AnimatedNumber } from './ui/animated-number'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
 import { RuntimeLogo } from './RuntimeLogo'
 import { GoalProgress } from './GoalProgress'
@@ -107,21 +108,21 @@ export function DashboardPage({ state, onGoal, onTask, onGoals, onTasks, onNewTa
       <section className="dashboard-metrics" aria-label={t('工作空间统计', 'Workspace metrics')}>
         <article className="dashboard-metric metric-active">
           <div className="dashboard-metric-label"><Target size={15} /><span>{t('进行中的目标', 'Active goals')}</span></div>
-          <strong>{openGoals.length}</strong>
+          <strong><AnimatedNumber value={openGoals.length} /></strong>
           {averageProgress !== null ? <Progress value={averageProgress} aria-label={`${t('进行中目标标准平均验收率', 'Average active goal criteria verification')} ${averageProgress}%`} /> : <span className="dashboard-muted" aria-label={t('目标验收进度未定义', 'Goal verification progress is undefined')}>—</span>}
-          <p>{averageProgress !== null ? `${t('标准平均验收率', 'Average criteria verification')} ${averageProgress}% · ${measurableOpenGoals.length} ${t('个目标已有完成标准', 'goals have completion criteria')}` : t('等待定义目标完成标准', 'Define goal completion criteria to measure verification')}</p>
+          <p>{averageProgress !== null ? <>{t('标准平均验收率', 'Average criteria verification')} <AnimatedNumber value={averageProgress} />% · <AnimatedNumber value={measurableOpenGoals.length} /> {t('个目标已有完成标准', 'goals have completion criteria')}</> : t('等待定义目标完成标准', 'Define goal completion criteria to measure verification')}</p>
         </article>
         <article className="dashboard-metric metric-complete">
-          <div className="dashboard-metric-label"><CheckCircle2 size={15} /><span>{t('已完成的目标', 'Achieved goals')}</span><Badge variant="outline">{goalCompletion === null ? '—' : `${goalCompletion}%`}</Badge></div>
-          <strong>{achievedGoals.length}<small>/ {state.goals.length} {t('总目标', 'total goals')}</small></strong>
+          <div className="dashboard-metric-label"><CheckCircle2 size={15} /><span>{t('已完成的目标', 'Achieved goals')}</span><Badge variant="outline">{goalCompletion === null ? '—' : <><AnimatedNumber value={goalCompletion} />%</>}</Badge></div>
+          <strong><AnimatedNumber value={achievedGoals.length} /><small>/ <AnimatedNumber value={state.goals.length} /> {t('总目标', 'total goals')}</small></strong>
           {goalCompletion !== null ? <Progress value={goalCompletion} aria-label={`${t('目标完成率', 'Goal completion rate')} ${goalCompletion}%`} /> : <span className="dashboard-muted">—</span>}
-          <p>{state.goals.length ? `${t('完成率', 'Completion rate')} ${goalCompletion}% · ${state.goals.length - achievedGoals.length} ${t('个目标仍在生命周期中', 'goals are still active')}` : t('创建目标后，这里会展示整体完成率', 'Create a goal to see the overall completion rate')}</p>
+          <p>{goalCompletion !== null ? <>{t('完成率', 'Completion rate')} <AnimatedNumber value={goalCompletion} />% · <AnimatedNumber value={state.goals.length - achievedGoals.length} /> {t('个目标仍在生命周期中', 'goals are still active')}</> : t('创建目标后，这里会展示整体完成率', 'Create a goal to see the overall completion rate')}</p>
         </article>
         <article className="dashboard-metric metric-week">
           <div className="dashboard-metric-label"><ListChecks size={15} /><span>{t('本周任务完成', 'Tasks completed this week')}</span><CalendarDays size={14} /></div>
-          <strong>{weeklyDone.length}<small>/ {weeklyTasks.length}</small></strong>
+          <strong><AnimatedNumber value={weeklyDone.length} /><small>/ <AnimatedNumber value={weeklyTasks.length} /></small></strong>
           {weeklyProgress !== null ? <Progress value={weeklyProgress} aria-label={`${t('本周任务完成率', 'Weekly task completion rate')} ${weeklyProgress}%`} /> : <span className="dashboard-muted">—</span>}
-          <p>{weeklyTasks.length ? `${weeklyProgress}% ${t('完成', 'done')} · ${t('今日完成', 'Done today')} ${doneToday} · ${t('未开始', 'Not started')} ${notStarted}` : t('本周还没有真实任务活动', 'No task activity this week')}</p>
+          <p aria-label={weeklyProgress !== null ? `${weeklyProgress}% ${t('完成', 'done')} · ${t('今日完成', 'Done today')} ${doneToday} · ${t('未开始', 'Not started')} ${notStarted}` : undefined}>{weeklyProgress !== null ? <><AnimatedNumber value={weeklyProgress} />% {t('完成', 'done')} · {t('今日完成', 'Done today')} <AnimatedNumber value={doneToday} /> · {t('未开始', 'Not started')} <AnimatedNumber value={notStarted} /></> : t('本周还没有真实任务活动', 'No task activity this week')}</p>
         </article>
       </section>
 
@@ -136,7 +137,7 @@ export function DashboardPage({ state, onGoal, onTask, onGoals, onTasks, onNewTa
             return rightRunning - leftRunning || latestTaskTime(right) - latestTaskTime(left)
           })[0]
           return <article className={`dashboard-goal-card goal-${goal.status}`} key={goal.id}>
-            <div className="dashboard-goal-title"><h3 title={goal.title}>{goal.title}</h3><strong aria-label={`${goal.title}：${t('目标标准验收率', 'Goal criteria verification')} ${progress.criteria.percentage === null ? '—' : `${progress.criteria.percentage}%`}`} title={t('目标标准验收率', 'Goal criteria verification')}>{progress.criteria.percentage === null ? '—' : `${progress.criteria.percentage}%`}</strong></div>
+            <div className="dashboard-goal-title"><h3 title={goal.title}>{goal.title}</h3><strong aria-label={`${goal.title}：${t('目标标准验收率', 'Goal criteria verification')} ${progress.criteria.percentage === null ? '—' : `${progress.criteria.percentage}%`}`} title={t('目标标准验收率', 'Goal criteria verification')}>{progress.criteria.percentage === null ? '—' : <><AnimatedNumber value={progress.criteria.percentage} />%</>}</strong></div>
             <div className="dashboard-goal-meta"><span><GoalStateIcon status={goal.status} />{goalStatusLabel(goal.status)}</span><i aria-hidden="true" />{t('最后更新', 'Updated')}: {relativeTime(Date.parse(goal.updatedAt) || 0, now)}</div>
             <GoalProgress goal={goal} tasks={tasks} onTasks={onTasks} onCriterion={() => onGoal(goal.id)} />
             <div className="dashboard-goal-actions"><Button variant="outline" onClick={() => onGoal(goal.id)}>{t('查看详情', 'View details')}</Button><Button onClick={() => nextTask ? onTask(nextTask.id) : onGoal(goal.id)}>{nextTask ? t('继续执行', 'Continue') : t('完善目标', 'Refine goal')}<ArrowRight size={13} /></Button></div>
@@ -157,7 +158,7 @@ export function DashboardPage({ state, onGoal, onTask, onGoals, onTasks, onNewTa
             return <TableRow key={task.id}>
               <TableCell><Button variant="link" className="dashboard-task-link" onClick={() => onTask(task.id)}>{task.title}</Button></TableCell>
               <TableCell>{goal ? <Button variant="link" className="dashboard-goal-link" onClick={() => onGoal(goal.id)}>{goal.title}</Button> : <span className="dashboard-muted">{t('独立任务', 'Independent task')}</span>}</TableCell>
-              <TableCell><span className="dashboard-runtime">{task.executor === 'human' ? <><Users size={14} />{t('人工', 'Human')}</> : <><RuntimeLogo runtime={runtime} runtimeId={task.members[0]?.runtimeId} size={15} />{runtime?.name ?? task.members[0]?.name ?? t('未配置', 'Not configured')}{members.length > 1 && <small>+{members.length - 1}</small>}</>}</span></TableCell>
+              <TableCell><span className="dashboard-runtime">{task.executor === 'human' ? <><Users size={14} />{t('人工', 'Human')}</> : <><RuntimeLogo runtime={runtime} runtimeId={task.members[0]?.runtimeId} size={15} />{runtime?.name ?? task.members[0]?.name ?? t('未配置', 'Not configured')}{members.length > 1 && <small>+<AnimatedNumber value={members.length - 1} /></small>}</>}</span></TableCell>
               <TableCell><span className={`dashboard-task-status status-${status.status}`}>{status.status === 'completed' ? <Check size={13} /> : status.status === 'running' ? <CircleDot size={13} /> : <Circle size={13} />}{status.label}</span></TableCell>
               <TableCell className="dashboard-time-column"><time dateTime={new Date(latestTaskTime(task)).toISOString()}>{relativeTime(latestTaskTime(task), now)}</time></TableCell>
             </TableRow>

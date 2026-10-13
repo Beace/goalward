@@ -4,6 +4,9 @@ import type { HTMLAttributes, KeyboardEvent, PointerEvent } from 'react'
 // Damping ratio = damping / (2 * sqrt(stiffness * mass)) = 1.
 // This is a tuned project preset, not a conversion of Apple's response to duration.
 export const quietSpring: Transition = { type: 'spring', stiffness: 400, damping: 40, mass: 1 }
+// Data presentation shares the non-bouncy physics; tight rest thresholds settle
+// fractional metrics exactly rather than leaving a rounded endpoint behind.
+export const numericSpring: Transition = { ...quietSpring, restDelta: 0.001, restSpeed: 0.01 }
 export const quickFade: Transition = { duration: 0.12, ease: 'easeOut' }
 // The same restrained opacity feedback for native Web Animations API surfaces.
 // No movement is necessary for modal forms; reduced motion settles immediately.
