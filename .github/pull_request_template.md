@@ -10,4 +10,4 @@
 
 ## Language check
 
-- [ ] The PR title and description, added or edited code comments and unit test descriptions, and development process documents are in English. Localized content and verbatim source material retain their required language.
+- [ ] The PR title and description, code comments, unit test descriptions and synthetic data, and development process documents are in English. Product i18n text and exact localization or localized-data compatibility fixtures retain their required language.
