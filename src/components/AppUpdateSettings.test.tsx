@@ -76,11 +76,13 @@ describe('app update settings', () => {
     expect(update.install).toHaveBeenCalledOnce()
     expect(update.restart).not.toHaveBeenCalled()
   })
-  it('explains that updates come from Cloudflare R2 with a GitHub Releases fallback', () => {
-    render(<AppUpdateSettings update={controller()} activeCount={0} unsaved={false} />)
-    expect(screen.getByText(/更新由 Cloudflare R2（releases\.goalward\.dev）提供，GitHub Releases 作为备用/)).toBeTruthy()
-    expect(screen.getByText(/下载后仍会验证发布签名/)).toBeTruthy()
-    expect(screen.getByText(/ad-hoc 签名，未经 Apple 公证/)).toBeTruthy()
+  it('does not show an update source note and keeps the GitHub Release button', () => {
+    const update = controller({ phase: 'available', info: { currentVersion: '0.2.0', version: '0.3.0', releaseUrl: 'https://github.com/example/app/releases/tag/v0.3.0' } })
+    render(<AppUpdateSettings update={update} activeCount={0} unsaved={false} />)
+    expect(screen.queryByText(/releases\.goalward\.dev/)).toBeNull()
+    expect(screen.queryByText(/ad-hoc/)).toBeNull()
+    expect(screen.queryByText(/未经 Apple 公证/)).toBeNull()
+    expect(screen.getByRole('button', { name: '查看 GitHub Release' })).toBeTruthy()
   })
   it('shows the R2 failure that caused the GitHub rate-limit fallback', () => {
     const message = 'Cloudflare R2 update check failed first (Could not read or verify the Cloudflare R2 update manifest: connection timed out). The GitHub Releases fallback reached the rate limit. Try again later (rate limit resets at Unix 123)'
