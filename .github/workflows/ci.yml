@@ -1,4 +1,4 @@
-name: Pull request unit tests
+name: Pull request CI
 
 on:
   workflow_dispatch:
@@ -30,7 +30,7 @@ jobs:
       - name: Test updater signatures and release manifest verification
         run: node --test scripts/test-release-updater.mjs
 
-  frontend-tests:
+  frontend-checks:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -43,10 +43,14 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install locked JavaScript dependencies from the public registry
         run: npm ci --registry=https://registry.npmjs.org --no-audit --no-fund
+      - name: TypeScript type check and build
+        run: npm run build
+      - name: Biome lint and format check
+        run: npm run check
       - name: Run frontend unit tests
         run: npm test
 
-  rust-tests:
+  rust-checks:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -54,12 +58,16 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.99.0 --profile minimal
+          rustup toolchain install 1.99.0 --profile minimal --component clippy rustfmt
           rustup default 1.99.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: goalward-unit-tests-rust
+          shared-key: goalward-ci-rust
           cache-bin: 'false'
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Run Clippy lints
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --lib -- -D warnings
       - name: Run Rust unit tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
