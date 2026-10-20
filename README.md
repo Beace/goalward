@@ -1,83 +1,149 @@
 # Goalward
 
-Goalward helps turn a vague ambition into work you can finish and review. Shape a direction into a goal, break it into tasks, use local coding agents to do the work, and decide what to do next from the results.
+[![CI](https://github.com/Beace/goalward/actions/workflows/ci.yml/badge.svg)](https://github.com/Beace/goalward/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Beace/goalward?include_prereleases&label=release)](https://github.com/Beace/goalward/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS%2013.3%2B-lightgrey)](https://github.com/Beace/goalward/releases)
 
-**Goal → Tasks → Execution → Artifacts and evidence → Review → Next actions**
+**[English](README.md) | [中文](README.zh-CN.md)**
 
-Goalward is also a desktop proxy for coding agents: run them individually or together, route work to the right agent, and follow each execution trace without losing the goal behind it.
+> A desktop app that turns vague ambitions into goals, tasks, and evidence — powered by your local coding agents.
 
-**Supported agents:** Codex · Claude Code · Kimi CLI · Pi · DeepSeek Harness · Custom CLI runtimes
+## Why Goalward?
 
-![Goalward goal overview with task delivery progress, success criteria, and working directories](screenshots/goalward-goals-en.png)
+Modern coding agents (Codex, Claude Code, Kimi CLI, etc.) are powerful but isolated. Each has its own interface, session history, and workspace. When you're working toward a larger objective — shipping a feature, learning a framework, refactoring a codebase — you end up context-switching between tools and losing track of the bigger picture.
 
-*Goal overview in the current English interface. Screenshots use illustrative data in the browser preview; conversation and execution records are examples.*
+Goalward bridges this gap:
 
-## Download
+- **Goal-driven workflow**: Start with a direction, not a command. Goalward helps you clarify outcomes, success criteria, and break work into verifiable tasks.
+- **Unified agent proxy**: Run multiple coding agents from one place. Native protocol support means streamed replies, tool progress, and approvals work as the agent intends.
+- **Evidence-based review**: Every execution is traced. Artifacts, conversations, and results stay linked to their task. You decide what counts as done.
+- **Your agents, your machine**: Goalward manages agent processes locally. No cloud relay — your code and credentials stay where they are.
 
-Goalward runs on Apple Silicon and Intel Macs with macOS 13.3 or later. Each macOS download is a universal app that includes both architectures.
+## Features
 
-[Download the DMG or ZIP and read release notes](https://github.com/Beace/goalward/releases)
+- **Goal Assistant**: Describe a broad direction; a restricted local agent helps clarify outcome, scope, and success criteria, then proposes tasks.
+- **Task Management**: Create, edit, and track tasks linked to goals. Set deadlines, acceptance criteria, and dependencies.
+- **Multi-Runtime Execution**: Run Codex, Claude Code, Kimi CLI, Pi, DeepSeek Harness, or custom CLI tools. Switch agents per task or combine them.
+- **Native Sessions**: Conversations persist across turns. Connections are reused; session IDs are preserved for exact resumption.
+- **Streaming & Approvals**: Watch agent replies arrive in real time. Handle tool approvals, file changes, and permission requests through the native UI.
+- **Execution Traces**: Every run is recorded — input, output, tool calls, reasoning summaries, token usage, and timing.
+- **Artifact Preview**: Review HTML, Markdown, images, PDFs, and web pages directly in the inspector panel.
+- **Themes & Appearance**: System, Dark, Light, or Cobalt2 themes. Background images with adjustable opacity. Respects reduced motion and transparency preferences.
+- **In-App Updates**: Check for updates, download signed packages, and install without leaving the app.
 
-Each published prerelease includes commit-based changes and SHA-256 checksums. Check the notes and checksums before installing.
+## Supported Agents
 
-The app does not include agent CLIs, model weights, subscriptions, or API credentials. Install and sign in to a supported agent before starting real agent conversations or executions. Manual goal and task planning remains available without a runtime.
+| Agent | Protocol | Streaming | Session Continuity | Input While Running |
+|-------|----------|-----------|-------------------|---------------------|
+| **Codex** | `app-server stdio://` | ✓ | ✓ Thread resume | ✓ Steer |
+| **Claude Code** | Agent SDK bidirectional | ✓ | ✓ Session resume | ✓ Follow-up queue |
+| **Kimi CLI** | ACP | ✓ | ✓ Session resume | Draft retained |
+| **Pi** | RPC mode | ✓ | ✓ Session resume | ✓ Steer |
+| **DeepSeek Harness** | CLI | ✓ | — | — |
+| **Custom CLI** | Configurable | Varies | — | — |
 
-## Install on macOS
-
-Open the DMG, drag **Goalward.app** into **Applications**, and launch it. If you use the ZIP, extract it and move the app into **Applications**. The release is not notarized; if macOS blocks the first launch, review the warning in **System Settings → Privacy & Security**.
-
-Builds with the updater check public GitHub Releases at startup and every six hours, including published prereleases. Open **Settings → App updates** to check manually, download a signed update, install it, and restart when ready. Installation and restart require idle agents and saved settings; checks and downloads can run while you work. Update signatures verify the package and version against the app's embedded public key. They do not replace Apple Developer ID signing or notarization.
-
-Versions published before updater support, including `v0.2.0`, need one manual installation of an updater-capable release. Updates keep the existing workspace data directory. Install the app in **Applications** and eject the DMG before updating; a read-only disk image cannot be updated in place. Browser previews and development builds cannot install app updates.
-
-## Get started
-
-1. **Connect an agent.** On first launch, review the detected runtimes, import one, and choose a default. If yours is missing, install and sign in to it, scan again, or set its executable path in **Settings → Runtimes**.
-2. **Make a goal concrete.** Start with the direction you have, even if it is still broad. Describe the outcome, constraints, and what would count as progress; then add a first task with an acceptance criterion. Set the goal’s working directories once; linked tasks inherit them automatically.
-3. **Do the work.** Pick an agent or a collaborating group, review its permissions, and send an instruction. Type `@` to reference a file or folder. Native connections keep conversations across turns, with streamed replies, tool progress and supported approval/input controls. Goalward keeps each execution trace with the task. See [native sessions and goal workspaces](docs/native-agent-sessions.md).
-4. **Review and continue.** Check the output, artifacts, and evidence before accepting the task. Record what changed and create the next task, revise the goal, or mark it achieved when its criteria are met.
-
-A finished agent process does not automatically mean a task is accepted. You can also create goals and tasks for work you will do manually.
-
-**Goal assistant:** choose **Start something** to describe a broad direction. In the macOS app, a restricted local runtime helps clarify an editable outcome, optional deadline, and verifiable success criteria. Confirming the saved definition triggers a celebration and opens the goal's task list; the assistant then proposes tasks for you to edit and adopt. Adopted tasks open in the independent Tasks workspace, with a toolbar link back to their goal. Task acceptance and goal verification have separate progress charts. Browser preview supports manual planning and does not simulate model replies. See the [goal assistant workflow, runtime limits, and verification boundary](docs/goal-assistant-flow.md).
-
-Review local HTML, Markdown, text, images, and PDF files in the artifact preview panel. Files up to 500 MB load directly; larger files show their size and an **Open anyway** button before loading. PDFs render page by page. Enter an HTTP or HTTPS URL in the preview panel to browse a web page; sites that block embedding or require sign-in can be opened in your system browser. See [artifact preview behavior and verification](docs/artifact-preview.md).
-
-Choose **System**, **Dark**, **Light**, or **Cobalt2** in **Settings → Appearance → Theme**. System is the default and follows changes to your operating system's appearance while Goalward is open. An explicit theme remains fixed until you change it. Cobalt2 adapts [Wes Bos' Cobalt2 Theme Official](https://github.com/wesbos/cobalt2-vscode) with deep blue surfaces, yellow accents, and brighter supporting text for Goalward's compact UI; native window controls use dark appearance. Theme, font, and language changes apply immediately and save automatically; they persist across restarts and apply throughout the app.
-
-In **Settings → Appearance → Theme**, choose a local background picture below the theme selector, then adjust **Background image opacity** and **Interface background opacity** from 0–100%. Image opacity controls the picture's visibility; interface opacity controls how opaque the main panel colors are, while text and controls retain their own appearance. Changes apply immediately and save automatically. The desktop app keeps a private copy of the image in its data directory, so moving the original file does not break the background. Browser previews keep the image separately in browser storage. Images are limited to 32 MB; unsupported or damaged files show a recoverable error. Reduced transparency or increased contrast uses solid surfaces. See [background behavior and verification](docs/appearance-background.md).
-
-Goalward starts in Chinese or English based on your Mac's language; other system languages use English. To choose manually or return to the system default, use **Settings → Appearance → Language**. Runtime, model, execution, and storage configuration changes still use **Save Changes**. Changing appearance saves only appearance preferences and leaves other unsaved configuration edits in your draft.
+Goalward uses the original agent executables. You install and authenticate them yourself; Goalward manages the process lifecycle and protocol integration.
 
 ## Screenshots
 
-The Tasks workspace keeps the task list, goal link, conversation, message composer, and execution inspector together.
+**Goal overview with task delivery progress, success criteria, and working directories:**
 
-![Goalward Tasks workspace with a goal-linked conversation and execution inspector](screenshots/goalward-workbench-en.png)
+![Goalward goal overview](screenshots/goalward-goals-en.png)
 
-Appearance settings include Cobalt2 alongside System, Dark, and Light themes, plus background image, opacity, language, and font controls.
+**Tasks workspace with conversation, execution inspector, and artifact preview:**
 
-![Goalward Appearance settings with Cobalt2 selected and background, language, and font controls](screenshots/goalward-appearance-en.png)
+![Goalward Tasks workspace](screenshots/goalward-workbench-en.png)
 
-These screenshots show the current frontend at 1536 × 960 with sample workspace data. They do not show a live native agent execution. To refresh them with Google Chrome installed, start `npm run dev` and run `node scripts/readme-screenshots.mjs`; set `GOALWARD_SCREENSHOT_URL` if the development server uses a different address. The capture script also checks the three views at 1280 × 720.
+**Appearance settings with theme, background, and language controls:**
+
+![Goalward Appearance settings](screenshots/goalward-appearance-en.png)
+
+<!-- TODO: Add a demo GIF here showing the goal → task → execution flow -->
+
+*Screenshots show the current frontend at 1536 × 960 with sample data. They do not show live agent execution.*
+
+## Download
+
+Goalward runs on Apple Silicon and Intel Macs with macOS 13.3 or later. Each download is a universal app (arm64 + x86_64).
+
+**[Download the latest release →](https://github.com/Beace/goalward/releases)**
+
+Releases include SHA-256 checksums. The app uses ad-hoc signing and is not Apple-notarized; macOS will prompt on first launch. See the [installation guide](docs/install-macos-trial.txt) for details on bypassing Gatekeeper.
+
+## Quick Start
+
+1. **Download and install.** Open the DMG, drag Goalward.app to Applications, and launch it. If macOS blocks the app, go to System Settings → Privacy & Security and click "Open Anyway."
+
+2. **Connect an agent.** On first launch, Goalward detects installed runtimes. Import a detected agent or configure one manually in Settings → Runtimes. Make sure your agent CLI is installed and authenticated.
+
+3. **Create a goal.** Click "Start something" and describe what you want to accomplish. The goal assistant helps clarify the outcome and success criteria, then proposes tasks.
+
+4. **Execute tasks.** Open a task, select an agent and model, and send instructions. Use `@` to reference files. Watch the streamed response, handle approvals, and review artifacts.
+
+5. **Review and continue.** Check execution traces and artifacts. Accept the task when criteria are met, or iterate. Mark the goal achieved when all success criteria have evidence.
+
+## Build from Source
+
+**Prerequisites:** macOS 13.3+, Node.js (20.19+, 22.12+, or 24+), Rust stable, Xcode Command Line Tools.
+
+```bash
+git clone https://github.com/Beace/goalward.git
+cd goalward
+npm ci --registry=https://registry.npmjs.org
+npm run mac:dev    # Start development app with hot reload
+```
+
+**Other commands:**
+- `npm run mac:build` — Build the app bundle
+- `npm run build` — TypeScript + Vite build
+- `npm test` — Run frontend tests
+- `cargo test --manifest-path src-tauri/Cargo.toml` — Run Rust tests
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup and PR workflow.
+
+## How Goalward Differs
+
+Goalward is designed around a specific workflow: **Goal → Tasks → Agent Execution → Evidence → Review**.
+
+- **Goal-first, not chat-first.** You start with an outcome and success criteria, not an open-ended conversation. The structure helps you stay oriented.
+- **Multi-agent by design.** Different agents excel at different tasks. Goalward lets you pick the right tool for each task without switching apps.
+- **Verification is explicit.** Task acceptance and goal verification are separate from process completion. You review evidence and decide what counts as done.
+- **Local execution only.** Goalward is a desktop app that runs agents on your machine. There's no hosted backend, no cloud sync, no intermediary.
+
+## Roadmap
+
+Planned improvements (not in priority order):
+
+- [ ] **Web demo**: Browser-based preview with sample data on GitHub Pages
+- [ ] **Automatic retrospectives**: Generate summaries and next-step suggestions from execution results
+- [ ] **Parallel execution**: Run multiple agents on the same task using git worktrees
+- [ ] **Additional platforms**: Windows and Linux builds
+- [ ] **Plugin system**: Custom runtime adapters and integrations
+
+See the [product proposal](docs/goal-driven-product-proposal.md) for more context on future directions.
 
 ## Data
 
-Goalward stores workspace data locally in `~/Library/Application Support/dev.goalward.desktop/`. Quit the previous app before the first launch. Goalward preserves its data directory and attempts a non-destructive migration; do not remove the old directory while existing attachments may still refer to it.
-
-## Build from source
-
-On a Mac with macOS 13.3 or later, install Node.js `^20.19.0`, `^22.12.0`, or `>=24.0.0`, npm, Rust stable, Cargo, and Xcode Command Line Tools. Then run:
-
-```bash
-npm ci --registry=https://registry.npmjs.org
-npm run mac:dev
+Workspace data is stored locally:
+```
+~/Library/Application Support/dev.goalward.desktop/
 ```
 
-Build a local app with `npm run mac:build`. Run checks with `npm run build`, `npm test`, and `cargo test --manifest-path src-tauri/Cargo.toml`. On an Apple Silicon Mac, create the universal DMG, ZIP, checksums, and build metadata with `npm run mac:dist` (Python 3.10 or later required).
+Goalward does not send data externally. Your agent credentials and code stay on your machine.
 
-For contributions, create a new branch and Pull Request rather than pushing to `main`; see the [development and release process](docs/releasing.md).
+## Contributing
+
+Contributions are welcome! Please read:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup and PR workflow
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Community guidelines
+- [SECURITY.md](SECURITY.md) — Reporting vulnerabilities
 
 ## License
 
-This repository does not currently contain a license. Until one is added, copyright law reserves reuse and redistribution rights to the copyright holder.
+[MIT](LICENSE) © 2026 Beace
+
+---
+
+Built with [Tauri 2](https://tauri.app/), [React](https://react.dev/), and [shadcn/ui](https://ui.shadcn.com/).

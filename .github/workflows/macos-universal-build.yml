@@ -183,6 +183,8 @@ jobs:
                   raise SystemExit(f'Artifact failed verification: {path}')
           if not (output / 'INSTALL.txt').is_file():
               raise SystemExit('Installation guide is missing')
+          if not (output / 'INSTALL.zh-CN.txt').is_file():
+              raise SystemExit('Chinese installation guide is missing')
           PY
           version="$(node -p "require('./package.json').version")"
           (cd "releases/$version" && shasum -a 256 -c SHA256SUMS.txt)
