@@ -273,6 +273,9 @@ try {
   }
   await writeFile(join(output, 'SHA256SUMS.txt'), artifacts.map(item => `${item.sha256}  ${item.file}\n`).join(''))
   await writeFile(join(output, 'INSTALL.txt'), releaseGuide)
+  const guideZhCN = await readFile(join(root, 'docs/install-macos-trial.zh-CN.txt'), 'utf8')
+  const releaseGuideZhCN = `版本：${version}\n架构：${universal ? 'Apple Silicon + Intel / 通用' : 'Apple Silicon / arm64'}\n\n${guideZhCN}`
+  await writeFile(join(output, 'INSTALL.zh-CN.txt'), releaseGuideZhCN)
   await writeFile(join(output, 'BUILD-INFO.json'), JSON.stringify({ product, version, builtAt, packagedAt: new Date().toISOString(), architecture, architectures: expectedArchitectures, minimumMacOS, signing: 'ad-hoc', notarized: false, ...(sourceCommit ? { sourceCommit } : {}), sourceDigest: before, appBundleDigest: verifiedAppDigest, installerDigest: installerBefore, binarySha256: sha256(await readFile(binary)), ...(repackagedFromZipSha256 ? { repackagedFromZipSha256 } : {}), ...(updaterInfo ? { updater: updaterInfo } : {}), artifacts }, null, 2) + '\n')
   console.log(`\nDistribution files: ${resolve(output)}`)
 } finally {
