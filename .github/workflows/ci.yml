@@ -30,7 +30,7 @@ jobs:
       - name: Test updater signatures and release manifest verification
         run: node --test scripts/test-release-updater.mjs
 
-  frontend-checks:
+  frontend-tests:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -50,7 +50,7 @@ jobs:
       - name: Run frontend unit tests
         run: npm test
 
-  rust-checks:
+  rust-tests:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
