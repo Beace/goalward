@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
-import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, latestGitHubReleaseTag, parseUpdateLatest, r2ArchiveUrl, r2ObjectPlan, r2Settings, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
+import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, latestGitHubReleaseTag, parseUpdateLatest, r2ArchiveUrl, r2ObjectPlan, r2Settings, recordPublishedLatest, resolveUpdateLatest, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
 
 const wrap = text => Buffer.from(text).toString('base64')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -444,16 +444,45 @@ test('parses the newest GitHub release tag and the update-latest flag', () => {
   assert.throws(() => parseUpdateLatest(['--update-latest', 'maybe']), /Invalid --update-latest/)
 })
 
-test('documents the stable DMG download in the README and release docs', async () => {
-  for (const file of ['README.md', 'README.zh-CN.md', 'docs/releasing.md']) {
+test('publishes latest.json only for the newest release when the flag is omitted', async () => {
+  let lookups = 0
+  assert.equal(await resolveUpdateLatest({
+    version: '0.6.0',
+    repository: 'Beace/goalward',
+    latestTag() {
+      lookups += 1
+      return 'v0.6.0'
+    },
+  }), true)
+  assert.equal(await resolveUpdateLatest({
+    version: '0.5.1',
+    repository: 'Beace/goalward',
+    latestTag: () => 'v0.6.0',
+  }), false)
+  assert.equal(await resolveUpdateLatest({
+    version: '0.5.1',
+    repository: 'Beace/goalward',
+    updateLatest: true,
+    latestTag() {
+      throw new Error('explicit flag does not list releases')
+    },
+  }), true)
+  assert.equal(lookups, 1)
+  const output = join(mkdtempSync(join(tmpdir(), 'goalward-r2-output-')), 'output')
+  assert.equal(recordPublishedLatest(true, { GITHUB_OUTPUT: output }), 'true')
+  assert.equal(readFileSync(output, 'utf8'), 'published_latest=true\n')
+})
+
+test('documents the versioned DMG download in the README and release docs', async () => {
+  for (const file of ['README.md', 'README.zh-CN.md']) {
     const text = await readFile(new URL(`../${file}`, import.meta.url), 'utf8')
-    assert.match(text, /https:\/\/releases\.goalward\.dev\/download\/Goalward\.dmg/)
+    assert.match(text, /<!-- download-link:start -->[\s\S]*https:\/\/releases\.goalward\.dev\/v0\.6\.0\/Goalward_0\.6\.0_macos-universal\.dmg[\s\S]*<!-- download-link:end -->/)
     assert.match(text, /https:\/\/github\.com\/Beace\/goalward\/releases/)
+    assert.doesNotMatch(text, /download\/Goalward\.dmg/)
   }
   const releasing = await readFile(new URL('../docs/releasing.md', import.meta.url), 'utf8')
-  assert.match(releasing, /workers\/download-redirect/)
-  assert.match(releasing, /Workers Scripts: Edit/)
-  assert.match(releasing, /Workers Routes: Edit/)
-  assert.match(releasing, /CLOUDFLARE_API_TOKEN/)
-  assert.doesNotMatch(releasing, /download\/Goalward\.dmg` \| `public, max-age=300/)
+  assert.match(releasing, /chore\/readme-download-vX\.Y\.Z/)
+  assert.match(releasing, /workflow_dispatch/)
+  assert.match(releasing, /Allow auto-merge/)
+  assert.doesNotMatch(releasing, /workers\/download-redirect|CLOUDFLARE_API_TOKEN|wrangler/)
 })

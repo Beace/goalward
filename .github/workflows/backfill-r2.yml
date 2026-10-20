@@ -24,6 +24,10 @@ permissions:
 jobs:
   backfill:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,6 +38,7 @@ jobs:
           node-version: '24'
 
       - name: Copy the GitHub Release to Cloudflare R2
+        id: r2
         env:
           GH_TOKEN: ${{ github.token }}
           # Account id is a repository variable. The secret is used only when that variable is empty.
@@ -52,3 +57,10 @@ jobs:
             *) echo "Invalid update_latest value" >&2; exit 1 ;;
           esac
           node scripts/r2-release.mjs "${args[@]}"
+
+      - name: Open the README download pull request
+        if: steps.r2.outputs.published_latest == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/open-readme-download-pr.mjs --version "${RELEASE_TAG#v}"

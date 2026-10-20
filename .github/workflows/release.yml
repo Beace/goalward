@@ -167,7 +167,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      pull-requests: read
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -479,12 +480,21 @@ jobs:
           PY
 
       - name: Upload updater artifacts to Cloudflare R2
+        id: r2
         env:
           # Account id is a repository variable. The secret is used only when that variable is empty.
           # The access key and secret come from secrets and are not printed by this step.
+          # Omitting --update-latest publishes latest.json only when this tag is the newest GitHub Release.
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: node scripts/r2-release.mjs upload --directory "releases/$VERSION" --version "$VERSION"
+
+      - name: Open the README download pull request
+        if: steps.r2.outputs.published_latest == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: node scripts/open-readme-download-pr.mjs --version "$VERSION"
