@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { appendFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -172,6 +173,21 @@ export function parseUpdateLatest(args) {
   throw new Error('Invalid --update-latest value')
 }
 
+export async function resolveUpdateLatest({ version, repository, updateLatest, latestTag = latestGitHubReleaseTag }) {
+  if (!versionPattern.test(version)) throw new Error('Invalid updater version')
+  if (updateLatest !== undefined && typeof updateLatest !== 'boolean') throw new Error('Invalid --update-latest value')
+  if (updateLatest !== undefined) return updateLatest
+  if (typeof repository !== 'string' || !repositoryPattern.test(repository) || repository.includes('..')) throw new Error('Invalid updater repository')
+  return await Promise.resolve(latestTag(repository)) === `v${version}`
+}
+
+export function recordPublishedLatest(published, env = process.env) {
+  const value = published ? 'true' : 'false'
+  console.log(`R2_PUBLISHED_LATEST=${value}`)
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `published_latest=${value}\n`)
+  return value
+}
+
 async function awsCommand() {
   const root = await mkdtemp(join(tmpdir(), 'goalward-awscli-'))
   const python = process.env.PYTHON || 'python3'
@@ -238,8 +254,7 @@ export async function backfillReleaseToR2({
   if (tag !== `v${version}` || !versionPattern.test(version)) throw new Error('Invalid release tag')
   if (!repositoryPattern.test(repo) || repo.includes('..')) throw new Error('Invalid updater repository')
   r2Settings(env, { required: true })
-  if (updateLatest !== undefined && typeof updateLatest !== 'boolean') throw new Error('Invalid --update-latest value')
-  const publishLatest = updateLatest === undefined ? await Promise.resolve(latestTag(repo)) === tag : updateLatest
+  const publishLatest = await resolveUpdateLatest({ version, repository: repo, updateLatest, latestTag })
   const directory = await mkdtemp(join(tmpdir(), 'goalward-r2-backfill-'))
   try {
     const names = updaterArtifactNames(version)
@@ -268,14 +283,24 @@ function option(args, name) {
 async function main() {
   const [command, ...args] = process.argv.slice(2)
   if (command === 'upload') {
-    await uploadDirectoryToR2(option(args, '--directory'), option(args, '--version'))
+    const version = option(args, '--version')
+    const directory = option(args, '--directory')
+    if (r2Settings(process.env).skip) {
+      await uploadDirectoryToR2(directory, version)
+      recordPublishedLatest(false)
+      return
+    }
+    const updateLatest = await resolveUpdateLatest({ version, repository: process.env.GITHUB_REPOSITORY, updateLatest: parseUpdateLatest(args) })
+    const result = await uploadDirectoryToR2(directory, version, process.env, { updateLatest })
+    recordPublishedLatest(Boolean(result.uploaded && result.updateLatest))
     return
   }
   if (command === 'backfill') {
-    await backfillReleaseToR2({ tag: option(args, '--tag'), repo: option(args, '--repo'), updateLatest: parseUpdateLatest(args) })
+    const result = await backfillReleaseToR2({ tag: option(args, '--tag'), repo: option(args, '--repo'), updateLatest: parseUpdateLatest(args) })
+    recordPublishedLatest(Boolean(result.uploaded && result.updateLatest))
     return
   }
-  throw new Error('Usage: node scripts/r2-release.mjs upload --directory DIR --version VERSION | backfill --tag vX.Y.Z --repo OWNER/REPO [--update-latest true|false]')
+  throw new Error('Usage: node scripts/r2-release.mjs upload --directory DIR --version VERSION [--update-latest true|false] | backfill --tag vX.Y.Z --repo OWNER/REPO [--update-latest true|false]')
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
