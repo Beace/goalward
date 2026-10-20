@@ -25,8 +25,8 @@
         "enable": true,
         "scope": ["$APPDATA/appearance/backgrounds/**"]
       },
-      "csp": "default-src 'self'; frame-src 'self' about: https: http:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost",
-      "devCsp": "default-src 'self'; frame-src 'self' about: https: http:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420"
+      "csp": "default-src 'self'; frame-src 'self' about: https: http:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost https://releases.goalward.dev",
+      "devCsp": "default-src 'self'; frame-src 'self' about: https: http:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost https://releases.goalward.dev ws://localhost:1420 http://localhost:1420"
     }
   },
   "bundle": {
@@ -44,7 +44,10 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFRDhBRTkxNjUwMDMyODcKUldTSE1nQmxrYTdZWHQyM2pmeFpLOXUvM3RkaVRHY3o1OUE0d2x4bUdoTXk1MnQ4V3J0aU9ROUwK",
-      "endpoints": [],
+      "endpoints": [
+        "https://releases.goalward.dev/latest.json",
+        "https://github.com/Beace/goalward/releases/latest/download/latest.json"
+      ],
       "requireSignedVersion": true
     }
   }

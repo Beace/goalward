@@ -1,0 +1,37 @@
+name: Backfill Cloudflare R2 release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to copy from GitHub Releases
+        required: true
+        default: v0.5.1
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Copy the GitHub Release to Cloudflare R2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Account id is a repository variable. The secret is used only when that variable is empty.
+          # The access key and secret come from secrets and are not printed by this step.
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID || secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/r2-release.mjs backfill --tag "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
