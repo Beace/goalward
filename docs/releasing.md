@@ -30,7 +30,7 @@ The GitHub Release copy of `latest.json` keeps `https://github.com/Beace/goalwar
 
 Updater downloads are hosted in the existing R2 bucket `goalward-releases` (Cloudflare account `98775cbe093085ec17c5fab233cd571f`). The public custom domain `https://releases.goalward.dev` serves bucket keys from the root. The S3 API endpoint is `https://98775cbe093085ec17c5fab233cd571f.r2.cloudflarestorage.com`. This repository does not create the bucket, domain, or API token.
 
-The release workflow uploads after the GitHub Release is verified, using a pinned AWS CLI (`awscli==1.46.1` in a temporary virtualenv) and `aws s3api put-object --endpoint-url`. Versioned objects are uploaded first. The stable DMG and the top-level manifest are uploaded last, in that order, so those pointers change only after the versioned files exist:
+The release workflow uploads after the GitHub Release is verified, using a pinned AWS CLI (`awscli==1.46.1` in a temporary virtualenv) and `aws s3api put-object --endpoint-url`. Versioned objects are uploaded first. The top-level manifest is uploaded last, so that pointer changes only after the versioned files exist:
 
 | Object key | Cache-Control | Body |
 | --- | --- | --- |
@@ -38,16 +38,35 @@ The release workflow uploads after the GitHub Release is verified, using a pinne
 | `vX.Y.Z/Goalward_X.Y.Z_macos-universal.app.tar.gz.sig` | `public, max-age=31536000, immutable` | minisign signature file |
 | `vX.Y.Z/Goalward_X.Y.Z_macos-universal.dmg` | `public, max-age=31536000, immutable` | manual DMG download for that version |
 | `vX.Y.Z/latest.json` | `public, max-age=31536000, immutable` | manifest whose `url` fields use `https://releases.goalward.dev/vX.Y.Z/...` |
-| `download/Goalward.dmg` | `public, max-age=300` | current DMG. `Content-Type` is `application/x-apple-diskimage`. `Content-Disposition` is `attachment; filename="Goalward_X.Y.Z_macos-universal.dmg"` |
 | `latest.json` | `public, max-age=60` | the same rewritten manifest |
 
-`https://releases.goalward.dev/download/Goalward.dmg` is the stable macOS download. The release workflow always publishes that object and the top-level `latest.json` for the version it just verified. A backfill always writes the versioned keys, including `vX.Y.Z/latest.json`. It publishes `download/Goalward.dmg` and the top-level `latest.json` only when the tag is the newest published GitHub Release, including prereleases, or when the workflow input `update_latest` is `true`. `update_latest: false` leaves both pointers unchanged. The default input is `auto`. The newest release is the first result of `gh release list` (drafts excluded). Do not use GitHub's `/releases/latest` for that comparison: this repository publishes prereleases, and that endpoint omits them.
+The release workflow always publishes the top-level `latest.json` for the version it just verified. A backfill always writes the versioned keys, including `vX.Y.Z/latest.json`. It publishes the top-level `latest.json` only when the tag is the newest published GitHub Release, including prereleases, or when the workflow input `update_latest` is `true`. `update_latest: false` leaves that pointer unchanged. The default input is `auto`. The newest release is the first result of `gh release list` (drafts excluded). Do not use GitHub's `/releases/latest` for that comparison: this repository publishes prereleases, and that endpoint omits them. R2 does not store a second copy of the DMG at `download/Goalward.dmg`.
+
+### Stable DMG redirect
+
+`https://releases.goalward.dev/download/Goalward.dmg` is the stable macOS download. The same redirect is available at `/download/latest` and `/download/macos`. A Cloudflare Worker in [workers/download-redirect/](../workers/download-redirect/) handles `releases.goalward.dev/download/*` on the zone `goalward.dev`. R2 custom domains cannot send redirects, so the Worker reads `https://releases.goalward.dev/latest.json`, caches that response at the edge for 60 seconds (`cf.cacheTtl` and `cacheEverything`, because Cloudflare does not cache JSON by default), and responds `302` to `https://releases.goalward.dev/vX.Y.Z/Goalward_X.Y.Z_macos-universal.dmg` with `Cache-Control: public, max-age=60`. The versioned DMG keeps its immutable cache. If the manifest cannot be read or its version is not `X.Y.Z`, the Worker responds `302` to `https://github.com/Beace/goalward/releases` with `Cache-Control: no-store`. Any other `/download/*` path responds `404`.
+
+The Worker reads `latest.json` on each request, so it is deployed once rather than on every release. Run **Actions → Deploy download redirect Worker** on `main` after the token below is set. The workflow installs Wrangler `4.151.2` and runs `wrangler deploy`. It logs a warning and exits successfully when `CLOUDFLARE_API_TOKEN` is missing, and it does not print the token. The account id `98775cbe093085ec17c5fab233cd571f` is in `workers/download-redirect/wrangler.toml`. Until this route is deployed, the stable URL is not a redirect. The route is only `/download/*`, so `latest.json` and the versioned objects stay on R2.
+
+Create the API token on that account and limit the zone scope to `goalward.dev`:
+
+| Scope | Permission | Why |
+| --- | --- | --- |
+| Account | Workers Scripts: Edit | Deploy an existing Worker. Legacy name for Workers Editor. |
+| Account | Workers Admin | Required for the first `wrangler deploy`, which creates the Worker. Editor cannot create a Worker that does not exist yet. |
+| Zone `goalward.dev` | Workers Routes: Edit | Attach `releases.goalward.dev/download/*`. |
+| Zone `goalward.dev` | Zone: Read | Wrangler resolves `zone_name` to a zone id. |
+| Account | Account Settings: Read | Wrangler reads the account during authentication. |
+| User | User Details: Read | Wrangler identifies the token. |
+| User | Memberships: Read | Wrangler confirms the token can access the account. |
+
+Do not grant Workers KV, R2, or other zone permissions. This Worker has no bindings.
 
 There is no separate update channel in this repository, so `stable/latest.json` is not published. The ZIP, checksums, build metadata, and installation guide stay on the GitHub Release only. The GitHub `latest.json` bytes are not modified, so `SHA256SUMS.txt` still matches that copy.
 
 Set the repository variable `R2_ACCOUNT_ID` to the Cloudflare account id. When that variable is empty, the workflow uses the `R2_ACCOUNT_ID` secret instead. `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` are repository secrets only. Optionally set the repository variable `R2_BUCKET` (default `goalward-releases`). The release upload and the backfill workflow pass the account id, access key, and secret through the step environment and do not print them. The release workflow logs a warning and continues when the account id, access key, and secret are all absent, so forks and pull-request builds do not fail. A partial set fails the upload. An upload failure after the GitHub Release exists leaves GitHub as the fallback; rerunning the release workflow uploads again without rebuilding when the published assets already match.
 
-To backfill an existing release, run **Actions → Backfill Cloudflare R2 release** on `main` after the account-id variable (or its secret fallback) and the two key secrets are set. The default tag is `v0.5.1`. The workflow downloads that release's updater archive, signature, DMG, and `latest.json`, rewrites only the manifest package URLs, and writes the layout above. With `update_latest` left on `auto`, a tag older than the newest GitHub Release does not replace `download/Goalward.dmg` or the top-level `latest.json`. Re-run the workflow on the newest tag to publish the stable DMG. It fails if those values are missing. Installed apps that still embed the GitHub-only checker need one successful update or a manual DMG install before they request `releases.goalward.dev`.
+To backfill an existing release, run **Actions → Backfill Cloudflare R2 release** on `main` after the account-id variable (or its secret fallback) and the two key secrets are set. The default tag is `v0.5.1`. The workflow downloads that release's updater archive, signature, DMG, and `latest.json`, rewrites only the manifest package URLs, and writes the layout above. With `update_latest` left on `auto`, a tag older than the newest GitHub Release does not replace the top-level `latest.json`. Re-run the workflow on the newest tag when that pointer should move. It fails if those values are missing. The stable DMG URL is the Worker redirect above; backfill does not upload `download/Goalward.dmg`. Installed apps that still embed the GitHub-only checker need one successful update or a manual DMG install before they request `releases.goalward.dev`.
 
 Tauri updater signatures use a persistent private key distinct from Apple's code-signing identity. The public key is committed in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`; `requireSignedVersion: true` also requires the artifact's cryptographically signed version to match the manifest. The private key must stay outside the repository and must be backed up securely. Losing it prevents the already installed apps from trusting future releases. Do not generate a replacement key on every run or replace the committed public key as a routine release step. [Tauri updater signing documentation](https://v2.tauri.app/plugin/updater/#signing-updates) describes the key format and installation verification.
 

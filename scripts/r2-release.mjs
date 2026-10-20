@@ -17,9 +17,6 @@ export const GITHUB_FALLBACK_MANIFEST_URL = 'https://github.com/Beace/goalward/r
 export const DEFAULT_R2_BUCKET = 'goalward-releases'
 export const VERSIONED_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 export const LATEST_CACHE_CONTROL = 'public, max-age=60'
-export const LATEST_DMG_CACHE_CONTROL = 'public, max-age=300'
-export const LATEST_DMG_KEY = 'download/Goalward.dmg'
-export const LATEST_DMG_URL = `${RELEASES_ORIGIN}/${LATEST_DMG_KEY}`
 
 export function updaterEndpointOrder(githubManifestUrl = GITHUB_FALLBACK_MANIFEST_URL) {
   if (typeof githubManifestUrl !== 'string' || !githubManifestUrl.startsWith('https://github.com/')) {
@@ -58,14 +55,6 @@ export function r2ObjectPlan(version, { updateLatest = true } = {}) {
   if (!updateLatest) return plan
   return [
     ...plan,
-    {
-      file: dmg,
-      key: LATEST_DMG_KEY,
-      cacheControl: LATEST_DMG_CACHE_CONTROL,
-      contentType: 'application/x-apple-diskimage',
-      contentDisposition: `attachment; filename="${dmg}"`,
-      rewrite: false,
-    },
     {
       file: names.manifest,
       key: 'latest.json',
@@ -130,7 +119,7 @@ export function r2Settings(env, { required = false } = {}) {
 }
 
 export function awsPutObjectArgs(settings, item, bodyPath) {
-  const args = [
+  return [
     's3api', 'put-object',
     '--endpoint-url', settings.endpoint,
     '--bucket', settings.bucket,
@@ -139,8 +128,6 @@ export function awsPutObjectArgs(settings, item, bodyPath) {
     '--cache-control', item.cacheControl,
     '--content-type', item.contentType,
   ]
-  if (item.contentDisposition) args.push('--content-disposition', item.contentDisposition)
-  return args
 }
 
 function run(command, args, options = {}) {
@@ -233,8 +220,8 @@ export async function uploadDirectoryToR2(directory, version, env = process.env,
     await aws.cleanup()
     await rm(temp, { recursive: true, force: true })
   }
-  if (updateLatest) console.log(`Published ${R2_LATEST_JSON_URL} and ${LATEST_DMG_URL} for Goalward ${version}`)
-  else console.log(`Uploaded versioned R2 objects for Goalward ${version} without changing latest.json or ${LATEST_DMG_KEY}`)
+  if (updateLatest) console.log(`Published ${R2_LATEST_JSON_URL} for Goalward ${version}`)
+  else console.log(`Uploaded versioned R2 objects for Goalward ${version} without changing latest.json`)
   return { uploaded: true, keys: plan.map(item => item.key), updateLatest }
 }
 
