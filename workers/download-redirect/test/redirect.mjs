@@ -81,5 +81,5 @@ test('routes only download paths and deploys once from a manual workflow', async
   const ci = await readFile(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8')
   const jobs = ci.split(/^jobs:\n/m)[1]
   assert.deepEqual([...jobs.matchAll(/^ {2}([a-z0-9-]+):/gm)].map(match => match[1]), ['release-tooling', 'frontend-tests', 'rust-tests'])
-  assert.match(jobs, /node --test workers\/download-redirect\/test\/redirect\.test\.mjs/)
+  assert.match(jobs, /node --test workers\/download-redirect\/test\/redirect\.mjs/)
 })

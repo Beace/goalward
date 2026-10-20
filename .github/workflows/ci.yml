@@ -30,7 +30,7 @@ jobs:
       - name: Test updater signatures and release manifest verification
         run: node --test scripts/test-release-updater.mjs
       - name: Test the download redirect Worker
-        run: node --test workers/download-redirect/test/redirect.test.mjs
+        run: node --test workers/download-redirect/test/redirect.mjs
 
   frontend-tests:
     runs-on: ubuntu-24.04
