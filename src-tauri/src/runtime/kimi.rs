@@ -615,7 +615,9 @@ impl KimiSession {
                 let thinking =
                     Self::select_option(&inner.config_options, "thought_level", "thinking")?;
                 let selected_model = Self::select_option(&inner.config_options, "model", "model")?;
-                let effort = self.requested_effort().ok_or("The Kimi reasoning effort request is no longer valid.")?;
+                let effort = self
+                    .requested_effort()
+                    .ok_or("The Kimi reasoning effort request is no longer valid.")?;
                 if thinking["id"] != id.as_str()
                     || thinking["currentValue"] != effort
                     || !Self::supports_value(thinking, &effort)

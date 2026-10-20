@@ -222,7 +222,9 @@ pub fn arguments(runtime: &RuntimeConfig, extra: &[String]) -> Result<Vec<String
                     tool.trim().is_empty() || tool.starts_with('-') || tool.contains(['\r', '\n'])
                 })
             {
-                return Err("Claude Code tool rules cannot be empty or start with a hyphen.".into());
+                return Err(
+                    "Claude Code tool rules cannot be empty or start with a hyphen.".into(),
+                );
             }
             let explicit = config.mode != "inherit"
                 || !config.additional_directories.is_empty()

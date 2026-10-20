@@ -14,7 +14,10 @@ pub(crate) fn image_preview(path: &str) -> Result<String, String> {
 }
 
 fn image_limit_error(max_bytes: u64) -> String {
-    format!("The image exceeds the {} MB preview limit.", max_bytes / (1024 * 1024))
+    format!(
+        "The image exceeds the {} MB preview limit.",
+        max_bytes / (1024 * 1024)
+    )
 }
 
 pub(crate) fn image_preview_with_limit(
@@ -24,8 +27,12 @@ pub(crate) fn image_preview_with_limit(
     if !Path::new(path).is_absolute() {
         return Err("The image is missing an absolute local path.".into());
     }
-    let file = fs::File::open(path).map_err(|_| "The image does not exist or cannot be accessed. It may have been moved or deleted.")?;
-    let metadata = file.metadata().map_err(|_| "Could not read image information.")?;
+    let file = fs::File::open(path).map_err(|_| {
+        "The image does not exist or cannot be accessed. It may have been moved or deleted."
+    })?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| "Could not read image information.")?;
     if !metadata.is_file() {
         return Err("This path is not an image file.".into());
     }
@@ -99,7 +106,10 @@ fn native_image_png(bytes: &[u8], max_bytes: Option<u64>) -> Result<Vec<u8>, Str
         }
         .ok_or("Failed to convert the image.")?;
         if max_bytes.is_some_and(|limit| data.length() as u64 > limit) {
-            return Err(format!("Converted image: {}", image_limit_error(max_bytes.unwrap())));
+            return Err(format!(
+                "Converted image: {}",
+                image_limit_error(max_bytes.unwrap())
+            ));
         }
         Ok(data.to_vec())
     })
@@ -147,7 +157,9 @@ fn existing_file(path: &Path) -> Result<Attachment, String> {
 
 fn persist(root: &Path, name: &str, bytes: &[u8]) -> Result<Attachment, String> {
     if bytes.len() > MAX_BYTES {
-        return Err("Clipboard content exceeds 32 MB. Save it as a file, then copy it from Finder.".into());
+        return Err(
+            "Clipboard content exceeds 32 MB. Save it as a file, then copy it from Finder.".into(),
+        );
     }
     let name = name
         .rsplit(['/', '\\'])
@@ -201,7 +213,9 @@ pub async fn save_clipboard_file(
         .app_data_dir()
         .map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = STANDARD.decode(data).map_err(|_| "Clipboard file content is invalid.")?;
+        let bytes = STANDARD
+            .decode(data)
+            .map_err(|_| "Clipboard file content is invalid.")?;
         persist(&root, &name, &bytes)
     })
     .await
@@ -239,7 +253,8 @@ fn read_board(root: &Path, board: &objc2_app_kit::NSPasteboard) -> Result<Vec<At
         if let Some(items) = board.pasteboardItems() {
             for item in items.iter() {
                 if let Some(value) = item.stringForType(&NSString::from_str("public.file-url")) {
-                    let url = NSURL::URLWithString(&value).ok_or("The clipboard file URL is invalid.")?;
+                    let url =
+                        NSURL::URLWithString(&value).ok_or("The clipboard file URL is invalid.")?;
                     if !url.isFileURL() {
                         return Err("The clipboard does not contain a local file URL.".into());
                     }
@@ -262,7 +277,10 @@ fn read_board(root: &Path, board: &objc2_app_kit::NSPasteboard) -> Result<Vec<At
         if !files.is_empty() {
             return Ok(files);
         }
-        let name = format!("screenshot-{}.png", chrono::Local::now().format("%Y%m%d-%H%M%S"));
+        let name = format!(
+            "screenshot-{}.png",
+            chrono::Local::now().format("%Y%m%d-%H%M%S")
+        );
         if let Some(data) = board.dataForType(&NSString::from_str("public.png")) {
             if data.length() > MAX_BYTES {
                 return Err("The clipboard image exceeds 32 MB.".into());

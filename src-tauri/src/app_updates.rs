@@ -44,7 +44,10 @@ impl AppUpdates {
     fn begin(&self) -> Result<Operation<'_>, String> {
         self.busy
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .map_err(|_| "An app update is in progress. Wait for the current operation to finish.".to_string())?;
+            .map_err(|_| {
+                "An app update is in progress. Wait for the current operation to finish."
+                    .to_string()
+            })?;
         Ok(Operation(&self.busy))
     }
 
@@ -112,7 +115,9 @@ fn exact_github_url(value: &str, path: &str) -> Result<Url, String> {
     // Exact canonical spelling excludes credentials, ports, query parameters,
     // fragments, path traversal, escaped separators and another repository.
     if url.as_str() != expected || value != expected {
-        return Err("The GitHub update URL does not match the Goalward repository or version.".into());
+        return Err(
+            "The GitHub update URL does not match the Goalward repository or version.".into(),
+        );
     }
     Ok(url)
 }
@@ -164,7 +169,10 @@ fn select_release(
             continue;
         }
         if manifests.len() != 1 {
-            return Err("The GitHub Release contains duplicate update manifests. Check the release assets.".into());
+            return Err(
+                "The GitHub Release contains duplicate update manifests. Check the release assets."
+                    .into(),
+            );
         }
         exact_github_url(
             &release.html_url,
@@ -260,8 +268,9 @@ async fn public_releases(client: &Client) -> Result<Vec<GitHubRelease>, String> 
             }
             body.extend_from_slice(&chunk);
         }
-        let items: Vec<GitHubRelease> = serde_json::from_slice(&body)
-            .map_err(|_| "GitHub returned invalid Release data. The update check did not complete.".to_string())?;
+        let items: Vec<GitHubRelease> = serde_json::from_slice(&body).map_err(|_| {
+            "GitHub returned invalid Release data. The update check did not complete.".to_string()
+        })?;
         let complete = items.len() < RELEASES_PER_PAGE;
         releases.extend(items);
         if complete {
@@ -299,11 +308,15 @@ pub async fn check_app_update(
 ) -> Result<AppUpdateInfo, String> {
     let _operation = updates.begin()?;
     if updates.session()?.installed {
-        return Err("The update is already installed. Restart Goalward before checking for updates again.".into());
+        return Err(
+            "The update is already installed. Restart Goalward before checking for updates again."
+                .into(),
+        );
     }
     let current_version = app.package_info().version.to_string();
-    let current = Version::parse(&current_version)
-        .map_err(|_| "The current app version is invalid. Updates cannot be compared safely.".to_string())?;
+    let current = Version::parse(&current_version).map_err(|_| {
+        "The current app version is invalid. Updates cannot be compared safely.".to_string()
+    })?;
     let client = Client::builder()
         .user_agent(format!("Goalward/{current_version}"))
         .timeout(Duration::from_secs(30))
@@ -390,7 +403,9 @@ pub async fn download_app_update(
             || {},
         )
         .await
-        .map_err(|e| format!("The update package download or signature verification failed: {e}"))?;
+        .map_err(|e| {
+            format!("The update package download or signature verification failed: {e}")
+        })?;
     if !started {
         let _ = on_event.send(DownloadEvent::Started {
             content_length: Some(bytes.len() as u64),
@@ -410,7 +425,8 @@ fn installation_supported() -> Result<(), String> {
     if !cfg!(target_os = "macos") {
         return Err("This version only supports in-app updates on macOS.".into());
     }
-    let executable = std::env::current_exe().map_err(|_| "Could not determine the app installation location.".to_string())?;
+    let executable = std::env::current_exe()
+        .map_err(|_| "Could not determine the app installation location.".to_string())?;
     if executable
         .parent()
         .is_none_or(|p| p.file_name().is_none_or(|n| n != "MacOS"))
@@ -443,15 +459,20 @@ pub async fn install_app_update(
         }
         (
             session.update.clone().ok_or("Check for updates first.")?,
-            session.downloaded.clone().ok_or("Download and verify the update package first.")?,
+            session
+                .downloaded
+                .clone()
+                .ok_or("Download and verify the update package first.")?,
         )
     };
     let runtimes = services.runtimes.clone();
     tauri::async_runtime::spawn_blocking(move || {
         runtimes.while_idle(|| {
-            update
-                .install(&**bytes)
-                .map_err(|e| format!("Update installation failed. The downloaded update package can be retried: {e}"))
+            update.install(&**bytes).map_err(|e| {
+                format!(
+                    "Update installation failed. The downloaded update package can be retried: {e}"
+                )
+            })
         })
     })
     .await

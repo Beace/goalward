@@ -266,7 +266,9 @@ impl PiSession {
         inner.next_idle_check = None;
         inner.outcome = Some(match inner.last_stop.as_deref() {
             Some("stop") if !inner.cancelled => Ok(()),
-            Some("length") => Err("The Pi answer reached the output length limit. This turn did not complete.".into()),
+            Some("length") => Err(
+                "The Pi answer reached the output length limit. This turn did not complete.".into(),
+            ),
             Some("error") => Err("The Pi model request failed. Check Trace.".into()),
             Some("aborted") => Err("The current Pi run was interrupted.".into()),
             _ if inner.cancelled => Err("The current Pi run was interrupted.".into()),

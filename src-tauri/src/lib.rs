@@ -192,7 +192,8 @@ async fn export_task(task: Value, services: State<'_, AppServices>) -> Result<St
 }
 
 fn validated_external_url(value: &str) -> Result<tauri::Url, String> {
-    let invalid = || "Only HTTP or HTTPS web links without login credentials can be opened.".to_string();
+    let invalid =
+        || "Only HTTP or HTTPS web links without login credentials can be opened.".to_string();
     if value
         .chars()
         .any(|character| character.is_control() || character == ' ')
@@ -283,13 +284,8 @@ pub fn run() {
                     Some(menu) => menu,
                     None => Menu::default(app.handle())?,
                 };
-                let reload = MenuItem::with_id(
-                    app,
-                    "dev-reload",
-                    "Reload page",
-                    true,
-                    Some("CmdOrCtrl+R"),
-                )?;
+                let reload =
+                    MenuItem::with_id(app, "dev-reload", "Reload page", true, Some("CmdOrCtrl+R"))?;
                 menu.append(&Submenu::with_items(app, "Development", true, &[&reload])?)?;
                 app.set_menu(menu)?;
                 app.on_menu_event(|app, event| {
