@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { requireGitHubToken } from './r2-release.mjs'
 import {
   readmeDownloadDecision,
   readmeFilesIn,
@@ -13,9 +14,11 @@ export const REQUIRED_CI_CHECKS = ['frontend-tests', 'rust-tests', 'release-tool
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
 function execute(command, args, options = {}) {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', ...options.env }
+  if (command === 'gh') requireGitHubToken(env)
   const result = spawnSync(command, args, {
     encoding: 'utf8',
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...options.env },
+    env,
     cwd: options.cwd,
   })
   if (result.error) throw result.error

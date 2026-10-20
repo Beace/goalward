@@ -131,13 +131,25 @@ export function awsPutObjectArgs(settings, item, bodyPath) {
   ]
 }
 
+export function requireGitHubToken(env = process.env) {
+  if (typeof env.GH_TOKEN !== 'string' || env.GH_TOKEN.trim() === '') {
+    throw new Error('GH_TOKEN is required to call the GitHub CLI. Set GH_TOKEN for this step; the token is not printed.')
+  }
+}
+
+function githubCommandEnv(options = {}) {
+  return options.env ? { ...process.env, ...options.env } : process.env
+}
+
 function run(command, args, options = {}) {
+  if (command === 'gh') requireGitHubToken(githubCommandEnv(options))
   const result = spawnSync(command, args, { stdio: 'inherit', ...options })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} exited with status ${result.status}`)
 }
 
 function capture(command, args) {
+  if (command === 'gh') requireGitHubToken()
   const result = spawnSync(command, args, { encoding: 'utf8' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} exited with status ${result.status}`)
