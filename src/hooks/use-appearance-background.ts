@@ -13,6 +13,7 @@ export interface AppearanceBackgroundState {
 }
 
 function releaseImage(src: string | undefined) {
+  // Only blob URLs need revoking; asset protocol URLs are managed by Tauri
   if (src?.startsWith('blob:')) URL.revokeObjectURL(src)
 }
 

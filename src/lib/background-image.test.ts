@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { chooseBackgroundImage, loadBackgroundImage, MAX_BACKGROUND_IMAGE_BYTES } from './background-image'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { chooseBackgroundImage, loadBackgroundImage, MAX_BACKGROUND_IMAGE_BYTES, translateBackgroundError, type BackgroundImageErrorCode } from './background-image'
 
 const mock = vi.hoisted(() => ({ desktop: false, invoke: vi.fn(), open: vi.fn() }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mock.invoke, isTauri: () => mock.desktop }))
@@ -85,11 +85,11 @@ it('uses native selection, imports a managed reference, and treats cancellation 
   mock.desktop = true
   const image = { name: 'wallpaper.png', path: '/app/appearance/backgrounds/id/wallpaper.png' }
   mock.open.mockResolvedValueOnce('/original/wallpaper.png').mockResolvedValueOnce(null)
-  mock.invoke.mockResolvedValueOnce(image).mockResolvedValueOnce('data:image/png;base64,bytes')
+  mock.invoke.mockResolvedValueOnce(image).mockResolvedValueOnce({ url: 'asset://localhost/app/appearance/backgrounds/id/wallpaper.png' })
   expect(await chooseBackgroundImage()).toEqual(image)
   expect(mock.invoke).toHaveBeenCalledWith('import_background_image', { path: '/original/wallpaper.png' })
   expect(mock.open).toHaveBeenCalledWith(expect.objectContaining({ multiple: false, filters: [expect.objectContaining({ extensions: expect.arrayContaining(['png', 'webp', 'avif', 'heic', 'tiff']) })] }))
-  expect(await loadBackgroundImage(image)).toBe('data:image/png;base64,bytes')
+  expect(await loadBackgroundImage(image)).toBe('asset://localhost/app/appearance/backgrounds/id/wallpaper.png')
   expect(mock.invoke).toHaveBeenLastCalledWith('read_background_image', { path: image.path })
   expect(await chooseBackgroundImage()).toBeNull()
   expect(mock.invoke).toHaveBeenCalledTimes(2)
@@ -159,4 +159,55 @@ it('checks bytes again when loading persisted browser assets', async () => {
   saved.set(path, new Blob(['<svg></svg>'], { type: 'image/png' }))
   await expect(loadBackgroundImage({ name: 'forged.png', path })).rejects.toThrow('不是受支持的图片')
   expect(decodedBlobs).toHaveLength(0)
+})
+
+describe('translateBackgroundError', () => {
+  const errorCodes: BackgroundImageErrorCode[] = [
+    'image_not_found',
+    'image_read_failed',
+    'not_an_image_file',
+    'image_too_large',
+    'image_corrupt',
+    'storage_path_invalid',
+    'missing_absolute_path',
+    'invalid_file_name',
+    'path_contains_traversal',
+    'outside_managed_directory',
+  ]
+
+  it.each(errorCodes)('translates %s to a user-friendly message', (code) => {
+    const message = translateBackgroundError(code)
+    expect(message).toBeTruthy()
+    expect(typeof message).toBe('string')
+    expect(message.length).toBeGreaterThan(5)
+  })
+
+  it('handles unknown error codes gracefully', () => {
+    const message = translateBackgroundError('unknown_error' as BackgroundImageErrorCode)
+    expect(message).toBeTruthy()
+    expect(typeof message).toBe('string')
+  })
+})
+
+describe('native error handling', () => {
+  it('translates backend error codes to localized messages on import', async () => {
+    mock.desktop = true
+    mock.open.mockResolvedValueOnce('/path/to/image.png')
+    mock.invoke.mockResolvedValueOnce({ error: 'image_too_large' })
+    await expect(chooseBackgroundImage()).rejects.toThrow('32 MB')
+  })
+
+  it('translates backend error codes to localized messages on load', async () => {
+    mock.desktop = true
+    mock.invoke.mockResolvedValueOnce({ error: 'image_not_found' })
+    await expect(loadBackgroundImage({ name: 'image.png', path: '/app/backgrounds/image.png' })).rejects.toThrow()
+  })
+
+  it('returns asset protocol URL from native load', async () => {
+    mock.desktop = true
+    mock.invoke.mockResolvedValueOnce({ url: 'asset://localhost/app/backgrounds/uuid/image.png' })
+    const url = await loadBackgroundImage({ name: 'image.png', path: '/app/backgrounds/uuid/image.png' })
+    expect(url).toBe('asset://localhost/app/backgrounds/uuid/image.png')
+    expect(url.startsWith('asset://')).toBe(true)
+  })
 })
