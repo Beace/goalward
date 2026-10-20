@@ -139,8 +139,7 @@ fn import_image(root: &Path, source: &Path) -> Result<BackgroundImage, Backgroun
         .and_then(|value| value.to_str())
         .filter(|name| !name.is_empty() && !name.chars().any(char::is_control))
         .ok_or(BackgroundImageError::InvalidFileName)?;
-    let source =
-        fs::canonicalize(source).map_err(|_| BackgroundImageError::ImageNotFound)?;
+    let source = fs::canonicalize(source).map_err(|_| BackgroundImageError::ImageNotFound)?;
     let bytes = bounded_bytes(&source)?;
     // Keep the selected filename's extension when the source was a symlink.
     validate_image(Path::new(name), &bytes)?;
@@ -198,8 +197,7 @@ fn validate_managed_path(root: &Path, path: &Path) -> Result<PathBuf, Background
     if !managed.starts_with(&canonical_root) {
         return Err(BackgroundImageError::StoragePathInvalid);
     }
-    let canonical_path =
-        fs::canonicalize(path).map_err(|_| BackgroundImageError::ImageNotFound)?;
+    let canonical_path = fs::canonicalize(path).map_err(|_| BackgroundImageError::ImageNotFound)?;
     if !canonical_path.starts_with(&managed) || canonical_path == managed {
         return Err(BackgroundImageError::OutsideManagedDirectory);
     }
@@ -223,7 +221,8 @@ pub struct BackgroundImageResult {
 
 #[derive(Debug, Serialize)]
 pub struct BackgroundAssetResult {
-    pub url: String,
+    /// Canonical managed path. The webview turns this into a URL with `convertFileSrc`.
+    pub path: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -274,26 +273,19 @@ pub async fn read_background_image(
         .map_err(|_| BackgroundErrorResult {
             error: BackgroundImageError::StoragePathInvalid,
         })?;
-    let path_clone = path.clone();
-    let canonical_path = tauri::async_runtime::spawn_blocking(move || {
-        validate_image_file(&root, Path::new(&path_clone))
-    })
-    .await
-    .map_err(|_| BackgroundErrorResult {
-        error: BackgroundImageError::StoragePathInvalid,
-    })?
-    .map_err(|error| BackgroundErrorResult { error })?;
+    let canonical_path =
+        tauri::async_runtime::spawn_blocking(move || validate_image_file(&root, Path::new(&path)))
+            .await
+            .map_err(|_| BackgroundErrorResult {
+                error: BackgroundImageError::StoragePathInvalid,
+            })?
+            .map_err(|error| BackgroundErrorResult { error })?;
 
-    // Return asset protocol URL instead of base64-encoded data
-    let url = tauri::Url::from_file_path(&canonical_path)
-        .map_err(|_| BackgroundErrorResult {
-            error: BackgroundImageError::StoragePathInvalid,
-        })?;
-    let asset_url = url
-        .as_str()
-        .replace("file://", "asset://localhost")
-        .replace("file:", "asset://localhost");
-    Ok(BackgroundAssetResult { url: asset_url })
+    // The asset protocol is scoped to the managed backgrounds directory.
+    // The frontend converts this canonical path with convertFileSrc.
+    Ok(BackgroundAssetResult {
+        path: canonical_path.to_string_lossy().into_owned(),
+    })
 }
 
 #[cfg(test)]
@@ -304,6 +296,32 @@ mod tests {
     // A complete one-pixel PNG exercises native decoding as well as signature validation.
     fn png() -> Vec<u8> {
         STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=").unwrap()
+    }
+
+    #[test]
+    fn asset_protocol_is_enabled_only_for_managed_backgrounds() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let security = &config["app"]["security"];
+        let protocol = &security["assetProtocol"];
+        assert_eq!(protocol["enable"], true);
+        assert_eq!(
+            protocol["scope"],
+            serde_json::json!(["$APPDATA/appearance/backgrounds/**"])
+        );
+        for key in ["csp", "devCsp"] {
+            let csp = security[key].as_str().unwrap();
+            assert!(
+                csp.contains("img-src")
+                    && csp.contains("asset:")
+                    && csp.contains("http://asset.localhost"),
+                "{key} must allow the asset protocol"
+            );
+        }
+        assert!(
+            include_str!("../Cargo.toml").contains("features = [\"protocol-asset\"]"),
+            "the tauri crate must enable protocol-asset"
+        );
     }
 
     #[test]
@@ -334,7 +352,8 @@ mod tests {
         assert_eq!(fs::read(&image.path).unwrap(), png());
         fs::remove_file(source).unwrap();
         // validate_image_file returns the canonical path for use with asset protocol
-        let canonical = validate_image_file(&temp.path().join("app"), Path::new(&image.path)).unwrap();
+        let canonical =
+            validate_image_file(&temp.path().join("app"), Path::new(&image.path)).unwrap();
         assert!(canonical.exists());
         assert!(validate_image_file(&temp.path().join("app"), Path::new(&next.path)).is_ok());
     }
@@ -382,7 +401,11 @@ mod tests {
             BackgroundImageError::OutsideManagedDirectory
         );
         assert_eq!(
-            validate_image_file(temp.path(), &managed_directory(temp.path()).join("../outside.png")).unwrap_err(),
+            validate_image_file(
+                temp.path(),
+                &managed_directory(temp.path()).join("../outside.png")
+            )
+            .unwrap_err(),
             BackgroundImageError::PathContainsTraversal
         );
         assert_eq!(
@@ -450,7 +473,11 @@ mod tests {
             BackgroundImageError::StoragePathInvalid
         );
         assert_eq!(
-            validate_image_file(app.path(), &managed_directory(app.path()).join("source.png")).unwrap_err(),
+            validate_image_file(
+                app.path(),
+                &managed_directory(app.path()).join("source.png")
+            )
+            .unwrap_err(),
             BackgroundImageError::StoragePathInvalid
         );
         assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);

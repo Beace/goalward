@@ -1,4 +1,4 @@
-import { invoke, isTauri } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { translate } from '@/i18n'
 import type { AppBackgroundImage } from './types'
@@ -48,17 +48,74 @@ export function translateBackgroundError(code: BackgroundImageErrorCode): string
   }
 }
 
+const backgroundErrorCodes = new Set<string>([
+  'image_not_found',
+  'image_read_failed',
+  'not_an_image_file',
+  'image_too_large',
+  'image_corrupt',
+  'storage_path_invalid',
+  'missing_absolute_path',
+  'invalid_file_name',
+  'path_contains_traversal',
+  'outside_managed_directory',
+])
+
 interface BackgroundImportResult {
   name: string
   path: string
 }
 
 interface BackgroundAssetResult {
-  url: string
+  path: string
 }
 
-interface BackgroundErrorResult {
-  error: BackgroundImageErrorCode
+function isBackgroundErrorCode(value: string): value is BackgroundImageErrorCode {
+  return backgroundErrorCodes.has(value)
+}
+
+/** Tauri rejects command errors. The payload is `{ error: "<code>" }`, a code string, or that JSON as text. */
+export function backgroundErrorCode(value: unknown, depth = 0): BackgroundImageErrorCode | undefined {
+  if (depth > 3) return undefined
+  if (typeof value === 'string') {
+    const text = value.trim().replace(/^Error:\s*/, '')
+    if (isBackgroundErrorCode(text)) return text
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        return backgroundErrorCode(JSON.parse(text), depth + 1)
+      } catch {
+        return undefined
+      }
+    }
+    return undefined
+  }
+  if (value instanceof Error) return backgroundErrorCode(value.message, depth + 1)
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  if ('error' in record) {
+    const nested = backgroundErrorCode(record.error, depth + 1)
+    if (nested) return nested
+  }
+  if ('code' in record) {
+    const nested = backgroundErrorCode(record.code, depth + 1)
+    if (nested) return nested
+  }
+  if (typeof record.message === 'string') return backgroundErrorCode(record.message, depth + 1)
+  return undefined
+}
+
+function localizedBackgroundFailure(cause: unknown): string {
+  const code = backgroundErrorCode(cause)
+  if (code) return translateBackgroundError(code)
+  return translate('背景图片加载失败，请重试或更换图片。', 'The background image could not be loaded. Retry or choose another image.')
+}
+
+async function invokeBackground<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(command, args)
+  } catch (cause) {
+    throw new Error(localizedBackgroundFailure(cause))
+  }
 }
 
 function unsupportedImage(): Error {
@@ -168,8 +225,7 @@ export async function chooseBackgroundImage(file?: File): Promise<AppBackgroundI
       filters: [{ name: translate('图片', 'Images'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'tif', 'tiff', 'heic', 'heif'] }],
     })
     if (typeof path !== 'string') return null
-    const result = await invoke<BackgroundImportResult | BackgroundErrorResult>('import_background_image', { path })
-    if ('error' in result) throw new Error(translateBackgroundError(result.error))
+    const result = await invokeBackground<BackgroundImportResult>('import_background_image', { path })
     return { name: result.name, path: result.path }
   }
   if (!file) return null
@@ -190,9 +246,8 @@ export async function chooseBackgroundImage(file?: File): Promise<AppBackgroundI
 /** The caller owns any returned blob URL and must revoke it when no longer used. */
 export async function loadBackgroundImage(image: AppBackgroundImage): Promise<string> {
   if (isTauri()) {
-    const result = await invoke<BackgroundAssetResult | BackgroundErrorResult>('read_background_image', { path: image.path })
-    if ('error' in result) throw new Error(translateBackgroundError(result.error))
-    return result.url
+    const result = await invokeBackground<BackgroundAssetResult>('read_background_image', { path: image.path })
+    return convertFileSrc(result.path)
   }
   if (!/^preview-background:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(image.path)) {
     throw new Error(translate('此背景图片只能在原来的桌面应用或浏览器中读取，请重新选择图片。', 'This background image can only be read in its original app or browser. Choose the image again.'))
