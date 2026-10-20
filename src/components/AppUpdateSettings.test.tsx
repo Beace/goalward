@@ -76,6 +76,17 @@ describe('app update settings', () => {
     expect(update.install).toHaveBeenCalledOnce()
     expect(update.restart).not.toHaveBeenCalled()
   })
+  it('explains that updates come from Cloudflare R2 with a GitHub Releases fallback', () => {
+    render(<AppUpdateSettings update={controller()} activeCount={0} unsaved={false} />)
+    expect(screen.getByText(/更新由 Cloudflare R2（releases\.goalward\.dev）提供，GitHub Releases 作为备用/)).toBeTruthy()
+    expect(screen.getByText(/下载后仍会验证发布签名/)).toBeTruthy()
+    expect(screen.getByText(/ad-hoc 签名，未经 Apple 公证/)).toBeTruthy()
+  })
+  it('shows the R2 failure that caused the GitHub rate-limit fallback', () => {
+    const message = 'Cloudflare R2 update check failed first (Could not read or verify the Cloudflare R2 update manifest: connection timed out). The GitHub Releases fallback reached the rate limit. Try again later (rate limit resets at Unix 123)'
+    render(<AppUpdateSettings update={controller({ error: { stage: 'check', message } })} activeCount={0} unsaved={false} />)
+    expect(screen.getByRole('alert').textContent).toBe(message)
+  })
   it('shows a readable error when the GitHub release link cannot be opened', async () => {
     bridge.openExternalUrl.mockRejectedValue(new Error('Browser unavailable'))
     const update = controller({ phase: 'available', info: { currentVersion: '0.2.0', version: '0.3.0', releaseUrl: 'https://github.com/example/app/releases/tag/v0.3.0' } })
