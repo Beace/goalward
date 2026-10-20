@@ -69,7 +69,7 @@ Goalward 运行在 Apple Silicon 和 Intel Mac 上，需要 macOS 13.3 或更高
 
 **[下载 macOS 安装包 →](https://releases.goalward.dev/download/Goalward.dmg)**
 
-全部版本见 [GitHub Releases](https://github.com/Beace/goalward/releases)。
+该地址会跳转到当前版本的安装包。全部版本见 [GitHub Releases](https://github.com/Beace/goalward/releases)。
 
 发布版本包含 SHA-256 校验和。应用使用 ad-hoc 签名，未经 Apple 公证；macOS 首次启动时会提示。详见[安装说明](docs/install-macos-trial.zh-CN.txt)了解如何绕过 Gatekeeper。
 

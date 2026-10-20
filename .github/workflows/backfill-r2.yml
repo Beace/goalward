@@ -9,7 +9,7 @@ on:
         default: v0.5.1
         type: string
       update_latest:
-        description: Publish latest.json and download/Goalward.dmg. auto does so only when this tag is the newest GitHub Release.
+        description: Publish top-level latest.json. auto does so only when this tag is the newest GitHub Release.
         required: true
         default: auto
         type: choice

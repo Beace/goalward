@@ -69,7 +69,7 @@ Goalward runs on Apple Silicon and Intel Macs with macOS 13.3 or later. Each dow
 
 **[Download for macOS →](https://releases.goalward.dev/download/Goalward.dmg)**
 
-Every version remains on [GitHub Releases](https://github.com/Beace/goalward/releases).
+That address redirects to the current versioned installer. Every version remains on [GitHub Releases](https://github.com/Beace/goalward/releases).
 
 Automatic updates read [https://releases.goalward.dev/latest.json](https://releases.goalward.dev/latest.json) first and fall back to the GitHub Release if that manifest is unavailable. Releases include SHA-256 checksums. The app uses ad-hoc signing and is not Apple-notarized; macOS will prompt on first launch. See the [installation guide](docs/install-macos-trial.txt) for details on bypassing Gatekeeper.
 
