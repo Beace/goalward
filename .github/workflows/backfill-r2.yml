@@ -8,6 +8,15 @@ on:
         required: true
         default: v0.5.1
         type: string
+      update_latest:
+        description: Publish latest.json and download/Goalward.dmg. auto does so only when this tag is the newest GitHub Release.
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - "true"
+          - "false"
 
 permissions:
   contents: read
@@ -34,4 +43,12 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: node scripts/r2-release.mjs backfill --tag "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
+          UPDATE_LATEST: ${{ inputs.update_latest }}
+        run: |
+          args=(backfill --tag "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY")
+          case "$UPDATE_LATEST" in
+            auto|'') ;;
+            true|false) args+=(--update-latest "$UPDATE_LATEST") ;;
+            *) echo "Invalid update_latest value" >&2; exit 1 ;;
+          esac
+          node scripts/r2-release.mjs "${args[@]}"
