@@ -68,7 +68,7 @@ Goalward uses the original agent executables. You install and authenticate them 
 Goalward runs on Apple Silicon and Intel Macs with macOS 13.3 or later. Each download is a universal app (arm64 + x86_64).
 
 <!-- download-link:start -->
-**[Download for macOS →](https://releases.goalward.dev/v0.6.0/Goalward_0.6.0_macos-universal.dmg)**
+**[Download for macOS →](https://releases.goalward.dev/v0.7.0/Goalward_0.7.0_macos-universal.dmg)**
 
 Every version remains on [GitHub Releases](https://github.com/Beace/goalward/releases).
 <!-- download-link:end -->
