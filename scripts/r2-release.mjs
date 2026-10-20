@@ -177,7 +177,7 @@ export async function uploadDirectoryToR2(directory, version, env = process.env)
   return { uploaded: true, keys: plan.map(item => item.key) }
 }
 
-export async function backfillReleaseToR2({ tag, repo, env = process.env }) {
+export async function backfillReleaseToR2({ tag, repo, env = process.env, runCommand = run, upload = uploadDirectoryToR2 }) {
   const version = tag?.startsWith('v') ? tag.slice(1) : ''
   if (tag !== `v${version}` || !versionPattern.test(version)) throw new Error('Invalid release tag')
   if (!repositoryPattern.test(repo) || repo.includes('..')) throw new Error('Invalid updater repository')
@@ -186,14 +186,16 @@ export async function backfillReleaseToR2({ tag, repo, env = process.env }) {
   try {
     const names = updaterArtifactNames(version)
     const files = [names.archive, names.signature, `Goalward_${version}_macos-universal.dmg`, names.manifest]
-    run('gh', ['release', 'download', tag, '-R', repo, '-D', directory, ...files.flatMap(file => ['-p', file])])
+    runCommand('gh', ['release', 'download', tag, '-R', repo, '-D', directory, ...files.flatMap(file => ['-p', file])])
     const manifest = JSON.parse(await readFile(join(directory, names.manifest), 'utf8'))
     const expected = `https://github.com/${repo}/releases/download/v${version}/${names.archive}`
     if (manifest?.platforms?.['darwin-aarch64']?.url !== expected) throw new Error('Downloaded manifest does not point at this GitHub Release')
     const rewritten = rewriteUpdaterManifestForR2(manifest)
     const signatureFile = (await readFile(join(directory, names.signature), 'utf8')).trim()
     if (signatureFile !== rewritten.platforms['darwin-aarch64'].signature) throw new Error('Downloaded signature file does not match latest.json')
-    return uploadDirectoryToR2(directory, version, env)
+    // Await the upload before finally removes the staging directory. Returning the
+    // promise alone lets that cleanup race the upload's file reads.
+    return await upload(directory, version, env)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

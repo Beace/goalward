@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
-import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, r2ArchiveUrl, r2ObjectPlan, r2Settings, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
+import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, r2ArchiveUrl, r2ObjectPlan, r2Settings, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
 
 const wrap = text => Buffer.from(text).toString('base64')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -278,4 +279,42 @@ test('lists the R2 manifest before the GitHub manifest in app config and endpoin
   assert.match(config.app.security.csp, /connect-src[^;]*https:\/\/releases\.goalward\.dev/)
   assert.match(config.app.security.devCsp, /connect-src[^;]*https:\/\/releases\.goalward\.dev/)
   assert.doesNotMatch(config.app.security.csp, /https:\/\/github\.com/)
+})
+
+test('backfill keeps staged release files until the upload has read them', async () => {
+  const releaseVersion = '0.5.1'
+  const names = updaterArtifactNames(releaseVersion)
+  const signature = signer().signature(Buffer.from('updater'))
+  const manifest = createUpdaterManifest({ version: releaseVersion, repo, signature, publishedAt })
+  const dmg = `Goalward_${releaseVersion}_macos-universal.dmg`
+  let staged
+  const result = await backfillReleaseToR2({
+    tag: `v${releaseVersion}`,
+    repo,
+    env: {
+      R2_ACCOUNT_ID: '98775cbe093085ec17c5fab233cd571f',
+      R2_ACCESS_KEY_ID: 'key',
+      R2_SECRET_ACCESS_KEY: 'secret',
+    },
+    runCommand(command, args) {
+      assert.equal(command, 'gh')
+      assert.deepEqual(args.slice(0, 5), ['release', 'download', `v${releaseVersion}`, '-R', repo])
+      const directory = args[args.indexOf('-D') + 1]
+      const patterns = args.flatMap((arg, index) => arg === '-p' ? [args[index + 1]] : [])
+      assert.deepEqual(patterns, [names.archive, names.signature, dmg, names.manifest])
+      writeFileSync(join(directory, names.archive), 'archive')
+      writeFileSync(join(directory, names.signature), `${signature}\n`)
+      writeFileSync(join(directory, dmg), 'dmg')
+      writeFileSync(join(directory, names.manifest), `${JSON.stringify(manifest)}\n`)
+    },
+    async upload(directory) {
+      staged = directory
+      await new Promise(resolve => setTimeout(resolve, 40))
+      assert.equal((await readFile(join(directory, names.signature), 'utf8')).trim(), signature)
+      assert.equal(JSON.parse(await readFile(join(directory, names.manifest), 'utf8')).version, releaseVersion)
+      return { uploaded: true, keys: ['latest.json'] }
+    },
+  })
+  assert.equal(result.uploaded, true)
+  await assert.rejects(readFile(join(staged, names.signature)), { code: 'ENOENT' })
 })
