@@ -322,7 +322,7 @@ fn api_error(status: StatusCode, remaining: Option<&str>, reset: Option<&str>) -
         || status == StatusCode::FORBIDDEN && remaining == Some("0")
     {
         return format!(
-            "GitHub update checks reached the rate limit. Try again later{}",
+            "The GitHub Releases fallback reached the rate limit. Try again later{}",
             reset
                 .map(|v| format!(" (rate limit resets at Unix {v})"))
                 .unwrap_or_default()
@@ -335,6 +335,10 @@ fn api_error(status: StatusCode, remaining: Option<&str>, reset: Option<&str>) -
         "The GitHub update check failed (HTTP {}). Try again later.",
         status.as_u16()
     )
+}
+
+fn github_fallback_error(r2_error: &str, github_error: &str) -> String {
+    format!("Cloudflare R2 update check failed first ({r2_error}). {github_error}")
 }
 
 async fn public_releases(client: &Client) -> Result<Vec<GitHubRelease>, String> {
@@ -459,7 +463,7 @@ pub async fn check_app_update(
         .map_err(|e| format!("Could not initialize the GitHub update check: {e}"))?;
     let releases = public_releases(&client)
         .await
-        .map_err(|error| format!("Cloudflare R2 update check failed ({r2_error}). {error}"))?;
+        .map_err(|error| github_fallback_error(&r2_error, &error))?;
     let candidate = select_release(releases, &current)?;
     let Some(candidate) = candidate else {
         clear_pending_update(&updates)?;
@@ -470,9 +474,9 @@ pub async fn check_app_update(
     let github_manifest = update_endpoints(&candidate.manifest_url)[1].clone();
     let mut update = fetch_update(&app, vec![github_manifest], "GitHub")
         .await
-        .map_err(|error| format!("Cloudflare R2 update check failed ({r2_error}). {error}"))?
+        .map_err(|error| github_fallback_error(&r2_error, &error))?
         .ok_or_else(|| {
-            format!("Cloudflare R2 update check failed ({r2_error}). The GitHub update manifest does not provide a matching newer version. Update status could not be confirmed.")
+            github_fallback_error(&r2_error, "The GitHub update manifest does not provide a matching newer version. Update status could not be confirmed.")
         })?;
     validate_update(&update, &candidate)?;
     // Checking a small manifest and downloading a full app need different
@@ -789,9 +793,16 @@ mod tests {
 
     #[test]
     fn rate_limit_errors_differ_from_no_update() {
-        assert!(api_error(StatusCode::FORBIDDEN, Some("0"), Some("123")).contains("rate limit"));
+        let limited = api_error(StatusCode::FORBIDDEN, Some("0"), Some("123"));
+        assert!(limited.contains("rate limit"));
         assert!(api_error(StatusCode::TOO_MANY_REQUESTS, None, None).contains("rate limit"));
         assert!(api_error(StatusCode::NOT_FOUND, None, None).contains("No public"));
+        let r2_error =
+            "Could not read or verify the Cloudflare R2 update manifest: connection timed out";
+        let shown = github_fallback_error(r2_error, &limited);
+        assert!(shown.contains("failed first"));
+        assert!(shown.contains(r2_error));
+        assert!(shown.contains("GitHub Releases fallback reached the rate limit"));
     }
 
     #[test]
