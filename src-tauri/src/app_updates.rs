@@ -1,4 +1,5 @@
-//! Public GitHub Releases are discovery metadata; Tauri verifies the signed
+//! Cloudflare R2 is the update manifest and package host. Public GitHub
+//! Releases remain the fallback discovery metadata. Tauri verifies the signed
 //! archive (including its version) before these bytes can be installed.
 use crate::AppServices;
 use reqwest::{redirect, Client, StatusCode};
@@ -15,6 +16,13 @@ use tauri::{ipc::Channel, AppHandle, State, Url};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const REPOSITORY: &str = "Beace/goalward";
+const R2_MANIFEST_URL: &str = "https://releases.goalward.dev/latest.json";
+/// Static plugin fallback declared in `tauri.conf.json`. GitHub omits prereleases
+/// from this URL, so the app substitutes the selected release's `latest.json`
+/// asset when R2 is unreachable. The constant stays for that config assertion.
+#[cfg_attr(not(test), allow(dead_code))]
+const GITHUB_STATIC_MANIFEST_URL: &str =
+    "https://github.com/Beace/goalward/releases/latest/download/latest.json";
 const MAX_RELEASE_PAGES: usize = 10;
 const RELEASES_PER_PAGE: usize = 100;
 const MAX_API_PAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -191,7 +199,7 @@ fn select_release(
     Ok(candidates.into_iter().next())
 }
 
-fn github_redirects() -> redirect::Policy {
+fn update_redirects() -> redirect::Policy {
     redirect::Policy::custom(|attempt| {
         let url = attempt.url();
         let allowed = url.scheme() == "https"
@@ -201,17 +209,112 @@ fn github_redirects() -> redirect::Policy {
             && matches!(
                 url.host_str(),
                 Some(
-                    "github.com"
+                    "releases.goalward.dev"
+                        | "github.com"
                         | "release-assets.githubusercontent.com"
                         | "objects.githubusercontent.com"
                 )
             );
         if attempt.previous().len() >= 5 || !allowed {
-            attempt.error("GitHub update redirect reached an unexpected endpoint")
+            attempt.error("Update redirect reached an unexpected endpoint")
         } else {
             attempt.follow()
         }
     })
+}
+
+fn static_url(value: &str) -> Url {
+    Url::parse(value).unwrap_or_else(|_| panic!("static update URL is invalid"))
+}
+
+fn r2_manifest_url() -> Url {
+    static_url(R2_MANIFEST_URL)
+}
+
+/// R2 is always first. The second entry is the selected GitHub Release manifest,
+/// which replaces the static `/releases/latest` config URL so prereleases remain reachable.
+fn update_endpoints(github_manifest: &Url) -> Vec<Url> {
+    vec![r2_manifest_url(), github_manifest.clone()]
+}
+
+fn expected_r2_archive_url(version: &Version) -> String {
+    format!(
+        "https://releases.goalward.dev/v{version}/Goalward_{version}_macos-universal.app.tar.gz"
+    )
+}
+
+fn validate_exact_url(value: &str, expected: &str) -> Result<(), String> {
+    let url =
+        Url::parse(value).map_err(|_| "The Cloudflare R2 update URL is invalid.".to_string())?;
+    if url.as_str() != expected || value != expected {
+        return Err(
+            "The update package URL does not match the Cloudflare R2 release for this version."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_r2_manifest(
+    version_text: &str,
+    download_url: &str,
+    raw: &serde_json::Value,
+    signature: &str,
+) -> Result<Version, String> {
+    let version = Version::parse(version_text)
+        .map_err(|_| "The Cloudflare R2 update manifest version is invalid.".to_string())?;
+    if !version.build.is_empty() || version_text != version.to_string() {
+        return Err("The Cloudflare R2 update manifest version is invalid.".into());
+    }
+    validate_exact_url(download_url, &expected_r2_archive_url(&version))?;
+    if signature.trim().is_empty() {
+        return Err("The update package has no signature. The update was rejected.".into());
+    }
+    let platforms = raw
+        .get("platforms")
+        .and_then(|value| value.as_object())
+        .ok_or("The Cloudflare R2 update manifest is missing macOS platforms.")?;
+    if platforms.len() != 2 {
+        return Err(
+            "The Cloudflare R2 update manifest must contain only the macOS update packages.".into(),
+        );
+    }
+    for platform in ["darwin-aarch64", "darwin-x86_64"] {
+        let entry = platforms
+            .get(platform)
+            .and_then(|value| value.as_object())
+            .ok_or("The Cloudflare R2 update manifest is missing a macOS platform.")?;
+        let url = entry
+            .get("url")
+            .and_then(|value| value.as_str())
+            .ok_or("The Cloudflare R2 update manifest is missing a package URL.")?;
+        validate_exact_url(url, &expected_r2_archive_url(&version))?;
+        let platform_signature = entry
+            .get("signature")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        if platform_signature != signature {
+            return Err(
+                "The Cloudflare R2 update manifest signature does not match the macOS package."
+                    .into(),
+            );
+        }
+    }
+    if raw.get("version").and_then(|value| value.as_str()) != Some(version_text) {
+        return Err(
+            "The Cloudflare R2 update manifest version does not match the updater response.".into(),
+        );
+    }
+    Ok(version)
+}
+
+fn validate_r2_update(update: &Update) -> Result<Version, String> {
+    validate_r2_manifest(
+        &update.version,
+        update.download_url.as_str(),
+        &update.raw_json,
+        &update.signature,
+    )
 }
 
 fn api_error(status: StatusCode, remaining: Option<&str>, reset: Option<&str>) -> String {
@@ -317,6 +420,23 @@ pub async fn check_app_update(
     let current = Version::parse(&current_version).map_err(|_| {
         "The current app version is invalid. Updates cannot be compared safely.".to_string()
     })?;
+    let r2_error = match fetch_update(&app, vec![r2_manifest_url()], "Cloudflare R2").await {
+        Ok(None) => {
+            clear_pending_update(&updates)?;
+            return Ok(empty_update(current_version));
+        }
+        Ok(Some(mut update)) => match validate_r2_update(&update) {
+            Ok(version) => {
+                update.timeout = Some(Duration::from_secs(300));
+                let info = r2_update_info(current_version, &update, &version)?;
+                remember_update(&updates, update)?;
+                return Ok(info);
+            }
+            Err(error) => error,
+        },
+        Err(error) => error,
+    };
+    eprintln!("Cloudflare R2 update check failed; falling back to GitHub Releases: {r2_error}");
     let client = Client::builder()
         .user_agent(format!("Goalward/{current_version}"))
         .timeout(Duration::from_secs(30))
@@ -337,31 +457,23 @@ pub async fn check_app_update(
         )
         .build()
         .map_err(|e| format!("Could not initialize the GitHub update check: {e}"))?;
-    let candidate = select_release(public_releases(&client).await?, &current)?;
-    let Some(candidate) = candidate else {
-        let mut session = updates.session()?;
-        session.update = None;
-        session.downloaded = None;
-        return Ok(AppUpdateInfo {
-            current_version,
-            version: None,
-            notes: None,
-            release_url: None,
-            date: None,
-        });
-    };
-    let mut update = app
-        .updater_builder()
-        .endpoints(vec![candidate.manifest_url.clone()])
-        .map_err(|e| format!("The update manifest URL is invalid: {e}"))?
-        .timeout(Duration::from_secs(30))
-        .configure_client(|client| client.redirect(github_redirects()))
-        .build()
-        .map_err(|e| format!("Could not initialize the updater: {e}"))?
-        .check()
+    let releases = public_releases(&client)
         .await
-        .map_err(|e| format!("Could not read or verify the GitHub update manifest: {e}"))?
-        .ok_or("The GitHub update manifest does not provide a matching newer version. Update status could not be confirmed.")?;
+        .map_err(|error| format!("Cloudflare R2 update check failed ({r2_error}). {error}"))?;
+    let candidate = select_release(releases, &current)?;
+    let Some(candidate) = candidate else {
+        clear_pending_update(&updates)?;
+        return Ok(empty_update(current_version));
+    };
+    // Request only the selected GitHub manifest. A recovered but stale R2
+    // response would stop the plugin before this fallback asset is read.
+    let github_manifest = update_endpoints(&candidate.manifest_url)[1].clone();
+    let mut update = fetch_update(&app, vec![github_manifest], "GitHub")
+        .await
+        .map_err(|error| format!("Cloudflare R2 update check failed ({r2_error}). {error}"))?
+        .ok_or_else(|| {
+            format!("Cloudflare R2 update check failed ({r2_error}). The GitHub update manifest does not provide a matching newer version. Update status could not be confirmed.")
+        })?;
     validate_update(&update, &candidate)?;
     // Checking a small manifest and downloading a full app need different
     // time budgets; neither request has an unlimited network timeout.
@@ -373,10 +485,74 @@ pub async fn check_app_update(
         release_url: Some(candidate.release.html_url),
         date: candidate.release.published_at,
     };
+    remember_update(&updates, update)?;
+    Ok(info)
+}
+
+fn empty_update(current_version: String) -> AppUpdateInfo {
+    AppUpdateInfo {
+        current_version,
+        version: None,
+        notes: None,
+        release_url: None,
+        date: None,
+    }
+}
+
+fn clear_pending_update(updates: &AppUpdates) -> Result<(), String> {
+    let mut session = updates.session()?;
+    session.update = None;
+    session.downloaded = None;
+    Ok(())
+}
+
+fn remember_update(updates: &AppUpdates, update: Update) -> Result<(), String> {
     let mut session = updates.session()?;
     session.update = Some(update);
     session.downloaded = None;
-    Ok(info)
+    Ok(())
+}
+
+async fn fetch_update(
+    app: &AppHandle,
+    endpoints: Vec<Url>,
+    source: &str,
+) -> Result<Option<Update>, String> {
+    app.updater_builder()
+        .endpoints(endpoints)
+        .map_err(|e| format!("The update manifest URL is invalid: {e}"))?
+        .timeout(Duration::from_secs(30))
+        .configure_client(|client| client.redirect(update_redirects()))
+        .build()
+        .map_err(|e| format!("Could not initialize the updater: {e}"))?
+        .check()
+        .await
+        .map_err(|e| format!("Could not read or verify the {source} update manifest: {e}"))
+}
+
+fn r2_update_info(
+    current_version: String,
+    update: &Update,
+    version: &Version,
+) -> Result<AppUpdateInfo, String> {
+    let release_page = format!("https://github.com/{REPOSITORY}/releases/tag/v{version}");
+    let release_url = exact_github_url(&release_page, &format!("releases/tag/v{version}"))?;
+    let date = match update.raw_json.get("pub_date") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(value)) => Some(value.clone()),
+        Some(_) => {
+            return Err(
+                "The Cloudflare R2 update manifest has an invalid publication date.".into(),
+            );
+        }
+    };
+    Ok(AppUpdateInfo {
+        current_version,
+        version: Some(version.to_string()),
+        notes: update.body.clone(),
+        release_url: Some(release_url.to_string()),
+        date,
+    })
 }
 
 #[tauri::command]
@@ -616,5 +792,90 @@ mod tests {
         assert!(api_error(StatusCode::FORBIDDEN, Some("0"), Some("123")).contains("rate limit"));
         assert!(api_error(StatusCode::TOO_MANY_REQUESTS, None, None).contains("rate limit"));
         assert!(api_error(StatusCode::NOT_FOUND, None, None).contains("No public"));
+    }
+
+    #[test]
+    fn updater_endpoints_try_r2_before_the_github_release_manifest() {
+        let github = exact_github_url(
+            "https://github.com/Beace/goalward/releases/download/v0.5.1/latest.json",
+            "releases/download/v0.5.1/latest.json",
+        )
+        .unwrap();
+        let endpoints = update_endpoints(&github);
+        assert_eq!(endpoints.len(), 2);
+        assert_eq!(endpoints[0].as_str(), R2_MANIFEST_URL);
+        assert_eq!(endpoints[1].as_str(), github.as_str());
+        assert_ne!(endpoints[1].as_str(), GITHUB_STATIC_MANIFEST_URL);
+        assert!(endpoints[0]
+            .as_str()
+            .starts_with("https://releases.goalward.dev/"));
+    }
+
+    #[test]
+    fn configured_updater_endpoints_list_r2_before_github() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let endpoints = config["plugins"]["updater"]["endpoints"]
+            .as_array()
+            .unwrap();
+        let values: Vec<_> = endpoints
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect();
+        assert_eq!(values, vec![R2_MANIFEST_URL, GITHUB_STATIC_MANIFEST_URL]);
+        let csp = config["app"]["security"]["csp"].as_str().unwrap();
+        let dev_csp = config["app"]["security"]["devCsp"].as_str().unwrap();
+        assert!(csp.contains("https://releases.goalward.dev"));
+        assert!(dev_csp.contains("https://releases.goalward.dev"));
+        assert!(!csp.contains("https://github.com"));
+        assert_eq!(
+            config["plugins"]["updater"]["pubkey"].as_str().unwrap(),
+            "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFRDhBRTkxNjUwMDMyODcKUldTSE1nQmxrYTdZWHQyM2pmeFpLOXUvM3RkaVRHY3o1OUE0d2x4bUdoTXk1MnQ4V3J0aU9ROUwK"
+        );
+    }
+
+    fn r2_manifest(version: &str, url: &str, signature: &str) -> serde_json::Value {
+        serde_json::json!({
+            "version": version,
+            "platforms": {
+                "darwin-aarch64": { "url": url, "signature": signature },
+                "darwin-x86_64": { "url": url, "signature": signature }
+            }
+        })
+    }
+
+    #[test]
+    fn accepts_the_exact_r2_archive_url_for_the_manifest_version() {
+        let version = "0.5.1";
+        let url = expected_r2_archive_url(&Version::parse(version).unwrap());
+        let manifest = r2_manifest(version, &url, "signature");
+        assert!(validate_r2_manifest(version, &url, &manifest, "signature").is_ok());
+    }
+
+    #[test]
+    fn rejects_r2_manifests_whose_package_url_is_not_the_versioned_release() {
+        let version = "0.5.1";
+        let url = expected_r2_archive_url(&Version::parse(version).unwrap());
+        let manifest = r2_manifest(version, &url, "signature");
+        let candidates = [
+            format!("{url}?download=1"),
+            "https://releases.goalward.dev/latest/Goalward_0.5.1_macos-universal.app.tar.gz".into(),
+            "https://user@releases.goalward.dev/v0.5.1/Goalward_0.5.1_macos-universal.app.tar.gz".into(),
+            "http://releases.goalward.dev/v0.5.1/Goalward_0.5.1_macos-universal.app.tar.gz".into(),
+            "https://github.com/Beace/goalward/releases/download/v0.5.1/Goalward_0.5.1_macos-universal.app.tar.gz".into(),
+        ];
+        for candidate_url in candidates {
+            assert!(
+                validate_r2_manifest(version, &candidate_url, &manifest, "signature").is_err(),
+                "accepted {candidate_url}"
+            );
+        }
+        assert!(validate_r2_manifest("0.5.2", &url, &manifest, "signature").is_err());
+        let mut mismatched = manifest.clone();
+        mismatched["platforms"]["darwin-x86_64"]["url"] = serde_json::Value::String(
+            "https://releases.goalward.dev/v0.5.1/other.app.tar.gz".into(),
+        );
+        assert!(validate_r2_manifest(version, &url, &mismatched, "signature").is_err());
+        assert!(validate_r2_manifest(version, &url, &manifest, "other").is_err());
     }
 }

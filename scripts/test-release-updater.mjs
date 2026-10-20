@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
+import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, r2ArchiveUrl, r2ObjectPlan, r2Settings, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
 
 const wrap = text => Buffer.from(text).toString('base64')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -175,4 +176,106 @@ test('rejects post-build artifact replacement', async context => {
   bytes[0] ^= 1
   await writeFile(path, bytes)
   await assert.rejects(verifyUpdaterRelease(fixture.directory, fixture.options), /signature verification/)
+})
+
+test('rewrites latest.json package URLs to the versioned R2 host and leaves the signature', () => {
+  const fixture = signer()
+  const signature = fixture.signature(Buffer.from('updater'))
+  const manifest = createUpdaterManifest({ version, repo, signature, publishedAt })
+  const original = structuredClone(manifest)
+  const rewritten = rewriteUpdaterManifestForR2(manifest)
+  assert.deepEqual(manifest, original)
+  assert.equal(rewritten.platforms['darwin-aarch64'].url, r2ArchiveUrl(version))
+  assert.equal(rewritten.platforms['darwin-aarch64'].url, `${RELEASES_ORIGIN}/v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz`)
+  assert.equal(rewritten.platforms['darwin-x86_64'].url, rewritten.platforms['darwin-aarch64'].url)
+  assert.equal(rewritten.platforms['darwin-aarch64'].signature, signature)
+  assert.equal(rewritten.notes, original.notes)
+  assert.equal(rewritten.pub_date, original.pub_date)
+  assert.equal(original.platforms['darwin-aarch64'].url, 'https://github.com/Beace/goalward/releases/download/v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz')
+})
+
+test('rejects manifests that are already rewritten or point outside the GitHub release', () => {
+  const signature = signer().signature(Buffer.from('updater'))
+  const manifest = createUpdaterManifest({ version, repo, signature, publishedAt })
+  assert.throws(() => rewriteUpdaterManifestForR2(rewriteUpdaterManifestForR2(manifest)), /GitHub Release/)
+  for (const url of [
+    'https://example.com/Goalward_0.3.0_macos-universal.app.tar.gz',
+    'https://github.com/Beace/goalward/releases/download/v0.3.1/Goalward_0.3.0_macos-universal.app.tar.gz',
+    'https://github.com/Beace/goalward/releases/download/v0.3.0/other.app.tar.gz',
+    'http://github.com/Beace/goalward/releases/download/v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz',
+  ]) {
+    const copy = structuredClone(manifest)
+    copy.platforms['darwin-aarch64'].url = url
+    copy.platforms['darwin-x86_64'].url = url
+    assert.throws(() => rewriteUpdaterManifestForR2(copy), /GitHub Release|platforms/)
+  }
+})
+
+test('uploads versioned R2 objects before latest.json and keeps a short cache on the pointer', () => {
+  const plan = r2ObjectPlan(version)
+  assert.deepEqual(plan.map(item => item.key), [
+    'v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz',
+    'v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz.sig',
+    'v0.3.0/Goalward_0.3.0_macos-universal.dmg',
+    'v0.3.0/latest.json',
+    'latest.json',
+  ])
+  assert.equal(plan.at(-1).key, 'latest.json')
+  assert.equal(plan.at(-1).cacheControl, LATEST_CACHE_CONTROL)
+  assert.equal(plan.at(-1).rewrite, true)
+  for (const item of plan.slice(0, -1)) {
+    assert.equal(item.cacheControl, VERSIONED_CACHE_CONTROL)
+    assert.match(item.key, /^v0\.3\.0\//)
+  }
+  const settings = r2Settings({
+    R2_ACCOUNT_ID: '98775cbe093085ec17c5fab233cd571f',
+    R2_ACCESS_KEY_ID: 'key',
+    R2_SECRET_ACCESS_KEY: 'secret',
+  })
+  const args = plan.map(item => awsPutObjectArgs(settings, item, item.rewrite ? '/tmp/latest.json' : `/dist/${item.file}`))
+  assert.equal(args.at(-1)[args.at(-1).indexOf('--key') + 1], 'latest.json')
+  assert.equal(args.at(-1)[args.at(-1).indexOf('--cache-control') + 1], 'public, max-age=60')
+  assert.equal(args[0][args[0].indexOf('--cache-control') + 1], VERSIONED_CACHE_CONTROL)
+  assert.equal(args[0][args[0].indexOf('--endpoint-url') + 1], 'https://98775cbe093085ec17c5fab233cd571f.r2.cloudflarestorage.com')
+  assert.equal(settings.bucket, 'goalward-releases')
+})
+
+test('skips R2 when every credential is absent and fails when only some are set', () => {
+  assert.equal(r2Settings({}).skip, true)
+  assert.equal(r2Settings({ R2_BUCKET: 'custom-bucket' }).skip, true)
+  assert.throws(() => r2Settings({ R2_ACCOUNT_ID: '98775cbe093085ec17c5fab233cd571f' }), /incomplete/)
+  assert.throws(() => r2Settings({}, { required: true }), /incomplete/)
+  const custom = r2Settings({
+    R2_ACCOUNT_ID: '98775cbe093085ec17c5fab233cd571f',
+    R2_ACCESS_KEY_ID: 'key',
+    R2_SECRET_ACCESS_KEY: 'secret',
+    R2_BUCKET: 'goalward-releases',
+  })
+  assert.equal(custom.skip, false)
+  assert.equal(custom.bucket, 'goalward-releases')
+})
+
+test('workflows read the R2 account id from a variable and the keys from secrets', async () => {
+  for (const file of ['.github/workflows/release.yml', '.github/workflows/backfill-r2.yml']) {
+    const text = await readFile(new URL(`../${file}`, import.meta.url), 'utf8')
+    assert.match(text, /R2_ACCOUNT_ID:\s*\$\{\{\s*vars\.R2_ACCOUNT_ID\s*\|\|\s*secrets\.R2_ACCOUNT_ID\s*\}\}/)
+    assert.match(text, /R2_ACCESS_KEY_ID:\s*\$\{\{\s*secrets\.R2_ACCESS_KEY_ID\s*\}\}/)
+    assert.match(text, /R2_SECRET_ACCESS_KEY:\s*\$\{\{\s*secrets\.R2_SECRET_ACCESS_KEY\s*\}\}/)
+    assert.doesNotMatch(text, /echo\b.*R2_(ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY)/)
+    assert.doesNotMatch(text, /vars\.R2_ACCESS_KEY_ID|vars\.R2_SECRET_ACCESS_KEY/)
+  }
+})
+
+test('lists the R2 manifest before the GitHub manifest in app config and endpoint order', async () => {
+  const config = JSON.parse(await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
+  assert.deepEqual(config.plugins.updater.endpoints, updaterEndpointOrder())
+  assert.equal(config.plugins.updater.endpoints[0], R2_LATEST_JSON_URL)
+  assert.equal(config.plugins.updater.endpoints[1], GITHUB_FALLBACK_MANIFEST_URL)
+  assert.deepEqual(updaterEndpointOrder('https://github.com/Beace/goalward/releases/download/v0.5.1/latest.json'), [
+    R2_LATEST_JSON_URL,
+    'https://github.com/Beace/goalward/releases/download/v0.5.1/latest.json',
+  ])
+  assert.match(config.app.security.csp, /connect-src[^;]*https:\/\/releases\.goalward\.dev/)
+  assert.match(config.app.security.devCsp, /connect-src[^;]*https:\/\/releases\.goalward\.dev/)
+  assert.doesNotMatch(config.app.security.csp, /https:\/\/github\.com/)
 })
