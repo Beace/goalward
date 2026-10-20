@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
-import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, r2ArchiveUrl, r2ObjectPlan, r2Settings, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
+import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, LATEST_DMG_CACHE_CONTROL, LATEST_DMG_KEY, LATEST_DMG_URL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, latestGitHubReleaseTag, parseUpdateLatest, r2ArchiveUrl, r2ObjectPlan, r2Settings, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
 
 const wrap = text => Buffer.from(text).toString('base64')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -212,22 +212,41 @@ test('rejects manifests that are already rewritten or point outside the GitHub r
   }
 })
 
-test('uploads versioned R2 objects before latest.json and keeps a short cache on the pointer', () => {
+test('uploads versioned R2 objects before the stable DMG and latest.json', () => {
   const plan = r2ObjectPlan(version)
   assert.deepEqual(plan.map(item => item.key), [
     'v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz',
     'v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz.sig',
     'v0.3.0/Goalward_0.3.0_macos-universal.dmg',
     'v0.3.0/latest.json',
+    'download/Goalward.dmg',
     'latest.json',
   ])
+  const stable = plan.at(-2)
+  assert.equal(stable.key, LATEST_DMG_KEY)
+  assert.equal(stable.file, 'Goalward_0.3.0_macos-universal.dmg')
+  assert.equal(stable.cacheControl, LATEST_DMG_CACHE_CONTROL)
+  assert.equal(stable.cacheControl, 'public, max-age=300')
+  assert.doesNotMatch(stable.cacheControl, /immutable/)
+  assert.equal(stable.contentType, 'application/x-apple-diskimage')
+  assert.equal(stable.contentDisposition, 'attachment; filename="Goalward_0.3.0_macos-universal.dmg"')
+  assert.equal(stable.rewrite, false)
+  assert.equal(LATEST_DMG_URL, 'https://releases.goalward.dev/download/Goalward.dmg')
   assert.equal(plan.at(-1).key, 'latest.json')
   assert.equal(plan.at(-1).cacheControl, LATEST_CACHE_CONTROL)
   assert.equal(plan.at(-1).rewrite, true)
-  for (const item of plan.slice(0, -1)) {
+  for (const item of plan.slice(0, -2)) {
     assert.equal(item.cacheControl, VERSIONED_CACHE_CONTROL)
     assert.match(item.key, /^v0\.3\.0\//)
+    assert.equal(item.contentDisposition, undefined)
   }
+  const versionedOnly = r2ObjectPlan(version, { updateLatest: false })
+  assert.deepEqual(versionedOnly.map(item => item.key), [
+    'v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz',
+    'v0.3.0/Goalward_0.3.0_macos-universal.app.tar.gz.sig',
+    'v0.3.0/Goalward_0.3.0_macos-universal.dmg',
+    'v0.3.0/latest.json',
+  ])
   const settings = r2Settings({
     R2_ACCOUNT_ID: '98775cbe093085ec17c5fab233cd571f',
     R2_ACCESS_KEY_ID: 'key',
@@ -236,6 +255,11 @@ test('uploads versioned R2 objects before latest.json and keeps a short cache on
   const args = plan.map(item => awsPutObjectArgs(settings, item, item.rewrite ? '/tmp/latest.json' : `/dist/${item.file}`))
   assert.equal(args.at(-1)[args.at(-1).indexOf('--key') + 1], 'latest.json')
   assert.equal(args.at(-1)[args.at(-1).indexOf('--cache-control') + 1], 'public, max-age=60')
+  assert.equal(args.at(-1).includes('--content-disposition'), false)
+  assert.equal(args.at(-2)[args.at(-2).indexOf('--key') + 1], LATEST_DMG_KEY)
+  assert.equal(args.at(-2)[args.at(-2).indexOf('--cache-control') + 1], 'public, max-age=300')
+  assert.equal(args.at(-2)[args.at(-2).indexOf('--content-type') + 1], 'application/x-apple-diskimage')
+  assert.equal(args.at(-2)[args.at(-2).indexOf('--content-disposition') + 1], 'attachment; filename="Goalward_0.3.0_macos-universal.dmg"')
   assert.equal(args[0][args[0].indexOf('--cache-control') + 1], VERSIONED_CACHE_CONTROL)
   assert.equal(args[0][args[0].indexOf('--endpoint-url') + 1], 'https://98775cbe093085ec17c5fab233cd571f.r2.cloudflarestorage.com')
   assert.equal(settings.bucket, 'goalward-releases')
@@ -265,6 +289,10 @@ test('workflows read the R2 account id from a variable and the keys from secrets
     assert.doesNotMatch(text, /echo\b.*R2_(ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY)/)
     assert.doesNotMatch(text, /vars\.R2_ACCESS_KEY_ID|vars\.R2_SECRET_ACCESS_KEY/)
   }
+  const backfill = await readFile(new URL('../.github/workflows/backfill-r2.yml', import.meta.url), 'utf8')
+  assert.match(backfill, /update_latest:[\s\S]*default: auto/)
+  assert.match(backfill, /--update-latest "\$UPDATE_LATEST"/)
+  assert.match(backfill, /auto\|''\)/)
 })
 
 test('lists the R2 manifest before the GitHub manifest in app config and endpoint order', async () => {
@@ -291,6 +319,7 @@ test('backfill keeps staged release files until the upload has read them', async
   const result = await backfillReleaseToR2({
     tag: `v${releaseVersion}`,
     repo,
+    updateLatest: true,
     env: {
       R2_ACCOUNT_ID: '98775cbe093085ec17c5fab233cd571f',
       R2_ACCESS_KEY_ID: 'key',
@@ -317,4 +346,126 @@ test('backfill keeps staged release files until the upload has read them', async
   })
   assert.equal(result.uploaded, true)
   await assert.rejects(readFile(join(staged, names.signature)), { code: 'ENOENT' })
+})
+
+const r2Credentials = {
+  R2_ACCOUNT_ID: '98775cbe093085ec17c5fab233cd571f',
+  R2_ACCESS_KEY_ID: 'key',
+  R2_SECRET_ACCESS_KEY: 'secret',
+}
+
+function stageReleaseDownload(releaseVersion) {
+  const names = updaterArtifactNames(releaseVersion)
+  const signature = signer().signature(Buffer.from(releaseVersion))
+  const manifest = createUpdaterManifest({ version: releaseVersion, repo, signature, publishedAt })
+  const dmg = `Goalward_${releaseVersion}_macos-universal.dmg`
+  return (command, args) => {
+    assert.equal(command, 'gh')
+    const directory = args[args.indexOf('-D') + 1]
+    writeFileSync(join(directory, names.archive), 'archive')
+    writeFileSync(join(directory, names.signature), `${signature}\n`)
+    writeFileSync(join(directory, dmg), 'dmg')
+    writeFileSync(join(directory, names.manifest), `${JSON.stringify(manifest)}\n`)
+  }
+}
+
+test('backfill publishes the stable DMG and latest.json only for the newest release', async () => {
+  let lookedUp = 0
+  const older = await backfillReleaseToR2({
+    tag: 'v0.5.1',
+    repo,
+    env: r2Credentials,
+    latestTag() {
+      lookedUp += 1
+      return 'v0.6.0'
+    },
+    runCommand: stageReleaseDownload('0.5.1'),
+    async upload(_directory, version, _env, options) {
+      assert.equal(version, '0.5.1')
+      assert.equal(options.updateLatest, false)
+      return { uploaded: true, updateLatest: false, keys: r2ObjectPlan(version, options).map(item => item.key) }
+    },
+  })
+  assert.equal(lookedUp, 1)
+  assert.equal(older.updateLatest, false)
+  assert.equal(older.keys.includes(LATEST_DMG_KEY), false)
+  assert.equal(older.keys.includes('latest.json'), false)
+  assert.equal(older.keys.includes('v0.5.1/latest.json'), true)
+
+  const current = await backfillReleaseToR2({
+    tag: 'v0.6.0',
+    repo,
+    env: r2Credentials,
+    latestTag: () => 'v0.6.0',
+    runCommand: stageReleaseDownload('0.6.0'),
+    async upload(_directory, version, _env, options) {
+      assert.equal(options.updateLatest, true)
+      return { uploaded: true, updateLatest: true, keys: r2ObjectPlan(version, options).map(item => item.key) }
+    },
+  })
+  assert.deepEqual(current.keys.slice(-2), [LATEST_DMG_KEY, 'latest.json'])
+
+  let forcedLookups = 0
+  const kept = await backfillReleaseToR2({
+    tag: 'v0.6.0',
+    repo,
+    env: r2Credentials,
+    updateLatest: false,
+    latestTag() {
+      forcedLookups += 1
+      return 'v0.6.0'
+    },
+    runCommand: stageReleaseDownload('0.6.0'),
+    async upload(_directory, _version, _env, options) {
+      assert.equal(options.updateLatest, false)
+      return { uploaded: true, updateLatest: false }
+    },
+  })
+  assert.equal(forcedLookups, 0)
+  assert.equal(kept.updateLatest, false)
+
+  const pinned = await backfillReleaseToR2({
+    tag: 'v0.5.1',
+    repo,
+    env: r2Credentials,
+    updateLatest: true,
+    latestTag() {
+      throw new Error('newest release lookup is not used when --update-latest is set')
+    },
+    runCommand: stageReleaseDownload('0.5.1'),
+    async upload(_directory, _version, _env, options) {
+      assert.equal(options.updateLatest, true)
+      return { uploaded: true, updateLatest: true }
+    },
+  })
+  assert.equal(pinned.updateLatest, true)
+})
+
+test('parses the newest GitHub release tag and the update-latest flag', () => {
+  const calls = []
+  const tag = latestGitHubReleaseTag('Beace/goalward', (command, args) => {
+    calls.push([command, args])
+    return JSON.stringify([{ tagName: 'v0.6.0', isDraft: false, isPrerelease: true }])
+  })
+  assert.equal(tag, 'v0.6.0')
+  assert.deepEqual(calls[0][1].slice(0, 4), ['release', 'list', '-R', 'Beace/goalward'])
+  assert.equal(calls[0][1].includes('--exclude-pre-releases'), false)
+  assert.throws(() => latestGitHubReleaseTag('Beace/goalward', () => JSON.stringify([{ tagName: 'v0.6.0', isDraft: true }])), /newest GitHub Release/)
+  assert.throws(() => latestGitHubReleaseTag('Beace/goalward', () => 'not-json'), /newest GitHub Release/)
+  assert.equal(parseUpdateLatest(['--tag', 'v0.5.1']), undefined)
+  assert.equal(parseUpdateLatest(['--update-latest']), true)
+  assert.equal(parseUpdateLatest(['--update-latest', 'true']), true)
+  assert.equal(parseUpdateLatest(['--update-latest', 'false']), false)
+  assert.throws(() => parseUpdateLatest(['--update-latest', 'maybe']), /Invalid --update-latest/)
+})
+
+test('documents the stable DMG download in the README and release docs', async () => {
+  for (const file of ['README.md', 'README.zh-CN.md', 'docs/releasing.md']) {
+    const text = await readFile(new URL(`../${file}`, import.meta.url), 'utf8')
+    assert.match(text, /https:\/\/releases\.goalward\.dev\/download\/Goalward\.dmg/)
+    assert.match(text, /https:\/\/github\.com\/Beace\/goalward\/releases/)
+  }
+  const releasing = await readFile(new URL('../docs/releasing.md', import.meta.url), 'utf8')
+  assert.match(releasing, /public, max-age=300/)
+  assert.match(releasing, /attachment; filename="Goalward_X\.Y\.Z_macos-universal\.dmg"/)
 })

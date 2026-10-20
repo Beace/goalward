@@ -17,6 +17,9 @@ export const GITHUB_FALLBACK_MANIFEST_URL = 'https://github.com/Beace/goalward/r
 export const DEFAULT_R2_BUCKET = 'goalward-releases'
 export const VERSIONED_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 export const LATEST_CACHE_CONTROL = 'public, max-age=60'
+export const LATEST_DMG_CACHE_CONTROL = 'public, max-age=300'
+export const LATEST_DMG_KEY = 'download/Goalward.dmg'
+export const LATEST_DMG_URL = `${RELEASES_ORIGIN}/${LATEST_DMG_KEY}`
 
 export function updaterEndpointOrder(githubManifestUrl = GITHUB_FALLBACK_MANIFEST_URL) {
   if (typeof githubManifestUrl !== 'string' || !githubManifestUrl.startsWith('https://github.com/')) {
@@ -30,9 +33,15 @@ export function r2ArchiveUrl(version) {
   return `${RELEASES_ORIGIN}/v${version}/${archive}`
 }
 
-export function r2ObjectPlan(version) {
+export function dmgFileName(version) {
+  if (!versionPattern.test(version)) throw new Error('Invalid updater version')
+  return `Goalward_${version}_macos-universal.dmg`
+}
+
+export function r2ObjectPlan(version, { updateLatest = true } = {}) {
+  if (typeof updateLatest !== 'boolean') throw new Error('updateLatest must be a boolean')
   const names = updaterArtifactNames(version)
-  const dmg = `Goalward_${version}_macos-universal.dmg`
+  const dmg = dmgFileName(version)
   const versioned = (file, contentType, rewrite = false) => ({
     file,
     key: `v${version}/${file}`,
@@ -40,11 +49,23 @@ export function r2ObjectPlan(version) {
     contentType,
     rewrite,
   })
-  return [
+  const plan = [
     versioned(names.archive, 'application/gzip'),
     versioned(names.signature, 'text/plain; charset=utf-8'),
     versioned(dmg, 'application/x-apple-diskimage'),
     versioned(names.manifest, 'application/json; charset=utf-8', true),
+  ]
+  if (!updateLatest) return plan
+  return [
+    ...plan,
+    {
+      file: dmg,
+      key: LATEST_DMG_KEY,
+      cacheControl: LATEST_DMG_CACHE_CONTROL,
+      contentType: 'application/x-apple-diskimage',
+      contentDisposition: `attachment; filename="${dmg}"`,
+      rewrite: false,
+    },
     {
       file: names.manifest,
       key: 'latest.json',
@@ -109,7 +130,7 @@ export function r2Settings(env, { required = false } = {}) {
 }
 
 export function awsPutObjectArgs(settings, item, bodyPath) {
-  return [
+  const args = [
     's3api', 'put-object',
     '--endpoint-url', settings.endpoint,
     '--bucket', settings.bucket,
@@ -118,12 +139,50 @@ export function awsPutObjectArgs(settings, item, bodyPath) {
     '--cache-control', item.cacheControl,
     '--content-type', item.contentType,
   ]
+  if (item.contentDisposition) args.push('--content-disposition', item.contentDisposition)
+  return args
 }
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: 'inherit', ...options })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} exited with status ${result.status}`)
+}
+
+function capture(command, args) {
+  const result = spawnSync(command, args, { encoding: 'utf8' })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`${command} exited with status ${result.status}`)
+  return result.stdout
+}
+
+export function latestGitHubReleaseTag(repo, runCapture = capture) {
+  // Newest published release, including prereleases. GitHub's /releases/latest omits them.
+  if (!repositoryPattern.test(repo) || repo.includes('..')) throw new Error('Invalid updater repository')
+  let releases
+  try {
+    releases = JSON.parse(runCapture('gh', [
+      'release', 'list', '-R', repo, '--exclude-drafts', '--limit', '1', '--json', 'tagName,isDraft',
+    ]))
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('Could not determine the newest GitHub Release')
+    throw error
+  }
+  const tag = releases?.[0]?.tagName
+  const version = typeof tag === 'string' && tag.startsWith('v') ? tag.slice(1) : ''
+  if (!Array.isArray(releases) || releases.length !== 1 || releases[0].isDraft || tag !== `v${version}` || !versionPattern.test(version)) {
+    throw new Error('Could not determine the newest GitHub Release')
+  }
+  return tag
+}
+
+export function parseUpdateLatest(args) {
+  const index = args.indexOf('--update-latest')
+  if (index === -1) return undefined
+  const value = args[index + 1]
+  if (value === undefined || value.startsWith('--')) return true
+  if (value === 'true' || value === 'false') return value === 'true'
+  throw new Error('Invalid --update-latest value')
 }
 
 async function awsCommand() {
@@ -139,14 +198,15 @@ async function awsCommand() {
   }
 }
 
-export async function uploadDirectoryToR2(directory, version, env = process.env) {
+export async function uploadDirectoryToR2(directory, version, env = process.env, { updateLatest = true } = {}) {
   if (!versionPattern.test(version)) throw new Error('Invalid updater version')
+  if (typeof updateLatest !== 'boolean') throw new Error('updateLatest must be a boolean')
   const settings = r2Settings(env)
   if (settings.skip) {
     console.warn('Warning: skipping Cloudflare R2 upload because R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY are not set. The GitHub Release remains available as the updater fallback.')
     return { uploaded: false, keys: [] }
   }
-  const plan = r2ObjectPlan(version)
+  const plan = r2ObjectPlan(version, { updateLatest })
   for (const item of plan) await readFile(join(directory, item.file))
   const manifest = JSON.parse(await readFile(join(directory, 'latest.json'), 'utf8'))
   const rewritten = rewriteUpdaterManifestForR2(manifest)
@@ -173,19 +233,30 @@ export async function uploadDirectoryToR2(directory, version, env = process.env)
     await aws.cleanup()
     await rm(temp, { recursive: true, force: true })
   }
-  console.log(`Published ${R2_LATEST_JSON_URL} for Goalward ${version}`)
-  return { uploaded: true, keys: plan.map(item => item.key) }
+  if (updateLatest) console.log(`Published ${R2_LATEST_JSON_URL} and ${LATEST_DMG_URL} for Goalward ${version}`)
+  else console.log(`Uploaded versioned R2 objects for Goalward ${version} without changing latest.json or ${LATEST_DMG_KEY}`)
+  return { uploaded: true, keys: plan.map(item => item.key), updateLatest }
 }
 
-export async function backfillReleaseToR2({ tag, repo, env = process.env, runCommand = run, upload = uploadDirectoryToR2 }) {
+export async function backfillReleaseToR2({
+  tag,
+  repo,
+  env = process.env,
+  updateLatest,
+  latestTag = latestGitHubReleaseTag,
+  runCommand = run,
+  upload = uploadDirectoryToR2,
+}) {
   const version = tag?.startsWith('v') ? tag.slice(1) : ''
   if (tag !== `v${version}` || !versionPattern.test(version)) throw new Error('Invalid release tag')
   if (!repositoryPattern.test(repo) || repo.includes('..')) throw new Error('Invalid updater repository')
   r2Settings(env, { required: true })
+  if (updateLatest !== undefined && typeof updateLatest !== 'boolean') throw new Error('Invalid --update-latest value')
+  const publishLatest = updateLatest === undefined ? await Promise.resolve(latestTag(repo)) === tag : updateLatest
   const directory = await mkdtemp(join(tmpdir(), 'goalward-r2-backfill-'))
   try {
     const names = updaterArtifactNames(version)
-    const files = [names.archive, names.signature, `Goalward_${version}_macos-universal.dmg`, names.manifest]
+    const files = [names.archive, names.signature, dmgFileName(version), names.manifest]
     runCommand('gh', ['release', 'download', tag, '-R', repo, '-D', directory, ...files.flatMap(file => ['-p', file])])
     const manifest = JSON.parse(await readFile(join(directory, names.manifest), 'utf8'))
     const expected = `https://github.com/${repo}/releases/download/v${version}/${names.archive}`
@@ -195,7 +266,7 @@ export async function backfillReleaseToR2({ tag, repo, env = process.env, runCom
     if (signatureFile !== rewritten.platforms['darwin-aarch64'].signature) throw new Error('Downloaded signature file does not match latest.json')
     // Await the upload before finally removes the staging directory. Returning the
     // promise alone lets that cleanup race the upload's file reads.
-    return await upload(directory, version, env)
+    return await upload(directory, version, env, { updateLatest: publishLatest })
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -214,10 +285,10 @@ async function main() {
     return
   }
   if (command === 'backfill') {
-    await backfillReleaseToR2({ tag: option(args, '--tag'), repo: option(args, '--repo') })
+    await backfillReleaseToR2({ tag: option(args, '--tag'), repo: option(args, '--repo'), updateLatest: parseUpdateLatest(args) })
     return
   }
-  throw new Error('Usage: node scripts/r2-release.mjs upload --directory DIR --version VERSION | backfill --tag vX.Y.Z --repo OWNER/REPO')
+  throw new Error('Usage: node scripts/r2-release.mjs upload --directory DIR --version VERSION | backfill --tag vX.Y.Z --repo OWNER/REPO [--update-latest true|false]')
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
