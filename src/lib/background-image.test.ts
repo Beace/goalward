@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { chooseBackgroundImage, loadBackgroundImage, MAX_BACKGROUND_IMAGE_BYTES } from './background-image'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { backgroundErrorCode, chooseBackgroundImage, loadBackgroundImage, MAX_BACKGROUND_IMAGE_BYTES, translateBackgroundError, type BackgroundImageErrorCode } from './background-image'
 
-const mock = vi.hoisted(() => ({ desktop: false, invoke: vi.fn(), open: vi.fn() }))
-vi.mock('@tauri-apps/api/core', () => ({ invoke: mock.invoke, isTauri: () => mock.desktop }))
+const mock = vi.hoisted(() => ({
+  desktop: false,
+  invoke: vi.fn(),
+  open: vi.fn(),
+  convertFileSrc: vi.fn((filePath: string) => `asset://localhost/${encodeURIComponent(filePath)}`),
+}))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: mock.invoke, isTauri: () => mock.desktop, convertFileSrc: mock.convertFileSrc }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mock.open }))
 
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])
@@ -18,6 +23,8 @@ beforeEach(() => {
   mock.desktop = false
   mock.invoke.mockReset()
   mock.open.mockReset()
+  mock.convertFileSrc.mockReset()
+  mock.convertFileSrc.mockImplementation((filePath: string) => `asset://localhost/${encodeURIComponent(filePath)}`)
   saved = new Map()
   decodedBlobs = []
   revoked = []
@@ -85,11 +92,12 @@ it('uses native selection, imports a managed reference, and treats cancellation 
   mock.desktop = true
   const image = { name: 'wallpaper.png', path: '/app/appearance/backgrounds/id/wallpaper.png' }
   mock.open.mockResolvedValueOnce('/original/wallpaper.png').mockResolvedValueOnce(null)
-  mock.invoke.mockResolvedValueOnce(image).mockResolvedValueOnce('data:image/png;base64,bytes')
+  mock.invoke.mockResolvedValueOnce(image).mockResolvedValueOnce({ path: image.path })
   expect(await chooseBackgroundImage()).toEqual(image)
   expect(mock.invoke).toHaveBeenCalledWith('import_background_image', { path: '/original/wallpaper.png' })
   expect(mock.open).toHaveBeenCalledWith(expect.objectContaining({ multiple: false, filters: [expect.objectContaining({ extensions: expect.arrayContaining(['png', 'webp', 'avif', 'heic', 'tiff']) })] }))
-  expect(await loadBackgroundImage(image)).toBe('data:image/png;base64,bytes')
+  expect(await loadBackgroundImage(image)).toBe(`asset://localhost/${encodeURIComponent(image.path)}`)
+  expect(mock.convertFileSrc).toHaveBeenCalledWith(image.path)
   expect(mock.invoke).toHaveBeenLastCalledWith('read_background_image', { path: image.path })
   expect(await chooseBackgroundImage()).toBeNull()
   expect(mock.invoke).toHaveBeenCalledTimes(2)
@@ -159,4 +167,89 @@ it('checks bytes again when loading persisted browser assets', async () => {
   saved.set(path, new Blob(['<svg></svg>'], { type: 'image/png' }))
   await expect(loadBackgroundImage({ name: 'forged.png', path })).rejects.toThrow('不是受支持的图片')
   expect(decodedBlobs).toHaveLength(0)
+})
+
+describe('translateBackgroundError', () => {
+  const errorCodes: BackgroundImageErrorCode[] = [
+    'image_not_found',
+    'image_read_failed',
+    'not_an_image_file',
+    'image_too_large',
+    'image_corrupt',
+    'storage_path_invalid',
+    'missing_absolute_path',
+    'invalid_file_name',
+    'path_contains_traversal',
+    'outside_managed_directory',
+  ]
+
+  it.each(errorCodes)('translates %s to a user-friendly message', (code) => {
+    const message = translateBackgroundError(code)
+    expect(message).toBeTruthy()
+    expect(typeof message).toBe('string')
+    expect(message.length).toBeGreaterThan(5)
+  })
+
+  it('handles unknown error codes gracefully', () => {
+    const message = translateBackgroundError('unknown_error' as BackgroundImageErrorCode)
+    expect(message).toBeTruthy()
+    expect(typeof message).toBe('string')
+  })
+})
+
+describe('native error handling', () => {
+  const image = { name: 'image.png', path: '/app/appearance/backgrounds/id/image.png' }
+
+  it('translates a rejected import payload into a localized Error', async () => {
+    mock.desktop = true
+    mock.open.mockResolvedValueOnce('/path/to/image.png')
+    mock.invoke.mockRejectedValueOnce({ error: 'image_too_large' })
+    const error = await chooseBackgroundImage().catch(cause => cause)
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain('32 MB')
+    expect(String(error)).not.toContain('[object Object]')
+    expect(mock.convertFileSrc).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [{ error: 'image_not_found' }, '不存在或无法访问'],
+    ['image_corrupt', '内容已损坏'],
+    ['{"error":"outside_managed_directory"}', 'App 管理'],
+    [{ error: { code: 'storage_path_invalid' } }, '存储路径无效'],
+    [new Error('{"error":"path_contains_traversal"}'), '路径无效'],
+  ])('translates a rejected load payload %#', async (payload, fragment) => {
+    mock.desktop = true
+    mock.invoke.mockRejectedValueOnce(payload)
+    const error = await loadBackgroundImage(image).catch(cause => cause)
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain(fragment)
+    expect(error.message).not.toContain('[object Object]')
+    expect(mock.convertFileSrc).not.toHaveBeenCalled()
+  })
+
+  it('does not surface an unparsed rejection object', async () => {
+    mock.desktop = true
+    mock.invoke.mockRejectedValueOnce({ unexpected: true })
+    const error = await loadBackgroundImage(image).catch(cause => cause)
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toBe('背景图片加载失败，请重试或更换图片。')
+    expect(String(error)).not.toContain('[object Object]')
+  })
+
+  it('converts a validated managed path with convertFileSrc', async () => {
+    mock.desktop = true
+    const canonical = '/Users/me/Library/Application Support/dev.goalward.desktop/appearance/backgrounds/uuid/image.png'
+    mock.invoke.mockResolvedValueOnce({ path: canonical })
+    const url = await loadBackgroundImage(image)
+    expect(mock.convertFileSrc).toHaveBeenCalledWith(canonical)
+    expect(url).toBe(`asset://localhost/${encodeURIComponent(canonical)}`)
+    expect(url.startsWith('data:')).toBe(false)
+  })
+})
+
+describe('backgroundErrorCode', () => {
+  it('reads a code from the structured rejection payload', () => {
+    expect(backgroundErrorCode({ error: 'image_too_large' })).toBe('image_too_large')
+    expect(backgroundErrorCode('not a code')).toBeUndefined()
+  })
 })

@@ -1,4 +1,4 @@
-import { invoke, isTauri } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { translate } from '@/i18n'
 import type { AppBackgroundImage } from './types'
@@ -8,6 +8,115 @@ export const BACKGROUND_IMAGE_ACCEPT = '.png,.jpg,.jpeg,.gif,.webp,.avif,.bmp,.i
 const databaseName = 'goalward.appearance-images.v1'
 const imageStore = 'images'
 const previewPrefix = 'preview-background:'
+
+export type BackgroundImageErrorCode =
+  | 'image_not_found'
+  | 'image_read_failed'
+  | 'not_an_image_file'
+  | 'image_too_large'
+  | 'image_corrupt'
+  | 'storage_path_invalid'
+  | 'missing_absolute_path'
+  | 'invalid_file_name'
+  | 'path_contains_traversal'
+  | 'outside_managed_directory'
+
+export function translateBackgroundError(code: BackgroundImageErrorCode): string {
+  switch (code) {
+    case 'image_not_found':
+      return translate('背景图片不存在或无法访问，请重新选择图片。', 'The background image does not exist or cannot be accessed. Choose another image.')
+    case 'image_read_failed':
+      return translate('背景图片读取失败。', 'Could not read the background image.')
+    case 'not_an_image_file':
+      return translate('此路径不是图片文件。', 'This path is not an image file.')
+    case 'image_too_large':
+      return translate('背景图片超过 32 MB，请选择较小的图片。', 'The background image exceeds 32 MB. Choose a smaller image.')
+    case 'image_corrupt':
+      return translate('背景图片内容已损坏，无法显示。', 'The background image is corrupted and cannot be displayed.')
+    case 'storage_path_invalid':
+      return translate('背景图片存储路径无效。', 'The background image storage path is invalid.')
+    case 'missing_absolute_path':
+      return translate('背景图片缺少本地绝对路径。', 'The background image is missing an absolute local path.')
+    case 'invalid_file_name':
+      return translate('背景图片文件名无效。', 'The background image file name is invalid.')
+    case 'path_contains_traversal':
+      return translate('背景图片路径无效，请重新选择图片。', 'The background image path is invalid. Choose another image.')
+    case 'outside_managed_directory':
+      return translate('只能读取 App 管理的背景图片。', 'Only app-managed background images can be read.')
+    default:
+      return translate('背景图片加载失败，请重试或更换图片。', 'The background image could not be loaded. Retry or choose another image.')
+  }
+}
+
+const backgroundErrorCodes = new Set<string>([
+  'image_not_found',
+  'image_read_failed',
+  'not_an_image_file',
+  'image_too_large',
+  'image_corrupt',
+  'storage_path_invalid',
+  'missing_absolute_path',
+  'invalid_file_name',
+  'path_contains_traversal',
+  'outside_managed_directory',
+])
+
+interface BackgroundImportResult {
+  name: string
+  path: string
+}
+
+interface BackgroundAssetResult {
+  path: string
+}
+
+function isBackgroundErrorCode(value: string): value is BackgroundImageErrorCode {
+  return backgroundErrorCodes.has(value)
+}
+
+/** Tauri rejects command errors. The payload is `{ error: "<code>" }`, a code string, or that JSON as text. */
+export function backgroundErrorCode(value: unknown, depth = 0): BackgroundImageErrorCode | undefined {
+  if (depth > 3) return undefined
+  if (typeof value === 'string') {
+    const text = value.trim().replace(/^Error:\s*/, '')
+    if (isBackgroundErrorCode(text)) return text
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        return backgroundErrorCode(JSON.parse(text), depth + 1)
+      } catch {
+        return undefined
+      }
+    }
+    return undefined
+  }
+  if (value instanceof Error) return backgroundErrorCode(value.message, depth + 1)
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  if ('error' in record) {
+    const nested = backgroundErrorCode(record.error, depth + 1)
+    if (nested) return nested
+  }
+  if ('code' in record) {
+    const nested = backgroundErrorCode(record.code, depth + 1)
+    if (nested) return nested
+  }
+  if (typeof record.message === 'string') return backgroundErrorCode(record.message, depth + 1)
+  return undefined
+}
+
+function localizedBackgroundFailure(cause: unknown): string {
+  const code = backgroundErrorCode(cause)
+  if (code) return translateBackgroundError(code)
+  return translate('背景图片加载失败，请重试或更换图片。', 'The background image could not be loaded. Retry or choose another image.')
+}
+
+async function invokeBackground<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(command, args)
+  } catch (cause) {
+    throw new Error(localizedBackgroundFailure(cause))
+  }
+}
 
 function unsupportedImage(): Error {
   return new Error(translate('此文件不是受支持的图片，或图片内容已损坏。', 'This file is not a supported image, or its contents are damaged.'))
@@ -115,7 +224,9 @@ export async function chooseBackgroundImage(file?: File): Promise<AppBackgroundI
       title: translate('选择 App 背景图片', 'Choose app background image'),
       filters: [{ name: translate('图片', 'Images'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'tif', 'tiff', 'heic', 'heif'] }],
     })
-    return typeof path === 'string' ? invoke<AppBackgroundImage>('import_background_image', { path }) : null
+    if (typeof path !== 'string') return null
+    const result = await invokeBackground<BackgroundImportResult>('import_background_image', { path })
+    return { name: result.name, path: result.path }
   }
   if (!file) return null
   checkSize(file.size)
@@ -134,7 +245,10 @@ export async function chooseBackgroundImage(file?: File): Promise<AppBackgroundI
 
 /** The caller owns any returned blob URL and must revoke it when no longer used. */
 export async function loadBackgroundImage(image: AppBackgroundImage): Promise<string> {
-  if (isTauri()) return invoke<string>('read_background_image', { path: image.path })
+  if (isTauri()) {
+    const result = await invokeBackground<BackgroundAssetResult>('read_background_image', { path: image.path })
+    return convertFileSrc(result.path)
+  }
   if (!/^preview-background:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(image.path)) {
     throw new Error(translate('此背景图片只能在原来的桌面应用或浏览器中读取，请重新选择图片。', 'This background image can only be read in its original app or browser. Choose the image again.'))
   }
