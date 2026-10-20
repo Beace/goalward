@@ -482,6 +482,9 @@ jobs:
       - name: Upload updater artifacts to Cloudflare R2
         id: r2
         env:
+          # gh release list needs this token. Actions does not put it in the environment unless the step sets it.
+          # The token is not printed.
+          GH_TOKEN: ${{ github.token }}
           # Account id is a repository variable. The secret is used only when that variable is empty.
           # The access key and secret come from secrets and are not printed by this step.
           # Omitting --update-latest publishes latest.json only when this tag is the newest GitHub Release.

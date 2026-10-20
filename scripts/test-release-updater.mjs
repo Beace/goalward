@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
-import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, latestGitHubReleaseTag, parseUpdateLatest, r2ArchiveUrl, r2ObjectPlan, r2Settings, recordPublishedLatest, resolveUpdateLatest, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
+import { readdirSync } from 'node:fs'
+import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, latestGitHubReleaseTag, parseUpdateLatest, r2ArchiveUrl, r2ObjectPlan, r2Settings, recordPublishedLatest, requireGitHubToken, resolveUpdateLatest, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
 
 const wrap = text => Buffer.from(text).toString('base64')
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -262,6 +263,58 @@ test('skips R2 when every credential is absent and fails when only some are set'
   })
   assert.equal(custom.skip, false)
   assert.equal(custom.bucket, 'goalward-releases')
+})
+
+function actionSteps(yaml) {
+  const steps = []
+  let current = null
+  for (const line of yaml.split('\n')) {
+    if (/^ {6}- /.test(line)) {
+      if (current) steps.push(current)
+      current = line
+    } else if (current) current += `\n${line}`
+  }
+  if (current) steps.push(current)
+  return steps
+}
+
+function stepCallsGitHubCli(step) {
+  return /scripts\/(?:r2-release|open-readme-download-pr)\.mjs|scripts\/release_remote\.py|\['gh'|command\('gh'|\bgh (?:api|release|pr|auth|workflow)\b/.test(step)
+}
+
+test('refuses to call the GitHub CLI when GH_TOKEN is missing', () => {
+  const message = 'GH_TOKEN is required to call the GitHub CLI. Set GH_TOKEN for this step; the token is not printed.'
+  for (const env of [{}, { GH_TOKEN: '' }, { GH_TOKEN: ' \n\t' }]) {
+    assert.throws(() => requireGitHubToken(env), error => error.message === message)
+  }
+  assert.doesNotThrow(() => requireGitHubToken({ GH_TOKEN: 'present' }))
+})
+
+test('workflow steps that call gh set GH_TOKEN and do not read GH_REPO', async () => {
+  const names = readdirSync(new URL('../.github/workflows/', import.meta.url)).filter(name => name.endsWith('.yml'))
+  const callers = []
+  for (const name of names) {
+    const text = await readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8')
+    for (const step of actionSteps(text).filter(stepCallsGitHubCli)) {
+      callers.push(`${name}: ${step.split('\n')[0].trim()}`)
+      assert.match(step, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/, `${name} step is missing GH_TOKEN`)
+      assert.equal(step.includes('GH_REPO'), false)
+      assert.doesNotMatch(step, /echo\b.*GH_TOKEN/)
+    }
+  }
+  assert.equal(callers.length >= 9, true, callers.join('\n'))
+  const release = await readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8')
+  const upload = actionSteps(release).find(step => step.includes('scripts/r2-release.mjs'))
+  assert.match(upload, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/)
+  const readme = actionSteps(release).find(step => step.includes('scripts/open-readme-download-pr.mjs'))
+  assert.match(readme, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/)
+  const backfill = await readFile(new URL('../.github/workflows/backfill-r2.yml', import.meta.url), 'utf8')
+  const backfillSteps = actionSteps(backfill).filter(step => /scripts\/r2-release\.mjs|scripts\/open-readme-download-pr\.mjs/.test(step))
+  assert.equal(backfillSteps.length, 2)
+  for (const step of backfillSteps) assert.match(step, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/)
+  const script = await readFile(new URL('../scripts/r2-release.mjs', import.meta.url), 'utf8')
+  assert.match(script, /process\.env\.GITHUB_REPOSITORY/)
+  assert.equal(script.includes('GH_REPO'), false)
 })
 
 test('workflows read the R2 account id from a variable and the keys from secrets', async () => {

@@ -159,6 +159,7 @@ test('opens one ready README pull request and dispatches CI on its head', async 
   const prFile = join(root, 'pr.json')
   const previousPath = process.env.PATH
   const previousChecks = process.env.GH_CHECKS
+  const previousToken = process.env.GH_TOKEN
   try {
     mkdirSync(repo)
     mkdirSync(bin)
@@ -211,6 +212,9 @@ process.exit(4)
     process.env.GH_LOG = log
     process.env.GH_PR = prFile
     delete process.env.GH_CHECKS
+    delete process.env.GH_TOKEN
+    assert.throws(() => openReadmeDownloadPullRequest({ version: '0.6.0', repository: 'Beace/goalward', repoRoot: repo }), /GH_TOKEN is required to call the GitHub CLI/)
+    process.env.GH_TOKEN = 'test-token'
     const first = openReadmeDownloadPullRequest({ version: '0.6.0', repository: 'Beace/goalward', repoRoot: repo })
     assert.equal(first.action, 'push')
     assert.equal(first.url, 'https://github.com/Beace/goalward/pull/41')
@@ -269,6 +273,8 @@ process.exit(4)
     else process.env.GH_CHECKS = previousChecks
     delete process.env.GH_LOG
     delete process.env.GH_PR
+    if (previousToken === undefined) delete process.env.GH_TOKEN
+    else process.env.GH_TOKEN = previousToken
     await rm(root, { recursive: true, force: true })
   }
 })
