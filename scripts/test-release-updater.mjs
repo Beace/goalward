@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createUpdaterManifest, resolveUpdaterPrivateKey, updaterArtifactNames, updaterPublicKeyHash, verifyUpdaterRelease, verifyUpdaterSignature } from './updater-artifacts.mjs'
 import { readdirSync } from 'node:fs'
 import { GITHUB_FALLBACK_MANIFEST_URL, LATEST_CACHE_CONTROL, R2_LATEST_JSON_URL, RELEASES_ORIGIN, VERSIONED_CACHE_CONTROL, awsPutObjectArgs, backfillReleaseToR2, latestGitHubReleaseTag, parseUpdateLatest, r2ArchiveUrl, r2ObjectPlan, r2Settings, recordPublishedLatest, requireGitHubToken, resolveUpdateLatest, rewriteUpdaterManifestForR2, updaterEndpointOrder } from './r2-release.mjs'
@@ -526,13 +527,35 @@ test('publishes latest.json only for the newest release when the flag is omitted
   assert.equal(readFileSync(output, 'utf8'), 'published_latest=true\n')
 })
 
+const VERSIONED_R2_DMG_URL = /https:\/\/releases\.goalward\.dev\/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\/Goalward_\1\.\2\.\3_macos-universal\.dmg/
+
+function versionedR2DmgUrls(block) {
+  return [...block.matchAll(new RegExp(VERSIONED_R2_DMG_URL.source, 'g'))].map(match => match[0])
+}
+
 test('documents the versioned DMG download in the README and release docs', async () => {
-  for (const file of ['README.md', 'README.zh-CN.md']) {
-    const text = await readFile(new URL(`../${file}`, import.meta.url), 'utf8')
-    assert.match(text, /<!-- download-link:start -->[\s\S]*https:\/\/releases\.goalward\.dev\/v0\.6\.0\/Goalward_0\.6\.0_macos-universal\.dmg[\s\S]*<!-- download-link:end -->/)
-    assert.match(text, /https:\/\/github\.com\/Beace\/goalward\/releases/)
+  assert.deepEqual(versionedR2DmgUrls('https://releases.goalward.dev/v1.2.3/Goalward_1.2.3_macos-universal.dmg'), [
+    'https://releases.goalward.dev/v1.2.3/Goalward_1.2.3_macos-universal.dmg',
+  ])
+  assert.deepEqual(versionedR2DmgUrls('https://releases.goalward.dev/v1.2.3/Goalward_9.9.9_macos-universal.dmg'), [])
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const readmes = readdirSync(root).filter(name => /^README.*\.md$/.test(name)).sort()
+  assert.ok(readmes.length > 0, 'expected root README files')
+  const urls = []
+  for (const file of readmes) {
+    const text = await readFile(join(root, file), 'utf8')
+    const start = text.indexOf('<!-- download-link:start -->')
+    const end = text.indexOf('<!-- download-link:end -->')
+    assert.ok(start !== -1 && end > start, `${file} is missing download-link markers`)
+    assert.equal(text.indexOf('<!-- download-link:start -->', start + 1), -1, `${file} has more than one download-link block`)
+    const block = text.slice(start, end)
+    const matches = versionedR2DmgUrls(block)
+    assert.equal(matches.length, 1, `${file} download block must contain one versioned R2 DMG URL`)
+    urls.push(matches[0])
+    assert.match(block, /https:\/\/github\.com\/Beace\/goalward\/releases/)
     assert.doesNotMatch(text, /download\/Goalward\.dmg/)
   }
+  assert.equal(new Set(urls).size, 1, 'root README files must use the same versioned DMG URL')
   const releasing = await readFile(new URL('../docs/releasing.md', import.meta.url), 'utf8')
   assert.match(releasing, /chore\/readme-download-vX\.Y\.Z/)
   assert.match(releasing, /workflow_dispatch/)
