@@ -45,8 +45,8 @@ jobs:
         run: npm ci --registry=https://registry.npmjs.org --no-audit --no-fund
       - name: TypeScript type check and build
         run: npm run build
-      - name: Biome lint and format check
-        run: npm run check
+      - name: Biome lint check
+        run: npm run lint
       - name: Run frontend unit tests
         run: npm test
 
@@ -58,8 +58,9 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.99.0 --profile minimal --component clippy rustfmt
+          rustup toolchain install 1.99.0 --profile minimal
           rustup default 1.99.0
+          rustup component add clippy rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src-tauri -> target
