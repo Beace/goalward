@@ -1118,10 +1118,9 @@ impl RuntimeManager {
         &self,
         operation: impl FnOnce() -> Result<T, String>,
     ) -> Result<T, String> {
-        let _lifecycle = self
-            .lifecycle_gate
-            .try_lock()
-            .map_err(|_| "A local task is starting or an app update is in progress. Try again later.")?;
+        let _lifecycle = self.lifecycle_gate.try_lock().map_err(|_| {
+            "A local task is starting or an app update is in progress. Try again later."
+        })?;
         if !self
             .processes
             .lock()

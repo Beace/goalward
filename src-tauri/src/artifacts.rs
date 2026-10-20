@@ -40,11 +40,13 @@ fn resolve(directory: &str, path: &str) -> Result<PathBuf, String> {
     } else {
         root.join(input)
     };
-    let file = file
-        .canonicalize()
-        .map_err(|_| "The file does not exist or cannot be accessed. It may have been moved or deleted.")?;
+    let file = file.canonicalize().map_err(|_| {
+        "The file does not exist or cannot be accessed. It may have been moved or deleted."
+    })?;
     if !file.starts_with(&root) {
-        return Err("This file is outside the current run directory and cannot be read in the app.".into());
+        return Err(
+            "This file is outside the current run directory and cannot be read in the app.".into(),
+        );
     }
     if !file.is_file() {
         return Err("This path is not a regular file.".into());
@@ -85,7 +87,10 @@ fn read_with_limit(
 ) -> Result<ArtifactFile, String> {
     let file = resolve(directory, path)?;
     let mut handle = File::open(&file).map_err(|_| "Could not read this file.")?;
-    let size = handle.metadata().map_err(|_| "Could not read file information.")?.len();
+    let size = handle
+        .metadata()
+        .map_err(|_| "Could not read file information.")?
+        .len();
     if !allow_large && size > max_preview_bytes {
         // Metadata alone is enough to ask for an override; do not allocate or read content.
         return Ok(preview_metadata(&file, size, true));
@@ -125,7 +130,10 @@ fn read_with_limit(
         .map_err(|_| "Failed to read the file.")?;
     if limit.is_some_and(|limit| bytes.len() as u64 > limit) {
         // Keep the gate even if a file grew after the metadata check.
-        let size = handle.metadata().map_err(|_| "Could not read file information.")?.len();
+        let size = handle
+            .metadata()
+            .map_err(|_| "Could not read file information.")?
+            .len();
         return Ok(preview_metadata(&file, size, true));
     }
     let mut result = preview_metadata(&file, bytes.len() as u64, false);
@@ -133,8 +141,9 @@ fn read_with_limit(
         result.image_data_url = Some(crate::attachments::image_data_url(&file, bytes, limit)?);
         return Ok(result);
     }
-    let content = String::from_utf8(bytes)
-        .map_err(|_| "This file is not UTF-8 text. Open it with the system application or view it in Finder.")?;
+    let content = String::from_utf8(bytes).map_err(|_| {
+        "This file is not UTF-8 text. Open it with the system application or view it in Finder."
+    })?;
     if content.contains('\0') {
         return Err("This file contains binary data. Open it with the system application or view it in Finder.".into());
     }
@@ -176,9 +185,15 @@ fn read_pdf_chunk(
     }
     let file = resolve(directory, path)?;
     let mut handle = File::open(&file).map_err(|_| "Could not read this file.")?;
-    let size = handle.metadata().map_err(|_| "Could not read file information.")?.len();
+    let size = handle
+        .metadata()
+        .map_err(|_| "Could not read file information.")?
+        .len();
     if !allow_large && size > max_preview_bytes {
-        return Err("The file exceeds the 500 MB preview limit. Select Open anyway to continue loading.".into());
+        return Err(
+            "The file exceeds the 500 MB preview limit. Select Open anyway to continue loading."
+                .into(),
+        );
     }
     validate_pdf(&mut handle)?;
     if offset > size {
@@ -318,7 +333,9 @@ pub async fn save_artifact(
         let Some(selected) = selected else {
             return Ok(None);
         };
-        let path = selected.into_path().map_err(|_| "The save destination is not a local path.")?;
+        let path = selected
+            .into_path()
+            .map_err(|_| "The save destination is not a local path.")?;
         if let Ok(meta) = path.symlink_metadata() {
             if meta.file_type().is_symlink() || !meta.is_file() {
                 return Err("Choose a regular file as the save destination.".into());
@@ -450,9 +467,15 @@ mod tests {
             MAX_PREVIEW_BYTES
         )
         .is_err());
-        assert!(
-            read_pdf_chunk(directory, "drawing.PDF", u64::MAX, 1, false, MAX_PREVIEW_BYTES).is_err()
-        );
+        assert!(read_pdf_chunk(
+            directory,
+            "drawing.PDF",
+            u64::MAX,
+            1,
+            false,
+            MAX_PREVIEW_BYTES
+        )
+        .is_err());
         assert!(read_pdf_chunk(directory, "drawing.PDF", 0, 0, false, MAX_PREVIEW_BYTES).is_err());
         assert!(read_pdf_chunk(
             directory,
@@ -472,7 +495,9 @@ mod tests {
         for content in [b"not-a-pdf".as_slice(), b"%PDF".as_slice()] {
             std::fs::write(&path, content).unwrap();
             assert!(read(directory, "drawing.PDF", false).is_err());
-            assert!(read_pdf_chunk(directory, "drawing.PDF", 0, 5, true, MAX_PREVIEW_BYTES).is_err());
+            assert!(
+                read_pdf_chunk(directory, "drawing.PDF", 0, 5, true, MAX_PREVIEW_BYTES).is_err()
+            );
         }
     }
 

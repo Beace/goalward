@@ -11,7 +11,10 @@
     "mac:dev": "tauri dev",
     "mac:build": "tauri build --bundles app",
     "mac:dist": "node scripts/package-macos.mjs --universal",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "biome lint src/",
+    "format:check": "biome format --write=false src/",
+    "check": "biome check src/"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.13",
@@ -40,6 +43,7 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "2.12.1",

@@ -685,7 +685,9 @@ impl CodexSession {
                 };
                 Self::write(&mut inner, response)?;
                 self.emit(json!({"type":"codex.app_server.request_rejected","method":method}));
-                return Err(format!("Codex requested an unavailable client capability: {method}"));
+                return Err(format!(
+                    "Codex requested an unavailable client capability: {method}"
+                ));
             }
             let params = &value["params"];
             match method {

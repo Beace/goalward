@@ -190,7 +190,10 @@ mod tests {
         let second = tempfile::tempdir().unwrap();
         std::fs::create_dir(first.path().join("Documents résumé")).unwrap();
         std::fs::write(
-            first.path().join("Documents résumé").join("report $(echo).md"),
+            first
+                .path()
+                .join("Documents résumé")
+                .join("report $(echo).md"),
             "private content",
         )
         .unwrap();
@@ -205,7 +208,10 @@ mod tests {
         assert!(!serde_json::to_string(&result)
             .unwrap()
             .contains("private content"));
-        assert_eq!(search(&roots, "Documents").unwrap().entries[0].kind, "folder");
+        assert_eq!(
+            search(&roots, "Documents").unwrap().entries[0].kind,
+            "folder"
+        );
     }
     #[test]
     fn bounds_search_and_excludes_generated_directories() {

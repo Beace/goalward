@@ -36,7 +36,7 @@ export function AgentMemberActions({ task, state, memberId, onChange, onOpenAgen
     setBusy(true); setError(''); setFeedback('')
     try { await action(); setFeedback(success); return true } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return false } finally { setBusy(false) }
   }
-  return <div className="agent-member-actions" aria-label={t('成员档案管理', 'Member profile management')}>
+  return <div className="agent-member-actions" role="region" aria-label={t('成员档案管理', 'Member profile management')}>
     {profile ? <><Button variant="ghost" size="sm" disabled={!onOpenAgent} onClick={() => onOpenAgent?.(profile.id)}><Bot size={12} />{profile.name} · v{member?.agentProfileVersion ?? '—'}</Button>{profile.version !== member?.agentProfileVersion && <Button variant="outline" size="sm" disabled={busy} onClick={() => void commit(() => onChange(current => {
       const latest = current.agents.find(item => item.id === profile.id)
       if (!latest) throw new Error(t('Agent 档案已不存在。', 'Agent profile no longer exists.'))

@@ -56,7 +56,10 @@ impl Outcome {
             return Err("Pi did not return a native session ID.".into());
         }
         if expected_session.is_some_and(|expected| self.session.as_deref() != Some(expected)) {
-            return Err("Pi did not continue the requested task session. The session ID does not match.".into());
+            return Err(
+                "Pi did not continue the requested task session. The session ID does not match."
+                    .into(),
+            );
         }
         if !self.ended {
             return Err("Pi did not return agent_end. This turn did not complete.".into());
