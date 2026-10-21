@@ -24,9 +24,16 @@ import { GoalCelebration } from './GoalCelebration'
 import { GoalProgress } from './GoalProgress'
 import { GoalWorkspaceDirectories } from './GoalWorkspaceDirectories'
 import { confirmGoalAssistantDraft } from '@/lib/goal-assistant'
+import { acceptanceItems, firstPendingAcceptance, firstRunGoalId, firstRunGoalKey, prepareFirstRunDraft, runtimeReadyForExecution } from '@/lib/first-run'
+import { reviewResult } from '@/lib/workspace'
+import { FirstRunEntry, type FirstRunDiscovery } from './FirstRunEntry'
+import { GoalResultAcceptance } from './GoalResultAcceptance'
+import { RuntimeStartPrompt } from './RuntimeStartPrompt'
+import './first-run.css'
 import type { GoalAssistantDraftSource } from '@/lib/goal-assistant'
 import type { GoalAssistantDraft } from '@/lib/goal-types'
 import { ensureGoalAssistantDirectory, isDesktop } from '@/lib/bridge'
+import { canConfigureTask } from '@/lib/onboarding'
 import { getCriterionProgressStatus, isBusinessTask } from '@/lib/goal-progress'
 import { getCurrentLanguage, translate, useI18n } from '@/i18n'
 import './goals.css'
@@ -48,6 +55,7 @@ export interface GoalsPageProps {
   explorationRequest?: number
   viewRequest?: { goalId: string; tab: string; focusProgress?: boolean; request: number }
   onViewChange?: (goalId: string, tab: string) => void
+  discovery?: FirstRunDiscovery
 }
 type Modal = 'create' | 'edit' | 'state' | 'criterion' | 'plan' | 'review' | 'schedule' | 'proposal' | null
 type Draft = Record<string, string>
@@ -75,7 +83,7 @@ function GoalBadge({ status }: { status: GoalStatus }) { return <Badge variant="
 
 function HistoryDisclosure({ title, children }: { title: string; children: ReactNode }) { return <Collapsible><CollapsibleTrigger className="goal-disclosure"><CollapsibleIndicator size={13} />{title}</CollapsibleTrigger><CollapsibleContent><div className="goal-history-detail">{children}</div></CollapsibleContent></Collapsible> }
 
-export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAgent, selectedGoalId, onSelectGoal, hideGoalList, goalListWidth, onSendAssistant, onStopAssistant, onPrepareAssistant, onSettings, explorationRequest, viewRequest, onViewChange }: GoalsPageProps) {
+export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAgent, selectedGoalId, onSelectGoal, hideGoalList, goalListWidth, onSendAssistant, onStopAssistant, onPrepareAssistant, onSettings, explorationRequest, viewRequest, onViewChange, discovery }: GoalsPageProps) {
   const { t } = useI18n()
   const [localId, setLocalId] = useState(state.goals[0]?.id ?? '')
   const [search, setSearch] = useState('')
@@ -89,6 +97,10 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
   const [celebrating, setCelebrating] = useState(false)
   const [assistantActionError, setAssistantActionError] = useState('')
   const [assistantStartingGoalId, setAssistantStartingGoalId] = useState('')
+  const [rememberedFirstRun, setRememberedFirstRun] = useState<string | null>(() => { try { return sessionStorage.getItem(firstRunGoalKey) } catch { return null } })
+  const [runtimePrompt, setRuntimePrompt] = useState<null | 'choose' | 'run'>(null)
+  const [promptGoalId, setPromptGoalId] = useState('')
+  const activeFirstRunId = firstRunGoalId(state, rememberedFirstRun)
   const returnFocus = useRef<HTMLElement | null>(null)
   const progressFocus = useRef<HTMLDivElement>(null)
   const goal = state.goals.find(item => item.id === (selectedGoalId || localId)) ?? state.goals[0]
@@ -103,6 +115,11 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
   const selectTab = (value: string) => { setTab(value); if (goal) onViewChange?.(goal.id, value) }
   useEffect(() => { if (explorationRequest) { setExploring(true); setAssistantActionError('') } }, [explorationRequest])
   useEffect(() => {
+    if (!rememberedFirstRun || firstRunGoalId(state, rememberedFirstRun)) return
+    try { sessionStorage.removeItem(firstRunGoalKey) } catch { /* session storage can be unavailable */ }
+    setRememberedFirstRun(null)
+  }, [state, rememberedFirstRun])
+  useEffect(() => {
     if (!viewRequest) return
     setExploring(false); setLocalId(viewRequest.goalId); setTab(viewRequest.tab); setAssistantActionError('')
   }, [viewRequest?.request, viewRequest?.goalId, viewRequest?.tab])
@@ -113,28 +130,81 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
   }, [viewRequest?.request, viewRequest?.focusProgress, tab])
 
   async function startIdea(idea: string, runtimeId?: string) {
+    const startingFirstRun = state.goals.length === 0
     const created = createGoal({ title: idea })
     if (isDesktop) created.workingDirectories = [await ensureGoalAssistantDirectory(created.id)]
-    created.assistant = { input: idea }
+    created.assistant = { input: startingFirstRun ? '' : idea }
+    const readyRuntime = runtimeReadyForExecution(state)
+      ? state.settings.runtimes.find(runtime => runtime.id === (runtimeId || state.settings.defaultRuntime) && canConfigureTask(runtime))
+        ?? state.settings.runtimes.find(canConfigureTask)
+      : undefined
     await persistGoalAssistantAction(onChange, previous => ({ ...previous, goals: [...previous.goals, created], activeGoalId: created.id, goalExplorationInput: '' }))
+    if (startingFirstRun) {
+      try { sessionStorage.setItem(firstRunGoalKey, created.id) } catch { /* session storage can be unavailable */ }
+      setRememberedFirstRun(created.id)
+    }
     setLocalId(created.id); onSelectGoal?.(created.id); setExploring(false); setTab('assistant'); onViewChange?.(created.id, 'assistant')
-    if (isDesktop && onSendAssistant && runtimeId) {
-      try { await onSendAssistant(created.id, idea, 'clarify', runtimeId) }
+    const assistantRuntime = startingFirstRun ? readyRuntime?.id : runtimeId
+    if (isDesktop && onSendAssistant && assistantRuntime) {
+      try { await onSendAssistant(created.id, idea, 'clarify', assistantRuntime) }
       catch (cause) { setAssistantActionError(String(cause instanceof Error ? cause.message : cause)) }
     }
   }
   async function confirmAssistant(draft: GoalAssistantDraft, runtimeId: string | undefined, source: GoalAssistantDraftSource) {
     if (!goal) return
+    const firstRun = activeFirstRunId === goal.id
+    const prepared = firstRun ? prepareFirstRunDraft(draft) : draft
+    if (firstRun && !prepared.expected.trim()) throw new Error(t('先写上预期结果，再开始执行。', 'Add the expected outcome before starting.'))
+    if (firstRun && !prepared.criteria.length) throw new Error(t('至少加一条可以核对的成功条件。', 'Add at least one success criterion you can check.'))
     const wasConfirmed = Boolean(goal.assistant?.confirmedVersion)
-    await persistGoalAssistantAction(onChange, previous => confirmGoalAssistantDraft(previous, goal.id, draft, source))
-    if (!wasConfirmed) setCelebrating(true)
-    setTab('tasks'); onViewChange?.(goal.id, 'tasks'); setAssistantActionError('')
+    const ready = runtimeReadyForExecution(state)
+    await persistGoalAssistantAction(onChange, previous => confirmGoalAssistantDraft(previous, goal.id, prepared, source))
+    if (firstRun) {
+      try { sessionStorage.removeItem(firstRunGoalKey) } catch { /* session storage can be unavailable */ }
+      setRememberedFirstRun(null)
+    }
+    if (!wasConfirmed && !(firstRun && !ready)) setCelebrating(true)
+    const nextTab = firstRun && !ready ? 'overview' : 'tasks'
+    setTab(nextTab); onViewChange?.(goal.id, nextTab); setAssistantActionError('')
+    if (firstRun && !ready) { setPromptGoalId(goal.id); setRuntimePrompt('run'); return }
     if (isDesktop && onSendAssistant && runtimeId) {
       setAssistantStartingGoalId(goal.id)
       try { await onSendAssistant(goal.id, t('根据刚确认的目标，提议可执行任务，明确交付、验收、依赖与期望日期。', 'Propose executable tasks for the confirmed goal, with delivery, acceptance, dependencies, and target dates.'), 'plan', runtimeId) }
       catch (cause) { setAssistantActionError(String(cause instanceof Error ? cause.message : cause)) }
       finally { setAssistantStartingGoalId(current => current === goal.id ? '' : current) }
     }
+  }
+  async function applyRuntime(runtimeId: string, remember: boolean) {
+    if (!discovery) return false
+    const saved = await discovery.onImport([runtimeId], remember ? runtimeId : state.settings.defaultRuntime)
+    if (saved === false) return false
+    const goalId = promptGoalId
+    const intent = runtimePrompt
+    setRuntimePrompt(null)
+    if (intent === 'run' && goalId && isDesktop && onSendAssistant) {
+      setAssistantStartingGoalId(goalId)
+      try { await onSendAssistant(goalId, t('根据刚确认的目标，提议可执行任务，明确交付、验收、依赖与期望日期。', 'Propose executable tasks for the confirmed goal, with delivery, acceptance, dependencies, and target dates.'), 'plan', runtimeId) }
+      catch (cause) { setAssistantActionError(String(cause instanceof Error ? cause.message : cause)) }
+      finally { setAssistantStartingGoalId(current => current === goalId ? '' : current) }
+    }
+    return true
+  }
+  async function reviewOnCard(accepted: boolean, note: string, checked: string[]) {
+    if (!goal) return
+    const pending = firstPendingAcceptance(state, goal.id)
+    if (!pending) throw new Error(t('没有待验收的结果。', 'No result is waiting for acceptance.'))
+    const taskId = pending.task.id
+    const resultId = pending.result.id
+    const goalId = goal.id
+    await persist(previous => {
+      const tasks = previous.tasks.map(task => task.id === taskId ? reviewResult(task, resultId, accepted, note) : task)
+      if (!accepted) return { ...previous, tasks }
+      const goals = previous.goals.map(item => item.id === goalId ? checked.reduce((current, text) => {
+        const criterion = current.criteria.find(entry => entry.text === text && entry.status !== 'satisfied')
+        return criterion ? updateCriterion(current, criterion.id, 'satisfied', note) : current
+      }, item) : item)
+      return { ...previous, tasks, goals }
+    }, accepted ? t('已在目标卡片上验收这条结果。', 'Checked this result on the goal card.') : t('已退回，附上了补充说明。', 'Returned with a note.'))
   }
   async function retryPlan() {
     if (!goal || !onSendAssistant) return
@@ -236,12 +306,15 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
   }
   function Source({ source }: { source: GoalSource }) { return <span>{source.label}{source.reference && <> · {source.reference}</>}{source.taskId && (state.tasks.some(task => task.id === source.taskId) ? <> · <Button variant="link" className="goal-inline-link" onClick={() => onOpenTask(source.taskId!)}>{t('查看来源任务', 'View source task')}</Button></> : <> · {t('来源任务已删除', 'Source task was deleted')}</>)}</span> }
 
+  const pendingAcceptance = goal && !activeFirstRunId ? firstPendingAcceptance(state, goal.id) : undefined
+  const pendingItems = pendingAcceptance && goal ? acceptanceItems(pendingAcceptance.task, goal) : []
   return <div className={`goals-page${hideGoalList ? ' goals-without-list' : ''}`}>
     <AnimatePresence>{celebrating && <GoalCelebration onDismiss={dismissCelebration} />}</AnimatePresence>
     <GoalListLayout rememberedWidth={goalListWidth} navigation={!hideGoalList && <aside className="goal-picker" aria-label={t('目标列表', 'Goal list')}><div className="goal-picker-heading"><span><Target size={15} />{t('目标', 'Goals')}</span><Button size="icon-sm" variant="ghost" aria-label={t('开始一件事', 'Start something')} title={t('开始一件事', 'Start something')} onClick={() => setExploring(true)}><Plus size={16} /></Button></div><div className="goal-search"><Search size={14} /><Input aria-label={t('搜索目标', 'Search goals')} placeholder={t('搜索目标…', 'Search goals…')} value={search} onChange={event => setSearch(event.target.value)} /></div><div className="goal-picker-list">{(state.goalExplorationInput || exploring) && <Button variant="ghost" className={`goal-choice${exploring ? ' is-selected' : ''}`} aria-label={t('恢复未完成的探索', 'Resume exploration')} aria-pressed={exploring} onClick={() => setExploring(true)}><span title={state.goalExplorationInput || t('新的想法', 'New idea')}>{state.goalExplorationInput || t('新的想法', 'New idea')}</span><small>{t('探索中', 'Exploring')}</small></Button>}{state.goals.filter(item => `${item.title} ${item.expected}`.toLowerCase().includes(search.toLowerCase())).map(item => <Button key={item.id} variant="ghost" className={`goal-choice${item.id === goal?.id && !exploring ? ' is-selected' : ''}`} aria-label={`${t('打开目标：', 'Open goal: ')}${item.title}`} aria-pressed={item.id === goal?.id && !exploring} onClick={() => chooseGoal(item.id)}><span title={item.title}>{item.title}</span><small>{goalStatusLabelsLocalized()[item.status]} · v{item.version}</small></Button>)}{!state.goals.length && <p className="goal-empty-copy">{t('把想推进的事情记录在这里。', 'Capture what you want to move forward here.')}</p>}</div><div className="goal-picker-footer">{t('目标与现状持续保存', 'Goals and context are saved')}<br />{t('执行按任务组织', 'Runs are organized by task')}</div></aside>}>
-    {exploring || !goal ? <main className="goal-detail"><div className="goal-exploration-toolbar"><span>{t('从想法开始', 'Start from an idea')}</span>{goal && <Button variant="ghost" size="sm" onClick={() => setExploring(false)}>{t('返回目标', 'Back to goal')}</Button>}<Button variant="ghost" size="sm" onClick={() => open('create')}>{t('手动创建目标', 'Create goal manually')}</Button></div><GoalAssistant state={state} onChange={onChange} onStart={startIdea} onSettings={onSettings} onConfirm={confirmAssistant} />{!goal && <div className="goal-manual-start"><Button variant="ghost" size="sm" onClick={() => open('create')}>{t('创建第一个目标', 'Create your first goal')}</Button></div>}</main> : <main className="goal-detail">
+    {state.goals.length === 0 ? <main className="goal-detail"><FirstRunEntry value={state.goalExplorationInput ?? ''} onValueChange={value => { void onChange(previous => ({ ...previous, goalExplorationInput: value })).catch(cause => setError(String(cause instanceof Error ? cause.message : cause))) }} onSubmit={startIdea} onCreateManually={() => open('create')} discovery={discovery} onInspect={() => setRuntimePrompt('choose')} /></main> : activeFirstRunId && goal && !exploring ? <main className="goal-detail first-run-canvas"><GoalAssistant state={state} goal={goal} firstRun onChange={onChange} onStart={startIdea} onSend={onSendAssistant} onStop={onStopAssistant} onPrepare={onPrepareAssistant} onSettings={onSettings} onConfirm={confirmAssistant} />{assistantActionError && <p className="goal-form-error goal-assistant-page-error" role="alert">{assistantActionError}</p>}</main> : exploring || !goal ? <main className="goal-detail"><div className="goal-exploration-toolbar"><span>{t('从想法开始', 'Start from an idea')}</span>{goal && <Button variant="ghost" size="sm" onClick={() => setExploring(false)}>{t('返回目标', 'Back to goal')}</Button>}<Button variant="ghost" size="sm" onClick={() => open('create')}>{t('手动创建目标', 'Create goal manually')}</Button></div><GoalAssistant state={state} onChange={onChange} onStart={startIdea} onSettings={onSettings} onConfirm={confirmAssistant} />{!goal && <div className="goal-manual-start"><Button variant="ghost" size="sm" onClick={() => open('create')}>{t('创建第一个目标', 'Create your first goal')}</Button></div>}</main> : <main className="goal-detail">
       <header className="goal-header"><div className="goal-heading"><div><p className="goal-meta">{t('目标', 'Goal')} / <GoalBadge status={goal.status} /> <span>{t('定义', 'Definition')} v{goal.version} · {t('现状', 'Context')} v{goal.currentState.version}</span></p><h1>{goal.title}</h1><p className="goal-subtitle">{goal.expected || t('先记录想做的事，再逐步明确预期结果。', 'Capture your goal first, then refine the expected outcome.')}</p>{goal.deadline && <p className="goal-deadline"><CalendarClock size={13} />{t('期望日期', 'Target date')} · <time>{goal.deadline}</time></p>}</div><div className="goal-header-actions"><Button variant="outline" onClick={() => selectTab('assistant')}>{t('目标助手', 'Goal assistant')}</Button><Button variant="outline" onClick={() => editState()}><Pencil size={14} />{t('更新现状', 'Update context')}</Button><Button onClick={() => onCreateTask(goal.id)}><Plus size={14} />{t('创建任务', 'Create task')}</Button></div></div><GoalWorkspaceDirectories key={goal.id} state={state} goal={goal} onChange={onChange} /></header>
       {assistantActionError && <p className="goal-form-error goal-assistant-page-error" role="alert">{assistantActionError}</p>}
+      {pendingAcceptance && tab !== 'overview' && <div className="goal-acceptance-banner"><span>{t('第一条任务结果已返回，可以在目标卡片上验收。', 'The first task result is back. Check it on the goal card.')}</span><Button size="sm" variant="outline" onClick={() => selectTab('overview')}>{t('打开验收', 'Open acceptance')}</Button></div>}
       <Tabs value={tab} onValueChange={selectTab} className="goal-tabs"><TabsList variant="line" aria-label={t('目标内容', 'Goal content')}><TabsTrigger value="overview">{t('概览', 'Overview')}</TabsTrigger><TabsTrigger value="tasks">{t('任务', 'Tasks')} <span className="goal-tab-count"><AnimatedNumber value={selectedTasks.length} /></span></TabsTrigger><TabsTrigger value="assistant">{t('目标助手', 'Goal assistant')}</TabsTrigger><TabsTrigger value="history">{t('进展记录', 'Progress history')}</TabsTrigger><TabsTrigger value="reviews">{t('复盘', 'Reviews')} <span className="goal-tab-count"><AnimatedNumber value={goal.reviews.length} /></span></TabsTrigger></TabsList>
         <TabsContent value="overview" className="goal-scroll"><div className="goal-columns"><div className="goal-primary-column">
           <section className="goal-section goal-criteria"><SectionTitle icon={<Flag size={15} />} title={t('预期状态与成功条件', 'Desired outcome and success criteria')}><Button variant="ghost" size="sm" onClick={editGoal}>{t('修订', 'Revise')}</Button></SectionTitle><p className="goal-desired">{goal.expected || t('尚未明确预期状态，点击修订即可补充。', 'No desired outcome yet. Select Revise to add one.')}</p><div ref={progressFocus} tabIndex={-1} data-goal-progress><GoalProgress goal={goal} tasks={selectedTasks} onTasks={() => selectTab('tasks')} onCriterion={criterion => open('criterion', { criterionId: criterion.id, status: criterion.status, evidence: criterion.evidence })} /></div>{goal.criteria.length ? <div className="goal-criterion-list">{goal.criteria.map(criterion => <Button key={criterion.id} variant="ghost" className="goal-criterion" onClick={() => open('criterion', { criterionId: criterion.id, status: criterion.status, evidence: criterion.evidence })}>{getCriterionProgressStatus(criterion) === 'satisfied' ? <Check size={15} /> : <Circle size={13} />}<span>{criterion.text}</span><small>{criterionLabels()[getCriterionProgressStatus(criterion) === 'pending' ? 'unverified' : criterion.status]}</small></Button>)}</div> : <p className="goal-empty-copy">{t('成功条件可以是产物、事实、判断或指标，不要求统一的百分比。', 'Success criteria can be artifacts, facts, decisions, or metrics; they need not share one percentage.')}</p>}</section>
@@ -249,6 +322,7 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
           <section className="goal-section"><SectionTitle icon={<BookOpen size={15} />} title={t('当前现状', 'Current context')}><span className="goal-meta">v{goal.currentState.version} · {when(goal.currentState.createdAt)}</span></SectionTitle>{goal.currentState.summary && <p className="goal-state-summary">{goal.currentState.summary}</p>}{goal.currentState.entries.length ? goal.currentState.entries.map(entry => <div className={`goal-fact goal-entry-${entry.kind}`} key={entry.id}><span className="goal-entry-kind">{goalEntryLabelsLocalized()[entry.kind]}</span><div><p>{entry.text}</p>{entry.metric && <p className="goal-metric"><strong><AnimatedNumberText value={entry.metric.value} />{entry.metric.unit}</strong> {entry.metric.name}<span>{entry.metric.definition}</span></p>}<p className="goal-meta"><Source source={entry.source} /> · {when(entry.createdAt)}</p></div><Button size="icon-sm" variant="ghost" aria-label={`${t('修订现状', 'Revise context')}: ${entry.text}`} onClick={() => editState(entry.id)}><Pencil size={12} /></Button></div>) : <p className="goal-empty-copy">{goal.currentState.summary ? t('可以继续补充事实、成果、未知问题及来源。', 'Add facts, artifacts, open questions, and sources as you learn more.') : t('现状还不明确。可以直接描述，也可以记录资料位置和查询方式。', 'Context is still unclear. Describe it or record where to find more information.')}</p>}</section>
           <section className="goal-section"><SectionTitle icon={<ListChecks size={15} />} title={t('推进计划', 'Progress plan')}><Button size="sm" variant="ghost" onClick={() => editPlan()}><Plus size={13} />{t('添加阶段', 'Add stage')}</Button></SectionTitle>{goal.plan.map((stage, index) => <div className="goal-stage" key={stage.id}><span className="goal-stage-index">{String(index + 1).padStart(2, '0')}</span><div><Button className="goal-text-link" variant="link" onClick={() => editPlan(stage)}>{stage.title}</Button><p className="goal-meta">{stage.description || t('可补充这一阶段要解决的问题与预期成果。', 'Describe what this stage should solve and deliver.')}</p></div><Badge variant="outline">{stageLabels()[stage.status]}</Badge></div>)}{!goal.plan.length && <p className="goal-empty-copy">{t('先写下一步，或添加阶段组织后续任务。', 'Record the next step or add stages to organize future tasks.')}</p>}<TaskRows tasks={selectedTasks.slice(0, 5)} />{selectedTasks.length > 5 && <Button size="sm" variant="ghost" onClick={() => setTab('tasks')}>{t('查看全部', 'View all')} <AnimatedNumber value={selectedTasks.length} /> {t('个任务', 'tasks')} <ArrowRight size={13} /></Button>}</section>
         </div><aside className="goal-context-column">
+          {pendingAcceptance && <GoalResultAcceptance taskTitle={pendingAcceptance.task.title} summary={pendingAcceptance.result.summary} items={pendingItems} busy={saving} onAccept={(checked, note) => reviewOnCard(true, note, checked)} onReopen={note => reviewOnCard(false, note, [])} />}
           <section className="goal-section"><SectionTitle icon={<Users size={15} />} title={t('参与 Agents', 'Participating Agents')}><Button variant="ghost" size="sm" onClick={() => onOpenAgent()}>{t('管理', 'Manage')}</Button></SectionTitle>{participants.length ? participants.map(agent => { const runtime = state.settings.runtimes.find(runtime => runtime.id === agent.runtimeId); const running = state.tasks.flatMap(task => task.runs).flatMap(run => run.members).filter(member => member.agentProfileId === agent.id && member.status === 'running').length; return <Button key={agent.id} variant="ghost" className="goal-agent-row" onClick={() => onOpenAgent(agent.id)}><span><strong>{agent.name}</strong><small>{running ? <><AnimatedNumber value={running} /> {t('个运行中', 'running')}</> : agent.enabled ? t('可分配', 'Available') : t('已停用', 'Disabled')}</small></span><span className="goal-agent-runtime"><RuntimeLogo runtime={runtime} runtimeId={agent.runtimeId} size={14} />{runtime?.name ?? agent.runtimeId}</span><p className="goal-meta">{agent.role}</p></Button> }) : <p className="goal-empty-copy">{t('尚未分配 Agent。你也可以先人工整理现状与计划。', 'No Agents assigned. You can still organize context and plans yourself.')}</p>}</section>
           <section className="goal-section"><SectionTitle icon={<Target size={15} />} title={t('目标状态', 'Goal status')} /><Choice label={t('目标生命周期', 'Goal lifecycle')} value={goal.status} options={goalStatusLabelsLocalized()} onChange={status => void persist(changeGoal(goal.id, current => setGoalStatus(current, status as GoalStatus)), `${t('目标状态已更新为', 'Goal status updated to')} ${goalStatusLabelsLocalized()[status as GoalStatus]}.`)} /><p className="goal-meta goal-note">{t('任务完成不自动代表目标达成。', 'Completing tasks does not automatically achieve the goal.')}</p>{goal.constraints && <><h3 className="goal-context-label">{t('范围与约束', 'Scope and constraints')}</h3><p className="goal-context-copy">{goal.constraints}</p></>}{goal.intent && <><h3 className="goal-context-label">{t('为什么推进', 'Why this matters')}</h3><p className="goal-context-copy">{goal.intent}</p></>}</section>
           <section className="goal-section"><SectionTitle icon={<CalendarClock size={15} />} title={t('最近复盘', 'Latest review')} />{goal.reviews.at(-1) ? <><p className="goal-context-copy">{goal.reviews.at(-1)!.summary}</p><Button variant="link" className="goal-text-link" onClick={() => setTab('reviews')}>{t('查看复盘', 'View review')} <ArrowRight size={12} /></Button></> : <p className="goal-empty-copy">{t('阶段结束或获得新证据时，记录变化与下一步。', 'Record changes and next steps when a stage ends or new evidence appears.')}</p>}<Button variant="outline" size="sm" onClick={() => open('review', { judgement: 'unknown' })}>{t('记录复盘', 'Record review')}</Button></section>
@@ -270,6 +344,7 @@ export function GoalsPage({ state, onChange, onCreateTask, onOpenTask, onOpenAge
       {modal === 'proposal' && proposal && <ProposalDetails proposal={proposal} currentVersion={modalGoal?.currentState.version ?? 0} />}
       {error && <p role="alert" className="goal-form-error">{error}</p>}<DialogFooter className="goal-dialog-footer"><Button type="button" variant="outline" onClick={() => setModal(null)}>{t('取消', 'Cancel')}</Button><Button type="submit" disabled={saving}>{saving ? t('保存中…', 'Saving…') : modal === 'create' ? t('创建目标', 'Create goal') : modal === 'proposal' ? proposal?.baseStateVersion !== modalGoal?.currentState.version ? t('已核对，重新生成建议', 'Reviewed; regenerate proposal') : t('采纳到现状', 'Apply to context') : t('保存', 'Save')}</Button></DialogFooter>
     </form></DialogContent></Dialog>
+    <RuntimeStartPrompt open={runtimePrompt !== null} intent={runtimePrompt ?? 'choose'} discovery={discovery} onOpenChange={open => { if (!open) setRuntimePrompt(null) }} onConfirm={applyRuntime} />
   </div>
 }
 
