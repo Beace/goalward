@@ -2,6 +2,7 @@ mod app_updates;
 mod artifacts;
 mod attachments;
 mod backgrounds;
+mod diagnostics;
 mod discovery;
 mod fonts;
 mod goal_assistant;
@@ -101,7 +102,7 @@ async fn probe_runtime(executable: String) -> Result<ProbeResult, String> {
 async fn discover_local_environment() -> Result<LocalEnvironmentReport, String> {
     tauri::async_runtime::spawn_blocking(local_discovery::discover)
         .await
-        .map_err(|_| "本机检测任务未能完成，请重试".to_string())
+        .map_err(|_| diagnostics::diagnostic("local_scan_failed"))
 }
 
 #[tauri::command]

@@ -1,3 +1,4 @@
+use crate::diagnostics::diagnostic;
 use std::path::Path;
 
 const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -16,7 +17,7 @@ pub(super) fn query_models(
     #[cfg(not(unix))]
     {
         let _ = (executable, args, home);
-        Err("当前平台暂不支持 Pi 模型查询".into())
+        Err(diagnostic("pi_query_unsupported"))
     }
 }
 
@@ -71,7 +72,7 @@ fn query_with_limits(
         .stderr(Stdio::null())
         .process_group(0)
         .spawn()
-        .map_err(|_| "无法启动 Pi 模型查询".to_string())?;
+        .map_err(|_| diagnostic("pi_query_start_failed"))?;
     let mut process = QueryProcess {
         child,
         group_stopped: false,
@@ -80,13 +81,13 @@ fn query_with_limits(
         .child
         .stdout
         .take()
-        .ok_or_else(|| "无法读取 Pi 模型查询结果".to_string())?;
+        .ok_or_else(|| diagnostic("pi_query_read_failed"))?;
     let fd = stdout.as_raw_fd();
     // Nonblocking reads keep both the byte limit and deadline enforceable even
     // when a descendant inherits stdout and outlives the main CLI process.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err("无法读取 Pi 模型查询结果".into());
+        return Err(diagnostic("pi_query_read_failed"));
     }
 
     let started = Instant::now();
@@ -95,19 +96,19 @@ fn query_with_limits(
     let mut exited = false;
     loop {
         if started.elapsed() >= timeout {
-            return Err("Pi 模型查询超时".into());
+            return Err(diagnostic("pi_query_timeout"));
         }
         if !exited {
             match process.child.try_wait() {
                 Ok(Some(status)) => {
                     process.stop_group();
                     if !status.success() {
-                        return Err("Pi 模型查询未成功完成".into());
+                        return Err(diagnostic("pi_query_failed"));
                     }
                     exited = true;
                 }
                 Ok(None) => {}
-                Err(_) => return Err("无法获取 Pi 模型查询状态".into()),
+                Err(_) => return Err(diagnostic("pi_query_status_failed")),
             }
         }
 
@@ -116,7 +117,7 @@ fn query_with_limits(
             Ok(0) => {}
             Ok(size) => {
                 if size > max_output.saturating_sub(output.len()) {
-                    return Err("Pi 模型查询结果超过大小限制".into());
+                    return Err(diagnostic("pi_query_too_large"));
                 }
                 output.extend_from_slice(&buffer[..size]);
                 continue;
@@ -129,17 +130,18 @@ fn query_with_limits(
                 }
             }
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-            Err(_) => return Err("无法读取 Pi 模型查询结果".into()),
+            Err(_) => return Err(diagnostic("pi_query_read_failed")),
         }
         thread::sleep(Duration::from_millis(10).min(timeout.saturating_sub(started.elapsed())));
     }
 
-    String::from_utf8(output).map_err(|_| "Pi 模型查询结果不是有效的 UTF-8 文本".into())
+    String::from_utf8(output).map_err(|_| diagnostic("pi_query_invalid_utf8"))
 }
 
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::diagnostics::diagnostic;
     use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
 
     fn fixture(script: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
@@ -173,7 +175,7 @@ mod tests {
             fixture("printf 'sensitive stdout'\nprintf 'sensitive stderr' >&2\nexit 4");
         assert_eq!(
             query_models(&executable, &[], &home),
-            Err("Pi 模型查询未成功完成".into())
+            Err(diagnostic("pi_query_failed"))
         );
     }
 
@@ -183,7 +185,7 @@ mod tests {
         let started = std::time::Instant::now();
         assert_eq!(
             query_with_limits(&executable, &[], &home, Duration::from_millis(80), 1024),
-            Err("Pi 模型查询超时".into())
+            Err(diagnostic("pi_query_timeout"))
         );
         assert!(started.elapsed() < Duration::from_secs(2));
     }
@@ -195,7 +197,7 @@ mod tests {
         let started = std::time::Instant::now();
         assert_eq!(
             query_with_limits(&executable, &[], &home, Duration::from_secs(2), 1024),
-            Err("Pi 模型查询结果超过大小限制".into())
+            Err(diagnostic("pi_query_too_large"))
         );
         assert!(started.elapsed() < Duration::from_secs(2));
     }
@@ -225,7 +227,7 @@ mod tests {
         let (_directory, executable, home) = fixture("printf '\\377'");
         assert_eq!(
             query_models(&executable, &[], &home),
-            Err("Pi 模型查询结果不是有效的 UTF-8 文本".into())
+            Err(diagnostic("pi_query_invalid_utf8"))
         );
     }
 }

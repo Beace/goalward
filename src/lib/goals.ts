@@ -12,7 +12,6 @@ const sameCriterionDefinition = (left: ReturnType<typeof criterionDefinition>, r
 const invalidateAssistantDraft = (goal: Goal) => goal.assistant ? { ...goal.assistant, draft: undefined, draftGoalVersion: goal.assistant.draftGoalVersion ?? goal.version, draftStateVersion: goal.assistant.draftStateVersion ?? goal.currentState.version } : undefined
 export const goalStatusLabels: Record<GoalStatus, string> = { clarifying: '待澄清', active: '推进中', paused: '已暂停', achieved: '已达成', maintenance: '维护中', ended: '已结束' }
 export const goalEntryLabels: Record<GoalEntryKind, string> = { fact: '已知事实', artifact: '已有成果', decision: '已作决定', hypothesis: '待验证假设', unknown: '未知问题', blocker: '当前障碍', metric: '指标观测' }
-export const reviewJudgementLabels: Record<GoalReview['judgement'], string> = { on_track: '符合预期', at_risk: '存在风险', off_track: '偏离预期', unknown: '暂无法判断' }
 
 export function goalDefinition(goal: Goal, reason = translate('目标快照', 'Goal snapshot')): GoalDefinition {
   return copy({ version: goal.version, title: goal.title, intent: goal.intent, expected: goal.expected, constraints: goal.constraints, deadline: goal.deadline, criteria: goal.criteria, createdAt: goal.updatedAt, reason })

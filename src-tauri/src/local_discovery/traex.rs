@@ -1,6 +1,7 @@
 use super::{
     add_model, read_file, read_json, safe_id, DiscoveredRuntime, MAX_MODELS, MAX_PROFILES,
 };
+use crate::diagnostics::{diagnostic, diagnostic_with, trying_local_cache};
 use serde::{de::IgnoredAny, Deserialize};
 use std::path::{Path, PathBuf};
 
@@ -42,7 +43,7 @@ fn read_config(path: &Path, runtime: &mut DiscoveredRuntime) -> Option<Config> {
         Err(_) => {
             runtime
                 .warnings
-                .push(format!("TraeX TOML 模型配置无法解析：{}", path.display()));
+                .push(diagnostic_with("traex_toml_invalid", path.display()));
             None
         }
     }
@@ -70,9 +71,7 @@ pub(super) fn discover(directory: &Path, runtime: &mut DiscoveredRuntime) {
     let config = config.unwrap_or_default();
     let legacy = is_legacy(&config);
     if legacy {
-        runtime.warnings.push(
-            "TraeX 不再支持顶层 profile / profiles 配置；请通过 --profile 和 <name>.traecli.toml 选择，未标记默认模型".into(),
-        );
+        runtime.warnings.push(diagnostic("traex_legacy_profiles"));
     }
     // This is TraeX's own default provider, not Codex's default.
     let provider = config.model_provider.as_deref().unwrap_or("trae");
@@ -80,7 +79,7 @@ pub(super) fn discover(directory: &Path, runtime: &mut DiscoveredRuntime) {
     if provider.is_none() {
         runtime
             .warnings
-            .push("TraeX model_provider 格式无法识别，已跳过模型目录与缓存查询".into());
+            .push(diagnostic("traex_provider_unrecognized"));
     }
     if let Some(model) = &config.model {
         add_model(
@@ -124,19 +123,19 @@ pub(super) fn discover(directory: &Path, runtime: &mut DiscoveredRuntime) {
                         );
                     }
                     if models.is_empty() {
-                        runtime.warnings.push("TraeX CLI 当前返回空模型列表".into());
+                        runtime.warnings.push(diagnostic("traex_empty_model_list"));
                     }
                     true
                 }
                 Err(_) => {
                     runtime
                         .warnings
-                        .push("TraeX 模型列表 JSON 无法解析，尝试本机缓存".into());
+                        .push(diagnostic("traex_model_list_invalid"));
                     false
                 }
             },
             Err(error) => {
-                runtime.warnings.push(format!("{error}，尝试本机缓存"));
+                runtime.warnings.push(trying_local_cache(&error));
                 false
             }
         }
@@ -147,10 +146,7 @@ pub(super) fn discover(directory: &Path, runtime: &mut DiscoveredRuntime) {
         read_cache(directory, provider, runtime);
     }
     if runtime.probe.found || !runtime.models.is_empty() {
-        runtime.warnings.push(
-            "TraeX 默认模型来自用户级配置；与 Codex 共用执行协议，自动传入消息并续接任务会话"
-                .into(),
-        );
+        runtime.warnings.push(diagnostic("traex_user_config_note"));
     }
 }
 
@@ -170,9 +166,7 @@ fn read_profiles(directory: &Path, provider: &str, runtime: &mut DiscoveredRunti
         .collect();
     paths.sort();
     if paths.len() > MAX_PROFILES {
-        runtime
-            .warnings
-            .push("TraeX Profile 过多，仅检查前 128 个".into());
+        runtime.warnings.push(diagnostic("traex_too_many_profiles"));
     }
     for path in paths.iter().take(MAX_PROFILES) {
         let Some(name) = path
@@ -187,15 +181,15 @@ fn read_profiles(directory: &Path, provider: &str, runtime: &mut DiscoveredRunti
             continue;
         };
         if is_legacy(&profile) {
-            runtime.warnings.push(format!(
-                "TraeX Profile {name} 包含旧版 profile 配置，已跳过"
-            ));
+            runtime
+                .warnings
+                .push(diagnostic_with("traex_legacy_profile", name));
             continue;
         }
         if profile.model_provider.as_deref().unwrap_or(provider) != provider {
-            runtime.warnings.push(format!(
-                "TraeX Profile {name} 使用不同 provider，未合并其模型；请通过启动参数选择"
-            ));
+            runtime
+                .warnings
+                .push(diagnostic_with("traex_profile_other_provider", name));
             continue;
         }
         if let Some(model) = profile.model {
@@ -203,7 +197,7 @@ fn read_profiles(directory: &Path, provider: &str, runtime: &mut DiscoveredRunti
                 runtime,
                 &model,
                 None,
-                &format!("{name}.traecli.toml / 候选（--profile {name}）"),
+                &diagnostic_with("traex_profile_candidate", name),
                 false,
             );
         }
@@ -288,7 +282,7 @@ fn read_cache(directory: &Path, provider: &str, runtime: &mut DiscoveredRuntime)
                 runtime,
                 &model.slug,
                 model.config_name.as_deref(),
-                &format!("models_cache.json / {provider} / 缓存"),
+                &diagnostic_with("traex_model_cache", provider),
             );
         }
         if usable {
@@ -368,7 +362,7 @@ mod tests {
         assert_eq!(runtime.models[0].model_id, "gpt-6-astra");
         assert_eq!(runtime.models[0].aliases, vec!["GPT-6-Astra"]);
         assert!(runtime.models[0].selected);
-        assert!(runtime.models[0].source.contains("缓存"));
+        assert!(runtime.models[0].source.contains("traex_model_cache"));
         assert_eq!(runtime.models[1].model_id, "visible");
         assert!(!runtime.models[1].selected);
         assert!(!serde_json::to_string(&runtime).unwrap().contains("SECRET"));
@@ -406,11 +400,13 @@ mod tests {
             "base"
         );
         assert_eq!(runtime.models[1].model_id, "work-model");
-        assert!(runtime.models[1].source.contains("--profile work"));
+        assert!(runtime.models[1]
+            .source
+            .contains("traex_profile_candidate\u{1f}work"));
         assert!(runtime
             .warnings
             .iter()
-            .any(|warning| warning.contains("不同 provider")));
+            .any(|warning| warning.contains("traex_profile_other_provider")));
     }
 
     #[test]
@@ -428,7 +424,7 @@ mod tests {
         assert!(runtime
             .warnings
             .iter()
-            .any(|warning| warning.contains("不再支持")));
+            .any(|warning| warning.contains("traex_legacy_profiles")));
     }
 
     #[test]
@@ -496,7 +492,9 @@ printf '%s' '[{"name":"GPT-6-Astra","config_name":"gpt-6-astra","provider":"trae
         assert_eq!(runtime.models[0].model_id, "gpt-6-astra");
         assert_eq!(runtime.models[0].aliases, vec!["GPT-6-Astra"]);
         assert!(runtime.models[0].selected);
-        assert!(runtime.models[0].source.contains("--profile work"));
+        assert!(runtime.models[0]
+            .source
+            .contains("traex_profile_candidate\u{1f}work"));
         assert!(runtime.models[0].source.contains("traex models --json"));
         assert_eq!(runtime.models[1].model_id, "other");
         assert!(!serde_json::to_string(&runtime).unwrap().contains("SECRET"));
@@ -552,7 +550,8 @@ printf '%s' '[{"name":"GPT-6-Astra","config_name":"gpt-6-astra","provider":"trae
                 assert!(runtime
                     .warnings
                     .iter()
-                    .any(|warning| warning.contains("尝试本机缓存")));
+                    .any(|warning| warning.contains("trying_local_cache")
+                        || warning.contains("traex_model_list_invalid")));
             }
         }
     }

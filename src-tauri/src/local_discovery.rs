@@ -4,6 +4,7 @@
 mod pi;
 mod traex;
 use crate::{
+    diagnostics::{diagnostic, diagnostic_with},
     discovery,
     types::{DiscoveredModel, DiscoveredRuntime, LocalEnvironmentReport, ProbeResult},
 };
@@ -92,7 +93,7 @@ pub fn discover() -> LocalEnvironmentReport {
                     found: false,
                     path: String::new(),
                     version: String::new(),
-                    error: Some("Runtime 检测未能完成".into()),
+                    error: Some(diagnostic("runtime_probe_incomplete")),
                 })
             })
             .collect()
@@ -124,17 +125,14 @@ fn build_report(locations: &Locations, probes: Vec<ProbeResult>) -> LocalEnviron
                 "pi" => pi::discover(&locations.pi, &mut runtime),
                 _ => {
                     if runtime.probe.found {
-                        runtime.warnings.push(
-                            "尚未接入此 Runtime 的模型配置格式，请在设置中添加模型与启动参数"
-                                .into(),
-                        );
+                        runtime
+                            .warnings
+                            .push(diagnostic("runtime_model_format_unsupported"));
                     }
                 }
             }
             if !runtime.models.is_empty() {
-                runtime
-                    .warnings
-                    .push("模型来自配置、缓存或 CLI 列表，尚未验证实际可调用性".into());
+                runtime.warnings.push(diagnostic("models_unverified"));
             }
             runtime
         })
@@ -158,7 +156,7 @@ fn read_file(path: &Path, runtime: &mut DiscoveredRuntime) -> Option<String> {
         Err(_) => {
             runtime
                 .warnings
-                .push(format!("无法读取配置文件：{}", path.display()));
+                .push(diagnostic_with("config_read_failed", path.display()));
             return None;
         }
     };
@@ -170,10 +168,9 @@ fn read_file(path: &Path, runtime: &mut DiscoveredRuntime) -> Option<String> {
         .map(|metadata| metadata.is_file() && metadata.len() <= MAX_FILE_BYTES)
         .unwrap_or(false)
     {
-        runtime.warnings.push(format!(
-            "跳过非普通文件或超过 2 MiB 的配置：{}",
-            path.display()
-        ));
+        runtime
+            .warnings
+            .push(diagnostic_with("config_skipped", path.display()));
         return None;
     }
     let mut bytes = Vec::new();
@@ -185,7 +182,7 @@ fn read_file(path: &Path, runtime: &mut DiscoveredRuntime) -> Option<String> {
     {
         runtime
             .warnings
-            .push(format!("配置读取失败或超过大小限制：{}", path.display()));
+            .push(diagnostic_with("config_too_large", path.display()));
         return None;
     }
     match String::from_utf8(bytes) {
@@ -193,7 +190,7 @@ fn read_file(path: &Path, runtime: &mut DiscoveredRuntime) -> Option<String> {
         Err(_) => {
             runtime
                 .warnings
-                .push(format!("配置不是有效 UTF-8：{}", path.display()));
+                .push(diagnostic_with("config_invalid_utf8", path.display()));
             None
         }
     }
@@ -206,7 +203,7 @@ fn read_json<T: DeserializeOwned>(path: &Path, runtime: &mut DiscoveredRuntime) 
         Err(_) => {
             runtime
                 .warnings
-                .push(format!("JSON 模型配置无法解析：{}", path.display()));
+                .push(diagnostic_with("json_model_config_invalid", path.display()));
             None
         }
     }
@@ -251,7 +248,7 @@ fn add_model(
         return;
     }
     if runtime.models.len() >= MAX_MODELS {
-        let warning = "模型条目过多，仅显示前 256 个".to_string();
+        let warning = diagnostic("too_many_models");
         if !runtime.warnings.contains(&warning) {
             runtime.warnings.push(warning);
         }
@@ -310,7 +307,7 @@ fn discover_codex(directory: &Path, runtime: &mut DiscoveredRuntime) {
             Err(_) => {
                 runtime
                     .warnings
-                    .push(format!("TOML 模型配置无法解析：{}", path.display()));
+                    .push(diagnostic_with("toml_model_config_invalid", path.display()));
                 None
             }
         });
@@ -323,17 +320,12 @@ fn discover_codex(directory: &Path, runtime: &mut DiscoveredRuntime) {
             .and_then(|profile| profile.model.as_deref())
             .or(config.model.as_deref());
         if let Some(model) = selected {
-            add_model(
-                runtime,
-                model,
-                None,
-                if active.and_then(|profile| profile.model.as_ref()).is_some() {
-                    "config.toml / 当前 profile"
-                } else {
-                    "config.toml / model"
-                },
-                true,
-            );
+            let source = if active.and_then(|profile| profile.model.as_ref()).is_some() {
+                diagnostic("codex_current_profile")
+            } else {
+                "config.toml / model".to_string()
+            };
+            add_model(runtime, model, None, &source, true);
         }
         if let Some(model) = &config.model {
             add_model(
@@ -346,25 +338,23 @@ fn discover_codex(directory: &Path, runtime: &mut DiscoveredRuntime) {
         }
         for (name, profile) in config.profiles.iter().take(MAX_PROFILES) {
             if let Some(model) = &profile.model {
-                let label = safe_id(name).unwrap_or("已配置 profile");
+                let label = safe_id(name)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| diagnostic("configured_profile"));
                 add_model(
                     runtime,
                     model,
                     None,
-                    &format!("config.toml / profiles.{label}.model"),
+                    &diagnostic_with("codex_profile_model", label),
                     config.profile.as_ref() == Some(name) && selected == Some(model.as_str()),
                 );
             }
         }
         if config.profiles.len() > MAX_PROFILES {
-            runtime
-                .warnings
-                .push("Profile 过多，仅检查前 128 个及当前选中项".into());
+            runtime.warnings.push(diagnostic("too_many_profiles"));
         }
         if config.profile.is_some() && active.is_none() {
-            runtime
-                .warnings
-                .push("config.toml 指定的 profile 不存在，默认模型需确认".into());
+            runtime.warnings.push(diagnostic("codex_profile_missing"));
             for model in &mut runtime.models {
                 model.selected = false;
             }
@@ -379,17 +369,15 @@ fn discover_codex(directory: &Path, runtime: &mut DiscoveredRuntime) {
             } else {
                 directory.join(catalog)
             };
-            read_codex_catalog(&path, "本机模型目录", runtime);
+            read_codex_catalog(&path, &diagnostic("local_model_catalog"), runtime);
         }
     }
     read_codex_catalog(
         &directory.join("models_cache.json"),
-        "models_cache.json / 缓存",
+        &diagnostic("codex_model_cache"),
         runtime,
     );
-    runtime
-        .warnings
-        .push("仅检查用户级配置；项目配置、托管策略和启动参数可能覆盖默认模型".into());
+    runtime.warnings.push(diagnostic("codex_user_config_only"));
 }
 
 fn read_codex_catalog(path: &Path, source: &str, runtime: &mut DiscoveredRuntime) {
@@ -480,7 +468,13 @@ fn discover_claude(
             .or(settings.model.as_ref())
     };
     if let Some(model) = selected {
-        add_model(runtime, model, None, "Claude Code / 当前模型配置", true);
+        add_model(
+            runtime,
+            model,
+            None,
+            &diagnostic("claude_current_model"),
+            true,
+        );
     }
     if let Some(model) = &settings.model {
         add_model(
@@ -506,20 +500,15 @@ fn discover_claude(
                 runtime,
                 model,
                 None,
-                &format!("进程环境 / {key}"),
+                &diagnostic_with("process_env", key),
                 *key == "ANTHROPIC_MODEL" && selected == Some(model),
             );
         }
     }
     if conflict {
-        runtime
-            .warnings
-            .push("进程环境和 settings.json 指定了不同默认模型，保留 Runtime 自身选择".into());
+        runtime.warnings.push(diagnostic("claude_model_conflict"));
     }
-    runtime.warnings.push(
-        "仅检查用户级配置和已继承的模型环境变量；项目或托管配置可能覆盖，未读取 shell 启动文件"
-            .into(),
-    );
+    runtime.warnings.push(diagnostic("claude_user_config_only"));
 }
 
 // Only model aliases, display names and supported effort IDs are deserialized; provider credentials,
@@ -586,18 +575,16 @@ fn discover_kimi(directory: &Path, runtime: &mut DiscoveredRuntime) {
                 }
                 if let Some(model) = &config.default_model {
                     if !config.models.contains_key(model) {
-                        runtime.warnings.push(
-                            "Kimi 默认模型别名不在 models 中，请在 Kimi CLI 中修复配置".into(),
-                        );
+                        runtime
+                            .warnings
+                            .push(diagnostic("kimi_default_alias_missing"));
                     }
                 }
             }
-            Err(_) => runtime
-                .warnings
-                .push("Kimi Code config.toml 模型配置无法解析".into()),
+            Err(_) => runtime.warnings.push(diagnostic("kimi_config_invalid")),
         }
     }
-    runtime.warnings.push("使用 Kimi Code CLI 的 ACP 协议；执行前确认手动审批模式。模型与思考设置默认继承 Runtime，旧 Python kimi-cli 不兼容".into());
+    runtime.warnings.push(diagnostic("kimi_acp_note"));
 }
 
 #[derive(Default, Deserialize)]
@@ -635,9 +622,7 @@ fn discover_dsh(directory: &Path, runtime: &mut DiscoveredRuntime) {
     // Discovery intentionally excludes advanced YAML aliases and custom tags. It must
     // never evaluate DSH's executable !!js configuration or expand alias bombs.
     if has_advanced_yaml(&text) {
-        runtime
-            .warnings
-            .push("DSH 配置包含标签或引用语法，已跳过自动解析；请手动添加模型".into());
+        runtime.warnings.push(diagnostic("dsh_advanced_yaml"));
         return;
     }
     let settings = match serde_yaml::from_str::<DshSettings>(&text) {
@@ -645,7 +630,7 @@ fn discover_dsh(directory: &Path, runtime: &mut DiscoveredRuntime) {
         Err(_) => {
             runtime
                 .warnings
-                .push(format!("YAML 模型配置无法解析：{}", path.display()));
+                .push(diagnostic_with("yaml_model_config_invalid", path.display()));
             return;
         }
     };
@@ -659,21 +644,22 @@ fn discover_dsh(directory: &Path, runtime: &mut DiscoveredRuntime) {
         );
     }
     for (provider, settings) in settings.pi_ai.providers.iter().take(MAX_PROFILES) {
-        let provider = safe_id(provider).unwrap_or("已配置 provider");
+        let provider = safe_id(provider)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| diagnostic("configured_provider"));
         for model in settings.models.iter().take(MAX_MODELS + 1) {
             add_model(
                 runtime,
                 &model.id,
                 model.name.as_deref(),
-                &format!("settings.yaml / llm-pi-ai.providers.{provider}"),
+                &diagnostic_with("dsh_provider", &provider),
                 false,
             );
         }
     }
-    runtime.warnings.push(
-        "仅发现 settings.yaml 显式模型；Profile / 插件目录及 Provider 路由需在启动参数中配置"
-            .into(),
-    );
+    runtime
+        .warnings
+        .push(diagnostic("dsh_explicit_models_only"));
 }
 
 // A small lexical guard, not a YAML parser. Only tokens starting YAML tags,
@@ -934,7 +920,7 @@ mod tests {
             .find(|model| model.model_id == "selected")
             .unwrap()
             .source
-            .contains("缓存"));
+            .contains("codex_model_cache"));
     }
 
     #[test]
@@ -1020,7 +1006,7 @@ mod tests {
         assert!(report.runtimes[0]
             .warnings
             .iter()
-            .any(|warning| warning.contains("无法解析")));
+            .any(|warning| warning.contains("toml_model_config_invalid")));
         assert_eq!(report.runtimes[1].models[0].model_id, "sonnet");
         assert!(!serde_json::to_string(&report).unwrap().contains("SECRET"));
     }
@@ -1078,11 +1064,11 @@ mod tests {
         assert!(report.runtimes[0]
             .warnings
             .iter()
-            .any(|warning| warning.contains("2 MiB")));
+            .any(|warning| warning.contains("config_skipped")));
         assert!(report.runtimes[3]
             .warnings
             .iter()
-            .any(|warning| warning.contains("标签")));
+            .any(|warning| warning.contains("dsh_advanced_yaml")));
         assert!(!serde_json::to_string(&report).unwrap().contains("SECRET"));
     }
 
@@ -1141,7 +1127,7 @@ mod tests {
         assert!(report.runtimes[0]
             .warnings
             .iter()
-            .any(|warning| warning.contains("非普通文件")));
+            .any(|warning| warning.contains("config_skipped")));
     }
 
     /// Manual read-only smoke test; only whitelisted report data is printed.
