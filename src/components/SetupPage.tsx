@@ -21,9 +21,9 @@ export interface SetupPageProps {
   settings: Settings
   mode: 'first-run' | 'rescan'
   onRescan: () => void
-  onImport: (runtimeIds: string[], defaultRuntimeId: string) => Promise<void>
+  onImport: (runtimeIds: string[], defaultRuntimeId: string) => Promise<unknown>
   onConfigure: (runtimeId?: string, category?: 'runtimes' | 'models') => void
-  onLater: () => Promise<void>
+  onLater: () => Promise<unknown>
 }
 
 const knownRuntimes = [
@@ -88,7 +88,7 @@ export default function SetupPage({ report, scanning, error, busy, settings, mod
     if (!checked && defaultId === runtime.id) setDefaultId(eligible.find(item => item.id !== runtime.id && selectedIds.includes(item.id))?.id ?? '')
     if (checked && !defaultId && canDefault(runtime)) setDefaultId(runtime.id)
   }
-  async function perform(action: () => Promise<void>, allowScanning = false) {
+  async function perform(action: () => Promise<unknown>, allowScanning = false) {
     if (actionInFlight.current || busy || acting || (!allowScanning && scanning)) return
     actionInFlight.current = true
     setActing(true)
