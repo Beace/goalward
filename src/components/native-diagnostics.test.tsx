@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/i18n'
-import { localizeNativeDiagnostic, localizeNativeModelSource } from '@/lib/native-diagnostics'
+import { readFileSync } from 'node:fs'
+import { localizeNativeDiagnostic, localizeNativeModelSource, nativeDiagnosticCodes, nativeDiagnosticDetailCodes, nativeSourceCodes, nativeSourceDetailCodes } from '@/lib/native-diagnostics'
 import type { LocalDiscoveryReport, Settings } from '@/lib/types'
 import SetupPage from './SetupPage'
 import { SettingsPage } from './SettingsPage'
@@ -60,6 +61,49 @@ describe('native diagnostic presentation', () => {
     expect(localizeNativeDiagnostic('toString', 'en')).toBe('toString')
     expect(localizeNativeDiagnostic('Runtime 检测未能完成', 'zh')).toBe('Runtime 检测未能完成')
     expect(localizeNativeModelSource('config.toml / 当前 profile · models_cache.json / 缓存', 'en')).toBe('config.toml / current profile · models_cache.json / cache')
+    expect(localizeNativeModelSource('config.toml / 当前 profile · models_cache.json / 缓存', 'zh')).toBe('config.toml / 当前 profile · models_cache.json / 缓存')
+  })
+
+  it('maps structured native codes in both languages and covers every Rust code', () => {
+    expect(localizeNativeDiagnostic('local_scan_failed', 'en')).toBe('The local scan could not complete. Please try again.')
+    expect(localizeNativeDiagnostic('local_scan_failed', 'zh')).toBe('本机检测任务未能完成，请重试')
+    expect(localizeNativeDiagnostic('Error: pi_query_timeout', 'en')).toBe('The Pi model query timed out.')
+    expect(localizeNativeDiagnostic('config_invalid_utf8\u001f/tmp/café-config.toml', 'en')).toBe('Configuration is not valid UTF-8: /tmp/café-config.toml')
+    expect(localizeNativeDiagnostic('config_invalid_utf8\u001f/tmp/café-config.toml', 'zh')).toBe('配置不是有效 UTF-8：/tmp/café-config.toml')
+    expect(localizeNativeDiagnostic('trying_local_cache\u001ftraex_query_timeout', 'en')).toBe('The TraeX model query timed out; trying the local cache.')
+    expect(localizeNativeDiagnostic('trying_local_cache\u001ftraex_query_timeout', 'zh')).toBe('TraeX 模型查询超时，尝试本机缓存')
+    expect(localizeNativeDiagnostic('traex_profile_other_provider\u001faudit', 'en')).toContain('TraeX profile audit uses another provider')
+    expect(localizeNativeDiagnostic('traex_profile_other_provider\u001faudit', 'zh')).toContain('TraeX Profile audit 使用不同 provider')
+    expect(localizeNativeDiagnostic('runtime_model_format_unsupported', 'en')).toContain('runtime’s')
+    expect(localizeNativeModelSource('codex_current_profile · codex_model_cache', 'en')).toBe('config.toml / current profile · models_cache.json / cache')
+    expect(localizeNativeModelSource('codex_current_profile · codex_model_cache', 'zh')).toBe('config.toml / 当前 profile · models_cache.json / 缓存')
+    expect(localizeNativeModelSource('codex_profile_model\u001fconfigured_profile', 'en')).toBe('config.toml / profiles.configured profile.model')
+    expect(localizeNativeModelSource('codex_profile_model\u001fconfigured_profile', 'zh')).toBe('config.toml / profiles.已配置 profile.model')
+    expect(localizeNativeModelSource('traex_model_cache\u001ftrae', 'zh')).toBe('models_cache.json / trae / 缓存')
+    expect(localizeNativeModelSource('traex_profile_candidate\u001fwork', 'en')).toBe('work.traecli.toml / candidate (--profile work)')
+    expect(localizeNativeModelSource('process_env\u001fANTHROPIC_MODEL', 'en')).toBe('Process environment / ANTHROPIC_MODEL')
+    expect(localizeNativeModelSource('dsh_provider\u001fconfigured_provider', 'en')).toBe('settings.yaml / llm-pi-ai.providers.configured provider')
+    const sources = [
+      'src-tauri/src/diagnostics.rs',
+      'src-tauri/src/lib.rs',
+      'src-tauri/src/pi_query.rs',
+      'src-tauri/src/traex_query.rs',
+      'src-tauri/src/local_discovery.rs',
+      'src-tauri/src/local_discovery/pi.rs',
+      'src-tauri/src/local_discovery/traex.rs',
+    ].map(path => readFileSync(path, 'utf8')).join('\n')
+    const found = new Set([...sources.matchAll(/diagnostic(?:_with)?\("([a-z0-9_]+)"/g)].map(match => match[1]))
+    const mapped = new Set([...nativeDiagnosticCodes, ...nativeDiagnosticDetailCodes, ...nativeSourceCodes, ...nativeSourceDetailCodes])
+    expect([...found].sort()).toEqual([...mapped].sort())
+    for (const code of nativeDiagnosticCodes) {
+      expect(localizeNativeDiagnostic(code, 'en')).not.toBe(code)
+      expect(localizeNativeDiagnostic(code, 'zh')).not.toBe(code)
+    }
+    for (const code of nativeDiagnosticDetailCodes) {
+      const encoded = `${code}\u001fexample`
+      expect(localizeNativeDiagnostic(encoded, 'en')).not.toContain(code)
+      expect(localizeNativeDiagnostic(encoded, 'zh')).not.toContain(code)
+    }
   })
 
   it('renders scan errors and warnings in English without changing the report', async () => {

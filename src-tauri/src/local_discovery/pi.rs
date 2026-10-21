@@ -1,4 +1,5 @@
 use super::{add_model, read_json, safe_id};
+use crate::diagnostics::diagnostic;
 use crate::types::DiscoveredRuntime;
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::Path};
@@ -42,7 +43,7 @@ fn add_catalog(text: &str, runtime: &mut DiscoveredRuntime) -> Result<(), String
             "provider", "model", "context", "max-out", "thinking", "images",
         ]
     {
-        return Err("Pi 模型列表格式无法识别，保留配置文件中的模型".into());
+        return Err(diagnostic("pi_model_list_unrecognized"));
     }
     for line in lines {
         let columns: Vec<_> = line.split_whitespace().collect();
@@ -97,7 +98,7 @@ pub(super) fn discover(directory: &Path, runtime: &mut DiscoveredRuntime) {
             Err(error) => runtime.warnings.push(error),
         }
     }
-    runtime.warnings.push("Pi 模型使用 provider/model 标识；思考强度继承 Pi。扫描不加载扩展，扩展注册的模型请手动添加；项目配置可能覆盖默认值".into());
+    runtime.warnings.push(diagnostic("pi_model_note"));
 }
 
 #[cfg(test)]
