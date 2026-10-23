@@ -68,7 +68,7 @@ Goalward 使用原始的 Agent 可执行文件。你自己安装和认证它们�
 Goalward 运行在 Apple Silicon 和 Intel Mac 上，需要 macOS 13.3 或更高版本。每个下载都是通用应用（arm64 + x86_64）。
 
 <!-- download-link:start -->
-**[下载 macOS 安装包 →](https://releases.goalward.dev/v0.7.2/Goalward_0.7.2_macos-universal.dmg)**
+**[下载 macOS 安装包 →](https://releases.goalward.dev/v0.8.0/Goalward_0.8.0_macos-universal.dmg)**
 
 全部版本见 [GitHub Releases](https://github.com/Beace/goalward/releases)。
 <!-- download-link:end -->
